@@ -1,14 +1,14 @@
 import Link from "next/link";
 
 const links = [
-  { href: "/", label: "Home" },
-  { href: "/crop", label: "Crop" },
-  { href: "/disease", label: "Disease" },
-  { href: "/qa", label: "Q&A" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/models", label: "Models" },
-  { href: "/about", label: "About" },
-  { href: "/contact", label: "Contact" }
+  { href: "/", label: "Início" },
+  { href: "/crop", label: "Culturas" },
+  { href: "/disease", label: "Doenças" },
+  { href: "/qa", label: "Perguntas" },
+  { href: "/dashboard", label: "Painel" },
+  { href: "/models", label: "Modelos" },
+  { href: "/about", label: "Sobre" },
+  { href: "/contact", label: "Contato" }
 ];
 
 export default function Navbar() {
@@ -17,7 +17,7 @@ export default function Navbar() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="flex items-center gap-2 font-semibold text-leaf-800">
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-leaf-100 text-leaf-700">🌾</span>
-          Smart Farming Advisor
+          Consultor Agrícola IA
         </Link>
         <nav className="hidden gap-4 text-sm font-medium text-slate-700 md:flex">
           {links.map((link) => (
@@ -30,7 +30,7 @@ export default function Navbar() {
           href="/crop"
           className="rounded-full bg-leaf-600 px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700"
         >
-          Try Now
+          Testar agora
         </Link>
       </div>
     </header>

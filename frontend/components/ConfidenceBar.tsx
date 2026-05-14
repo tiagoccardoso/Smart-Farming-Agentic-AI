@@ -7,7 +7,7 @@ export default function ConfidenceBar({ value }: Props) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
-        <span>Confidence</span>
+        <span>Confiança</span>
         <span>{percent}%</span>
       </div>
       <div className="h-3 w-full rounded-full bg-leaf-100">

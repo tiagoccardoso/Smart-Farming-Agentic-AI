@@ -1,5 +1,3 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5000";
-
 export type CropPayload = {
   N: number;
   P: number;
@@ -10,45 +8,44 @@ export type CropPayload = {
   rainfall: number;
 };
 
+async function parseResponse(response: Response) {
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || "A solicitação não pôde ser concluída.");
+  }
+
+  return payload;
+}
+
 export async function recommendCrop(payload: CropPayload) {
-  const response = await fetch(`${API_BASE}/api/crop/recommend`, {
+  const response = await fetch("/api/crop/recommend", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
 
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
+  return parseResponse(response);
 }
 
 export async function detectDisease(file: File) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE}/api/disease/predict`, {
+  const response = await fetch("/api/disease/predict", {
     method: "POST",
     body: formData
   });
 
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  return response.json();
+  return parseResponse(response);
 }
 
-export async function askQuestion(question: string, useLLM = false) {
-  const response = await fetch(`${API_BASE}/api/qa`, {
+export async function askQuestion(question: string) {
+  const response = await fetch("/api/qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, use_llm: useLLM })
+    body: JSON.stringify({ question })
   });
 
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  return response.json();
+  return parseResponse(response);
 }
