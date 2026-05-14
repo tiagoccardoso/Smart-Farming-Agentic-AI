@@ -43,7 +43,7 @@ export default function CropPage() {
       const response = await recommendCrop(payload);
       setResult(response?.data ?? response);
     } catch (err: any) {
-      setError(err?.message ?? "Failed to fetch recommendation.");
+      setError(err?.message ?? "Não foi possível gerar a recomendação.");
     } finally {
       setLoading(false);
     }
@@ -51,25 +51,25 @@ export default function CropPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14">
-      <SectionTitle title="Crop Recommendation" subtitle="Enter soil and climate values to get the best crop match." />
+      <SectionTitle title="Recomendação de culturas" subtitle="Informe dados de solo e clima para receber uma sugestão leve em Next.js." />
 
       <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
         <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
           <div className="grid gap-4 md:grid-cols-2">
-            <InputField label="Nitrogen (N)" name="N" value={form.N} onChange={(val) => handleChange("N", val)} />
-            <InputField label="Phosphorus (P)" name="P" value={form.P} onChange={(val) => handleChange("P", val)} />
-            <InputField label="Potassium (K)" name="K" value={form.K} onChange={(val) => handleChange("K", val)} />
-            <InputField label="Temperature (°C)" name="temperature" value={form.temperature} onChange={(val) => handleChange("temperature", val)} />
-            <InputField label="Humidity (%)" name="humidity" value={form.humidity} onChange={(val) => handleChange("humidity", val)} />
-            <InputField label="Soil pH" name="ph" value={form.ph} onChange={(val) => handleChange("ph", val)} />
-            <InputField label="Rainfall (mm)" name="rainfall" value={form.rainfall} onChange={(val) => handleChange("rainfall", val)} />
+            <InputField label="Nitrogênio (N)" name="N" value={form.N} onChange={(val) => handleChange("N", val)} />
+            <InputField label="Fósforo (P)" name="P" value={form.P} onChange={(val) => handleChange("P", val)} />
+            <InputField label="Potássio (K)" name="K" value={form.K} onChange={(val) => handleChange("K", val)} />
+            <InputField label="Temperatura (°C)" name="temperature" value={form.temperature} onChange={(val) => handleChange("temperature", val)} />
+            <InputField label="Umidade (%)" name="humidity" value={form.humidity} onChange={(val) => handleChange("humidity", val)} />
+            <InputField label="pH do solo" name="ph" value={form.ph} onChange={(val) => handleChange("ph", val)} />
+            <InputField label="Chuva (mm)" name="rainfall" value={form.rainfall} onChange={(val) => handleChange("rainfall", val)} />
           </div>
           <button
             onClick={handleSubmit}
             className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700"
             disabled={loading}
           >
-            {loading ? "Running..." : "Get Recommendation"}
+            {loading ? "Calculando..." : "Gerar recomendação"}
           </button>
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         </div>
@@ -78,12 +78,12 @@ export default function CropPage() {
           {result ? (
             <div className="space-y-5">
               <div>
-                <p className="text-sm text-slate-500">Recommended crop</p>
-                <h3 className="text-2xl font-semibold text-leaf-700">{result?.recommended_crop ?? "Unknown"}</h3>
+                <p className="text-sm text-slate-500">Cultura recomendada</p>
+                <h3 className="text-2xl font-semibold text-leaf-700">{result?.recommended_crop ?? "Não identificada"}</h3>
               </div>
               <ConfidenceBar value={result?.confidence ?? 0} />
               <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">Top alternatives</p>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Melhores alternativas</p>
                 <TopKList
                   items={(result?.top_3_recommendations ?? []).map((item: any) => ({
                     label: item.crop,
@@ -91,13 +91,18 @@ export default function CropPage() {
                   }))}
                 />
               </div>
-              <div className="rounded-2xl bg-leaf-50 p-4 text-xs text-slate-700">
-                Tip: Improve confidence by using accurate soil test values and recent climate data.
+              {result?.explanation && (
+                <div className="rounded-2xl bg-leaf-50 p-4 text-xs text-slate-700">
+                  {result.explanation}
+                </div>
+              )}
+              <div className="rounded-2xl bg-sun-50 p-4 text-xs text-slate-700">
+                Dica: use análise de solo recente e dados climáticos locais para melhorar a qualidade da recomendação.
               </div>
             </div>
           ) : (
             <div className="text-sm text-slate-500">
-              Results will appear here after you submit the form.
+              Os resultados aparecerão aqui após o envio do formulário.
             </div>
           )}
         </div>

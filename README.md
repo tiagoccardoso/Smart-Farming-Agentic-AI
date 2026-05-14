@@ -1,293 +1,148 @@
-# 🌾 Smart Farming Advisor (Full‑Stack) — Agentic AI for Precision Agriculture
+# 🌾 Consultor Agrícola IA — versão leve 100% Next.js
 
-An end‑to‑end, agentic AI system that combines **crop recommendation**, **plant disease detection**, and **farming Q&A** — now with a modern **Next.js + Tailwind** frontend and a **Flask** API backend.
-<div align="center">
+Aplicação web em **português do Brasil** para apoiar decisões agrícolas com uma arquitetura leve e pronta para deploy na Vercel. O projeto foi convertido para usar o **Next.js App Router** como frontend e backend, substituindo o fluxo Flask/Python por **Route Handlers internos**.
 
-![Status](https://img.shields.io/badge/Status-Ready%20to%20Run-success)
-![Backend](https://img.shields.io/badge/Backend-Flask-blue)
-![Frontend](https://img.shields.io/badge/Frontend-Next.js%2014-black)
-![AI](https://img.shields.io/badge/AI-ML%20%7C%20DL%20%7C%20RAG-orange)
-
-**🚀 Double-click `START.bat` to launch the application!**
-
-[View Demo](#demo)
-
-</div>
-
-
-## ✨ Highlights
-
-- 🌾 **Crop Recommendation**: Soil + climate‑aware crop prediction
-- 🍃 **Disease Detection**: Image‑based plant disease classification
-- ❓ **Farming Q&A**: RAG pipeline with semantic search + optional LLM
-- 🧠 **Agentic Routing**: Smart intent routing between tools
-- ⚡ **Full‑Stack UI**: Next.js 14 frontend with clean UX
+> Observação: o backend Python original continua no repositório como legado/referência, mas não é necessário para rodar a versão principal em Next.js.
 
 ---
 
-## 📊 Performance Snapshot
+## ✨ O que a aplicação faz
 
-| Component | Model/Method | Score | Status |
-|---|---|---:|---|
-| Crop Recommendation | Random Forest + Feature Engineering | **99.39%** | ✅ Excellent |
-| Disease Detection | ResNet50 (Transfer Learning) | **98.97%** | ✅ Research‑grade |
-| RAG Q&A | FAISS + Sentence Transformers | **Hit Rate: 100%**, **MRR: 1.0** | ✅ Production‑ready |
-| Agent Routing | Intent Classification | **100%** | ✅ Perfect |
+- 🌱 **Recomendação de culturas**: sugere culturas com base em NPK, temperatura, umidade, pH e chuva.
+- 🍃 **Triagem de folhas/doenças**: recebe imagem da folha e retorna uma orientação inicial leve, sem modelo pesado local.
+- ❓ **Perguntas agrícolas**: responde dúvidas comuns usando uma base local em TypeScript.
+- 🚀 **Deploy simplificado**: roda apenas com Next.js, sem Flask, PyTorch, TensorFlow, FAISS ou arquivos grandes de modelo.
+- 🇧🇷 **Interface traduzida**: telas, menus e mensagens em português BR.
 
 ---
 
+## 🧭 Arquitetura atual
 
-## 📊 System Architecture
-
-```
-┌─────────────┐
-│   Browser   │  ← User Interface
-└──────┬──────┘
-       │ HTTP
-       ▼
-┌──────────────────┐
-│  Next.js (3000)  │  ← Frontend
-│  - Pages         │
-│  - Components    │
-│  - API Client    │
-└──────┬───────────┘
-       │ REST API
-       ▼
-┌──────────────────┐
-│  Flask (5000)    │  ← Backend
-│  - Agent Router  │
-│  - API Endpoints │
-└──────┬───────────┘
-       │
-       ├──────────┬─────────────┬──────────┐
-       ▼          ▼             ▼          │
-  ┌────────┐ ┌─────────┐  ┌─────────┐    │
-  │  Crop  │ │ Disease │  │   RAG   │    │
-  │  Tool  │ │  Tool   │  │   Tool  │    │
-  └────┬───┘ └────┬────┘  └────┬────┘    │
-       │          │             │         │
-       ▼          ▼             ▼         ▼
-  ┌────────────────────────────────────────┐
-  │          Trained ML Models             │
-  │  - crop_model.pkl                      │
-  │  - disease_model_resnet50.pth          │
-  │  - faq_vector_store.index              │
-  └────────────────────────────────────────┘
+```text
+Usuário no navegador
+        ↓
+Next.js App Router
+        ↓
+Route Handlers internos
+        ↓
+TypeScript leve:
+  - regras de recomendação de culturas
+  - triagem orientativa de folhas
+  - base local de conhecimento agrícola
+        ↓
+Resposta em português
 ```
 
+Rotas internas principais:
+
+- `POST /api/crop/recommend`
+- `POST /api/crop/validate`
+- `POST /api/disease/predict`
+- `POST /api/qa`
 
 ---
 
-## 🧰 Tech Stack
+## 🧰 Stack principal
 
-**Frontend**
-- Next.js 14 + TypeScript
+- Next.js 14
+- React 18
+- TypeScript
 - Tailwind CSS
-- Axios / Fetch
-
-**Backend**
-- Python 3.8+
-- Flask + Flask‑CORS
-- PyTorch, Scikit‑learn
-- FAISS + Sentence Transformers
+- Route Handlers do Next.js
 
 ---
 
+## 🚀 Como rodar localmente
 
-## 🚀 Quick Start
-
-### Option 1: One-Click Start (Recommended)
 ```bash
-Double-click: START.bat
-```
-This opens two terminals and starts both servers automatically!
-
-### Option 2: Manual Start
-
-**Terminal 1 - Backend:**
-```bash
-cd "c:\Users\LAPTOP CLINIC\Documents\Projects\smart-farming-advisor"
-python app.py
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd "c:\Users\LAPTOP CLINIC\Documents\Projects\smart-farming-advisor\frontend"
-npm install  # First time only
+cd frontend
+npm install
 npm run dev
 ```
 
-**Access:** http://localhost:3000
+Acesse:
+
+```text
+http://localhost:3000
+```
 
 ---
 
-## 🔗 API Endpoints
+## ✅ Como fazer build
 
-- `GET /health` - Health check
-- `POST /api/crop/recommend` - Get crop recommendations
-- `POST /api/disease/predict` - Detect plant disease (multipart form‑data with `file`)
-- `POST /api/qa` - Ask farming questions
-- `GET /api/system/info` - Get system and model information
-
----
-
-## ⚙️ Environment Variables
-
-**Backend** (optional):
 ```bash
-GOOGLE_API_KEY=your_gemini_api_key  # For Gemini LLM (optional)
-```
-
-**Frontend**:
-```bash
-NEXT_PUBLIC_API_BASE=http://localhost:5000
+cd frontend
+npm run build
 ```
 
 ---
 
-## 📁 Project Structure
+## ☁️ Deploy na Vercel
 
-```
-smart-farming-advisor/
-├── app.py                       # Flask API
-├── config.py                    # Configuration
-├── requirements.txt             # Python dependencies
-├── frontend/                    # Next.js app
-│   ├── app/                     # Pages (home, crop, disease, qa, etc.)
-│   ├── components/              # Reusable UI components
-│   ├── lib/                     # API client & utilities
-│   └── package.json             # Node dependencies
-├── src/
-│   ├── agent/                   # Agent router
-│   ├── tools/                   # Crop / Disease / RAG tools
-│   ├── models/                  # Training scripts
-│   ├── preprocessing/           # Data preprocessing
-│   └── evaluation/              # Evaluation scripts
-├── models/                      # Trained models (large files ignored)
-├── data/                        # Datasets (ignored)
-├── outputs/                     # Results, plots (ignored)
-└── notebooks/                   # Jupyter notebooks
+1. Suba o repositório para GitHub, GitLab ou Bitbucket.
+2. Crie um novo projeto na Vercel.
+3. Configure o **Root Directory** como:
+
+```text
+frontend
 ```
 
----
+4. Use as configurações padrão de Next.js:
 
-## 🧪 Testing & Evaluation
-
-**Test the backend:**
-```bash
-# Test agent
-python src/agent/farming_agent.py
-
-# Test individual tools
-python src/tools/crop_predictor_tool.py
-python src/tools/disease_detector_tool.py
-python src/tools/rag_qa_tool.py
-
-# Evaluate RAG system
-python src/evaluation/rag_evaluation.py
+```text
+Install Command: npm install
+Build Command: npm run build
+Output: gerenciado pelo Next.js
 ```
 
-Results are saved under `outputs/`.
+5. Faça o deploy.
+
+Não é necessário configurar `NEXT_PUBLIC_API_BASE`, porque o frontend agora chama rotas relativas internas, como `/api/crop/recommend`.
 
 ---
 
-## 🧠 Model Details
+## 📁 Estrutura relevante
 
-### 1) Crop Recommendation
-- **Algorithm**: Random Forest Classifier
-- **Features**: N, P, K, Temperature, Humidity, pH, Rainfall + engineered features
-- **Test Accuracy**: **99.39%**
-- **Training Time**: ~2 seconds
-
-### 2) Disease Detection
-- **Architecture**: ResNet50 (Transfer Learning)
-- **Pretrained on**: ImageNet
-- **Input**: 224×224 RGB
-- **Test Accuracy**: **98.97%**
-- **Training Time**: ~33 minutes (GPU)
-
-### 3) RAG Q&A
-- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2`
-- **Vector Store**: FAISS
-- **Optional LLM**: Google Gemini 2.0 Flash
-- **Performance**: 100% hit rate, MRR 1.0
-
----
-
-## 📚 Datasets
-
-| Dataset | Source | Purpose |
-|---|---|---|
-| Crop Recommendation | Kaggle | Soil‑based crop prediction (2,200 samples, 22 crops) |
-| Plant Disease (PlantVillage) | Public | Disease classification (20,639 images, 15 diseases) |
-| FAQ Knowledge Base | Custom | Farming Q&A (10 documents) |
-
-Large datasets and model binaries are **excluded from GitHub**. See `.gitignore`.
+```text
+frontend/
+├── app/
+│   ├── api/
+│   │   ├── crop/recommend/route.ts
+│   │   ├── crop/validate/route.ts
+│   │   ├── disease/predict/route.ts
+│   │   └── qa/route.ts
+│   ├── crop/page.tsx
+│   ├── disease/page.tsx
+│   ├── qa/page.tsx
+│   └── page.tsx
+├── components/
+├── data/
+│   └── knowledge-base.ts
+└── lib/
+    ├── api.ts
+    ├── crop/recommend.ts
+    ├── disease/analyze.ts
+    └── qa/search.ts
+```
 
 ---
 
-## 🛡️ GitHub & Large Files
+## ⚠️ Limitações da versão leve
 
-This repo intentionally ignores:
-- `data/raw/` and `data/processed/` - Raw and processed datasets
-- Large model weights (`*.pth`, `*.pt`, `*.onnx`) - Trained model files
-- FAISS index (`*.index`) - Vector store index
-- Frontend build artifacts (`frontend/.next`, `frontend/node_modules`)
-- Outputs and uploads (`outputs/`, `uploads/`)
+Esta versão prioriza simplicidade, rapidez e deploy fácil na Vercel. Por isso:
 
-**For large model files**, use Git LFS or provide download links in the repository.
+- A recomendação de culturas usa regras leves em TypeScript, não o Random Forest Python original.
+- A triagem de doenças é orientativa e não executa o antigo modelo ResNet50.
+- O Q&A usa uma base local simples em vez de FAISS/Sentence Transformers.
 
----
-
-## 🎯 Key Features
-
-✅ **Multi-modal AI System** - Text, images, and structured data  
-✅ **Agentic Routing** - Intelligent query classification  
-✅ **Transfer Learning** - ResNet50 pretrained on ImageNet  
-✅ **RAG Implementation** - Semantic search with FAISS  
-✅ **Production-Ready** - 98-99% accuracy across all models  
-✅ **Modular Architecture** - Easy to extend and maintain  
-✅ **Full-Stack** - Modern frontend with Next.js + Tailwind  
-✅ **Comprehensive Testing** - All components tested  
+Para uso real em produção agrícola, valide recomendações com análise de solo, dados locais e acompanhamento de um profissional de agronomia.
 
 ---
 
-## 🤝 Contributing
+## 🔮 Próximos passos possíveis
 
-Pull requests are welcome! Please open an issue for major changes.
-
----
-
-## 📄 License
-
-MIT License
-
----
-
-## 🙌 Acknowledgments
-
-- **Datasets:**
-  - [Crop Recommendation Dataset](https://www.kaggle.com/datasets/atharvaingle/crop-recommendation-dataset) (Kaggle)
-  - [PlantVillage Disease Dataset](https://www.kaggle.com/datasets/emmarex/plantdisease)
-  - Farmer Support FAQ Dataset
-  
-- **Pretrained Models:**
-  - ResNet50 (ImageNet, PyTorch)
-  - sentence-transformers/all-MiniLM-L6-v2 (HuggingFace)
-  
-- **Tools:**
-  - Google Colab (GPU training)
-  - FAISS (Facebook AI Similarity Search)
-  - Google Gemini API (LLM)
-
----
-
-## 📬 Contact
-
-**Author:** juni2003  
-**Email:** juni.xatti@gmail.com  
-**GitHub:** [@juni2003](https://github.com/juni2003)
-
----
-
-⭐ **If you find this project helpful, please consider giving it a star!**
+- Integrar API externa de visão para diagnóstico de doenças.
+- Adicionar banco de dados para histórico de consultas.
+- Usar LLM ou embeddings externos para melhorar o Q&A.
+- Exportar relatórios por propriedade/talhão.
+- Adicionar autenticação de usuários.

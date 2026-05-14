@@ -3,40 +3,40 @@ import SectionTitle from "../../components/SectionTitle";
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-14">
-      <SectionTitle title="About Smart Farming Advisor" subtitle="An agentic AI system for precision agriculture." />
+      <SectionTitle title="Sobre o Consultor Agrícola IA" subtitle="Uma versão leve, em português, feita para rodar 100% em Next.js." />
 
       <div className="space-y-6 text-slate-700">
         <p>
-          Smart Farming Advisor combines machine learning, computer vision, and retrieval-augmented generation to help farmers make
-          better decisions. The system is composed of three specialized tools that are orchestrated by an intelligent routing agent.
+          O Consultor Agrícola IA foi simplificado para funcionar sem backend Flask, sem PyTorch local e sem arquivos grandes de
+          modelo. Agora, as rotas internas do Next.js cuidam da recomendação de culturas, da triagem visual e das perguntas agrícolas.
         </p>
         <div className="grid gap-6 md:grid-cols-3">
           <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-            <h3 className="text-base font-semibold text-slate-900">Crop Recommendation</h3>
-            <p className="mt-2 text-sm">Predicts the best crop using NPK, climate, and engineered soil metrics.</p>
+            <h3 className="text-base font-semibold text-slate-900">Recomendação de culturas</h3>
+            <p className="mt-2 text-sm">Usa regras leves com NPK, clima, pH, chuva e indicadores derivados.</p>
           </div>
           <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-            <h3 className="text-base font-semibold text-slate-900">Disease Detection</h3>
-            <p className="mt-2 text-sm">Uses a ResNet50 model to classify plant leaf diseases with high accuracy.</p>
+            <h3 className="text-base font-semibold text-slate-900">Triagem de doenças</h3>
+            <p className="mt-2 text-sm">Orienta uma avaliação inicial da folha sem executar o antigo modelo pesado em Python.</p>
           </div>
           <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-            <h3 className="text-base font-semibold text-slate-900">Farming Q&A</h3>
-            <p className="mt-2 text-sm">Retrieves answers from a curated knowledge base with optional LLM generation.</p>
+            <h3 className="text-base font-semibold text-slate-900">Perguntas agrícolas</h3>
+            <p className="mt-2 text-sm">Busca respostas em uma base local de conhecimento em TypeScript.</p>
           </div>
         </div>
 
         <div className="rounded-2xl bg-slate-900 p-6 text-white">
-          <h4 className="text-lg font-semibold">System Architecture</h4>
+          <h4 className="text-lg font-semibold">Arquitetura simplificada</h4>
           <p className="mt-2 text-sm text-slate-200">
-            User query → Intent routing → Crop tool / Disease tool / RAG tool → Response + confidence and evidence.
+            Usuário → Next.js App Router → Route Handlers internos → regras leves / base local → resposta em português.
           </p>
         </div>
 
         <div className="rounded-2xl border border-sun-200 bg-sun-50 p-6">
-          <h4 className="text-lg font-semibold text-slate-900">Limitations</h4>
+          <h4 className="text-lg font-semibold text-slate-900">Limitações</h4>
           <p className="mt-2 text-sm">
-            Predictions depend on data quality and image clarity. Always validate recommendations with local agronomy knowledge before
-            large-scale decisions.
+            Esta versão prioriza leveza e facilidade de deploy. As recomendações são orientativas e devem ser validadas com análise de
+            solo, dados locais e apoio de um profissional de agronomia antes de decisões de grande escala.
           </p>
         </div>
       </div>

@@ -13,7 +13,7 @@ export default function FileUploader({ file, onChange }: Props) {
       />
       {file && (
         <div className="rounded-xl bg-leaf-50 p-3 text-slate-700">
-          Selected: {file.name}
+          Selecionado: {file.name}
         </div>
       )}
     </div>

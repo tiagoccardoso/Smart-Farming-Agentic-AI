@@ -15,7 +15,7 @@ export default function DiseasePage() {
 
   const handleSubmit = async () => {
     if (!file) {
-      setError("Please upload a leaf image.");
+      setError("Envie uma imagem de folha.");
       return;
     }
 
@@ -26,7 +26,7 @@ export default function DiseasePage() {
       const response = await detectDisease(file);
       setResult(response?.data ?? response);
     } catch (err: any) {
-      setError(err?.message ?? "Failed to detect disease.");
+      setError(err?.message ?? "Não foi possível analisar a imagem.");
     } finally {
       setLoading(false);
     }
@@ -34,7 +34,12 @@ export default function DiseasePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14">
-      <SectionTitle title="Disease Detection" subtitle="Upload a leaf image to identify plant diseases." />
+      <SectionTitle title="Triagem de doenças" subtitle="Envie uma foto da folha para receber uma orientação inicial leve." />
+
+      <div className="mb-8 rounded-2xl border border-sun-200 bg-sun-50 p-4 text-sm text-slate-700">
+        Esta versão 100% Next.js substitui o antigo modelo pesado ResNet50 por uma triagem orientativa. Para diagnóstico final,
+        valide com assistência técnica ou laboratório fitossanitário.
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
         <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
@@ -44,7 +49,7 @@ export default function DiseasePage() {
             className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700"
             disabled={loading}
           >
-            {loading ? "Analyzing..." : "Detect Disease"}
+            {loading ? "Analisando..." : "Fazer triagem"}
           </button>
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         </div>
@@ -53,12 +58,12 @@ export default function DiseasePage() {
           {result ? (
             <div className="space-y-5">
               <div>
-                <p className="text-sm text-slate-500">Predicted disease</p>
-                <h3 className="text-2xl font-semibold text-leaf-700">{result?.predicted_disease ?? "Unknown"}</h3>
+                <p className="text-sm text-slate-500">Resultado da triagem</p>
+                <h3 className="text-2xl font-semibold text-leaf-700">{result?.predicted_disease ?? "Não identificado"}</h3>
               </div>
               <ConfidenceBar value={result?.confidence ?? 0} />
               <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">Top predictions</p>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Hipóteses iniciais</p>
                 <TopKList
                   items={(result?.top_predictions ?? []).map((item: any) => ({
                     label: item.disease,
@@ -66,12 +71,24 @@ export default function DiseasePage() {
                   }))}
                 />
               </div>
-              <div className="rounded-2xl bg-sun-50 p-4 text-xs text-slate-700">
-                Tip: Use a well-lit, close-up leaf photo without blur for best results.
-              </div>
+              {result?.message && (
+                <div className="rounded-2xl bg-sun-50 p-4 text-xs text-slate-700">
+                  {result.message}
+                </div>
+              )}
+              {result?.recommendations && (
+                <div className="rounded-2xl bg-leaf-50 p-4 text-xs text-slate-700">
+                  <p className="mb-2 font-semibold">Próximos passos</p>
+                  <ul className="list-disc space-y-1 pl-4">
+                    {result.recommendations.map((item: string) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="text-sm text-slate-500">Results will appear here after upload.</div>
+            <div className="text-sm text-slate-500">Os resultados aparecerão aqui após o envio da imagem.</div>
           )}
         </div>
       </div>
