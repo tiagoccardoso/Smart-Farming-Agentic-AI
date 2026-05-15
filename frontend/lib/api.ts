@@ -61,6 +61,15 @@ export async function submitAgronomicCase(formData: FormData, accessToken: strin
   return parseResponse(response);
 }
 
+export async function getAgronomicCases(accessToken: string) {
+  const response = await fetch("/api/agronomic-cases", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  return parseResponse(response);
+}
+
 export async function getAgronomicCase(caseId: string, accessToken: string) {
   const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
     method: "GET",
