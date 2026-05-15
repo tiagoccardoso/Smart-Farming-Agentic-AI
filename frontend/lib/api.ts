@@ -60,3 +60,22 @@ export async function submitAgronomicCase(formData: FormData, accessToken: strin
 
   return parseResponse(response);
 }
+
+export async function getAgronomicCase(caseId: string, accessToken: string) {
+  const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  return parseResponse(response);
+}
+
+export async function analyzeAgronomicCase(caseId: string, accessToken: string, question?: string) {
+  const response = await fetch("/api/agronomic-ai/analyze-case", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ caseId, question })
+  });
+
+  return parseResponse(response);
+}
