@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
@@ -8,6 +9,15 @@ import { submitAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
 const STORAGE_BUCKET = "agronomic-cases";
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_SIZE_LABEL = "10MB";
+const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_SOIL_ANALYSIS_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+
+type PhotoPreview = {
+  name: string;
+  url: string;
+};
 
 const initialForm = {
   crop: "",
@@ -25,6 +35,10 @@ type FormState = typeof initialForm;
 type RequiredField = "crop" | "state" | "symptoms";
 
 type FormErrors = Partial<Record<RequiredField, string>>;
+type AttachmentError = {
+  photos?: string;
+  soilAnalysis?: string;
+};
 
 const requiredLabels: Record<RequiredField, string> = {
   crop: "Informe a cultura.",
@@ -38,10 +52,20 @@ export default function EnviarCasoPage() {
   const [photos, setPhotos] = useState<File[]>([]);
   const [soilAnalysis, setSoilAnalysis] = useState<File | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [attachmentErrors, setAttachmentErrors] = useState<AttachmentError>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const selectedPhotoNames = useMemo(() => photos.map((file) => file.name).join(", "), [photos]);
+  const photoPreviews = useMemo<PhotoPreview[]>(
+    () => photos.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
+    [photos]
+  );
+
+  useEffect(() => {
+    return () => {
+      photoPreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    };
+  }, [photoPreviews]);
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -49,6 +73,58 @@ export default function EnviarCasoPage() {
     if (key in requiredLabels && value.trim()) {
       setErrors((prev) => ({ ...prev, [key]: undefined }));
     }
+  };
+
+
+  const validateFile = (file: File, allowedTypes: string[], label: string) => {
+    if (!allowedTypes.includes(file.type)) {
+      return `${label} "${file.name}" não está em um formato aceito.`;
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return `${label} "${file.name}" excede o limite de ${MAX_FILE_SIZE_LABEL}.`;
+    }
+
+    return null;
+  };
+
+  const handlePhotosChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    const invalidFileMessage = selectedFiles
+      .map((file) => validateFile(file, ACCEPTED_PHOTO_TYPES, "A imagem"))
+      .find(Boolean);
+
+    if (invalidFileMessage) {
+      setPhotos([]);
+      setAttachmentErrors((prev) => ({ ...prev, photos: invalidFileMessage }));
+      event.target.value = "";
+      return;
+    }
+
+    setPhotos(selectedFiles);
+    setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
+  };
+
+  const handleSoilAnalysisChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0] ?? null;
+
+    if (!selectedFile) {
+      setSoilAnalysis(null);
+      setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
+      return;
+    }
+
+    const invalidFileMessage = validateFile(selectedFile, ACCEPTED_SOIL_ANALYSIS_TYPES, "A análise de solo");
+
+    if (invalidFileMessage) {
+      setSoilAnalysis(null);
+      setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: invalidFileMessage }));
+      event.target.value = "";
+      return;
+    }
+
+    setSoilAnalysis(selectedFile);
+    setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
   };
 
   const validate = () => {
@@ -69,6 +145,11 @@ export default function EnviarCasoPage() {
     setSubmitError(null);
 
     if (!validate()) {
+      return;
+    }
+
+    if (attachmentErrors.photos || attachmentErrors.soilAnalysis) {
+      setSubmitError("Revise os arquivos selecionados antes de enviar.");
       return;
     }
 
@@ -185,21 +266,34 @@ export default function EnviarCasoPage() {
                 Upload de fotos
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                   multiple
-                  onChange={(event) => setPhotos(Array.from(event.target.files ?? []))}
+                  onChange={handlePhotosChange}
                 />
-                {selectedPhotoNames && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Selecionado: {selectedPhotoNames}</span>}
+                <span className="text-xs text-slate-500">Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de {MAX_FILE_SIZE_LABEL} por arquivo.</span>
+                {attachmentErrors.photos && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.photos}</span>}
+                {photoPreviews.length > 0 && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {photoPreviews.map((preview) => (
+                      <figure key={`${preview.name}-${preview.url}`} className="overflow-hidden rounded-xl border border-leaf-100 bg-leaf-50">
+                        <Image src={preview.url} alt={`Prévia de ${preview.name}`} width={240} height={112} unoptimized className="h-28 w-full object-cover" />
+                        <figcaption className="truncate px-3 py-2 text-xs text-slate-700">{preview.name}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
               </label>
 
               <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
                 Upload de análise de solo em PDF ou imagem
                 <input
                   type="file"
-                  accept="application/pdf,image/*"
-                  onChange={(event) => setSoilAnalysis(event.target.files?.[0] ?? null)}
+                  accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                  onChange={handleSoilAnalysisChange}
                 />
-                {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Selecionado: {soilAnalysis.name}</span>}
+                <span className="text-xs text-slate-500">Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de {MAX_FILE_SIZE_LABEL}.</span>
+                {attachmentErrors.soilAnalysis && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.soilAnalysis}</span>}
+                {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Arquivo selecionado: {soilAnalysis.name}</span>}
               </label>
             </div>
           </div>

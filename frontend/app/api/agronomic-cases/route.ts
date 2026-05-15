@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const STORAGE_BUCKET = "agronomic-cases";
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_PHOTO_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+const ACCEPTED_SOIL_ANALYSIS_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
+
+class FriendlyRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
 
 function getSupabaseConfig() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,12 +53,31 @@ function optionalNumber(formData: FormData, key: string) {
 }
 
 function sanitizeFileName(fileName: string) {
-  return fileName
+  const sanitized = fileName
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .toLowerCase();
+
+  return sanitized || "arquivo";
+}
+
+function getFileExtension(fileName: string) {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function validateUploadFile(file: File, allowedTypes: string[], allowedExtensions: string[], label: string) {
+  const extension = getFileExtension(file.name);
+
+  if (!allowedTypes.includes(file.type) || !allowedExtensions.includes(extension)) {
+    throw new FriendlyRequestError(`${label} "${file.name}" não está em um formato aceito.`);
+  }
+
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw new FriendlyRequestError(`${label} "${file.name}" excede o limite de 10MB.`);
+  }
 }
 
 async function supabaseRequest<T>(
@@ -68,7 +101,7 @@ async function supabaseRequest<T>(
   const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase.");
+    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase. Tente novamente em instantes.");
   }
 
   return payload as T;
@@ -91,7 +124,11 @@ async function uploadToStorage(file: File, path: string, token: string, config: 
   const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error || `Não foi possível enviar o arquivo ${file.name}.`);
+    if (response.status === 409) {
+      throw new FriendlyRequestError(`Já existe um arquivo chamado ${file.name} neste caso. Renomeie o arquivo e tente novamente.`, 409);
+    }
+
+    throw new Error(payload?.message || payload?.error || `Não foi possível enviar o arquivo ${file.name}. Tente novamente.`);
   }
 
   return `${config.supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
@@ -122,6 +159,15 @@ export async function POST(request: NextRequest) {
 
     if (!crop || !state || !symptoms) {
       return NextResponse.json({ error: "Preencha cultura, estado e sintomas observados." }, { status: 400 });
+    }
+
+    const photoFiles = formData.getAll("photos").filter(isFile);
+    const soilAnalysis = formData.get("soilAnalysis");
+
+    photoFiles.forEach((photo) => validateUploadFile(photo, ACCEPTED_PHOTO_TYPES, ACCEPTED_PHOTO_EXTENSIONS, "A imagem"));
+
+    if (isFile(soilAnalysis)) {
+      validateUploadFile(soilAnalysis, ACCEPTED_SOIL_ANALYSIS_TYPES, ACCEPTED_SOIL_ANALYSIS_EXTENSIONS, "A análise de solo");
     }
 
     const user = await getAuthenticatedUser(token, config);
@@ -185,12 +231,10 @@ export async function POST(request: NextRequest) {
       )
     )[0];
 
-    const photoFiles = formData.getAll("photos").filter(isFile);
-    const soilAnalysis = formData.get("soilAnalysis");
     const uploadedImages = [];
 
-    for (const [index, photo] of photoFiles.entries()) {
-      const path = `${user.id}/${createdCase.id}/photos/${Date.now()}-${index}-${sanitizeFileName(photo.name)}`;
+    for (const photo of photoFiles) {
+      const path = `${user.id}/${createdCase.id}/${sanitizeFileName(photo.name)}`;
       const imageUrl = await uploadToStorage(photo, path, token, config);
       uploadedImages.push({ case_id: createdCase.id, user_id: user.id, image_url: imageUrl, image_type: photo.type || "image" });
     }
@@ -205,7 +249,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (isFile(soilAnalysis)) {
-      const path = `${user.id}/${createdCase.id}/soil-analysis/${Date.now()}-${sanitizeFileName(soilAnalysis.name)}`;
+      const path = `${user.id}/${createdCase.id}/${sanitizeFileName(soilAnalysis.name)}`;
       const soilAnalysisUrl = await uploadToStorage(soilAnalysis, path, token, config);
 
       await supabaseRequest(
@@ -219,6 +263,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ caseId: createdCase.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível salvar o caso agronômico.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = error instanceof FriendlyRequestError ? error.status : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
