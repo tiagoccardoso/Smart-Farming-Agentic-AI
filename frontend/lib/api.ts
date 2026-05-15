@@ -80,3 +80,13 @@ export async function analyzeAgronomicCase(caseId: string, accessToken: string, 
   const payload = await parseResponse(response);
   return payload?.analysis ? payload : { analysis: payload };
 }
+
+export async function requestHumanReviewCheckout(caseId: string, accessToken: string) {
+  const response = await fetch("/api/human-review/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ caseId })
+  });
+
+  return parseResponse(response);
+}
