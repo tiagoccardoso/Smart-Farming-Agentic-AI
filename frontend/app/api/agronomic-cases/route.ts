@@ -143,6 +143,134 @@ async function getAuthenticatedUser(token: string, config: { supabaseUrl: string
   );
 }
 
+
+type ListedCaseRow = {
+  id: string;
+  user_id: string | null;
+  crop: string;
+  growth_stage: string | null;
+  symptoms: string;
+  history: string | null;
+  soil_analysis_url: string | null;
+  status: string | null;
+  risk_level: string | null;
+  ai_summary: string | null;
+  ai_recommendation: string | null;
+  human_review_requested: boolean;
+  human_review_status: string | null;
+  created_at: string | null;
+  farm_id: string | null;
+};
+
+type ListedFarm = {
+  id: string;
+  name: string | null;
+  city: string | null;
+  state: string | null;
+  area_hectares: number | null;
+  soil_type: string | null;
+};
+
+type ListedHumanReview = {
+  id: string;
+  case_id: string;
+  status: string | null;
+  review_text: string | null;
+  technical_recommendation: string | null;
+  final_observations: string | null;
+  reviewed_at: string | null;
+  created_at: string | null;
+};
+
+type ListedReport = {
+  id: string;
+  case_id: string;
+  report_url: string | null;
+  report_type: string | null;
+  created_at: string | null;
+};
+
+function buildInFilter(values: string[]) {
+  return `in.(${values.map(encodeURIComponent).join(",")})`;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const config = getSupabaseConfig();
+    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+
+    if (!token) {
+      return NextResponse.json({ error: "Faça login para consultar seus casos agronômicos." }, { status: 401 });
+    }
+
+    const user = await getAuthenticatedUser(token, config);
+    const cases = await supabaseRequest<ListedCaseRow[]>(
+      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,farm_id&order=created_at.desc`,
+      { method: "GET" },
+      token,
+      config
+    );
+
+    if (cases.length === 0) {
+      return NextResponse.json({ cases: [] });
+    }
+
+    const farmIds = Array.from(new Set(cases.map((caseItem) => caseItem.farm_id).filter((id): id is string => Boolean(id))));
+    const caseIds = cases.map((caseItem) => caseItem.id);
+
+    const [farms, humanReviews, reports] = await Promise.all([
+      farmIds.length > 0
+        ? supabaseRequest<ListedFarm[]>(
+            `/rest/v1/farms?id=${buildInFilter(farmIds)}&select=id,name,city,state,area_hectares,soil_type`,
+            { method: "GET" },
+            token,
+            config
+          )
+        : Promise.resolve([]),
+      supabaseRequest<ListedHumanReview[]>(
+        `/rest/v1/human_reviews?case_id=${buildInFilter(caseIds)}&select=id,case_id,status,review_text,technical_recommendation,final_observations,reviewed_at,created_at&order=created_at.desc`,
+        { method: "GET" },
+        token,
+        config
+      ),
+      supabaseRequest<ListedReport[]>(
+        `/rest/v1/reports?case_id=${buildInFilter(caseIds)}&select=id,case_id,report_url,report_type,created_at&order=created_at.desc`,
+        { method: "GET" },
+        token,
+        config
+      )
+    ]);
+
+    const farmsById = new Map(farms.map((farm) => [farm.id, farm]));
+    const reviewsByCaseId = new Map<string, ListedHumanReview>();
+    const reportsByCaseId = new Map<string, ListedReport>();
+
+    humanReviews.forEach((review) => {
+      if (!reviewsByCaseId.has(review.case_id)) {
+        reviewsByCaseId.set(review.case_id, review);
+      }
+    });
+
+    reports.forEach((report) => {
+      if (!reportsByCaseId.has(report.case_id)) {
+        reportsByCaseId.set(report.case_id, report);
+      }
+    });
+
+    return NextResponse.json({
+      cases: cases.map((caseItem) => ({
+        ...caseItem,
+        farm: caseItem.farm_id ? farmsById.get(caseItem.farm_id) ?? null : null,
+        latestHumanReview: reviewsByCaseId.get(caseItem.id) ?? null,
+        latestReport: reportsByCaseId.get(caseItem.id) ?? null
+      }))
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Não foi possível carregar seus casos agronômicos.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
