@@ -5,9 +5,10 @@ type Props = {
   placeholder?: string;
   value: string | number;
   onChange: (value: string) => void;
+  required?: boolean;
 };
 
-export default function InputField({ label, name, type = "number", placeholder, value, onChange }: Props) {
+export default function InputField({ label, name, type = "number", placeholder, value, onChange, required = false }: Props) {
   return (
     <label className="flex flex-col gap-2 text-sm text-slate-700">
       {label}
@@ -16,6 +17,7 @@ export default function InputField({ label, name, type = "number", placeholder, 
         type={type}
         placeholder={placeholder}
         value={value}
+        required={required}
         onChange={(event) => onChange(event.target.value)}
         className="rounded-xl border border-leaf-100 bg-white px-4 py-2 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
       />
