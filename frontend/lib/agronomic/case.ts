@@ -22,6 +22,11 @@ export type AgronomicCase = {
   history: string | null;
   soil_analysis_url: string | null;
   status: string | null;
+  risk_level: AgronomicRiskLevel | null;
+  ai_summary: string | null;
+  ai_recommendation: string | null;
+  human_review_requested: boolean;
+  human_review_status: string | null;
   created_at: string | null;
   farm_id: string | null;
   farm: AgronomicFarm | null;
@@ -101,7 +106,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
   const config = getSupabaseConfig();
   const encodedCaseId = encodeURIComponent(caseId);
   const cases = await supabaseRequest<CaseRow[]>(
-    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,crop,growth_stage,symptoms,history,soil_analysis_url,status,created_at,farm_id&limit=1`,
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,farm_id&limit=1`,
     { method: "GET" },
     token,
     config
