@@ -14,9 +14,9 @@ type ChatMessage = {
 };
 
 const riskStyles: Record<AgronomicRiskLevel, string> = {
-  baixo: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  médio: "border-amber-200 bg-amber-50 text-amber-800",
-  alto: "border-red-200 bg-red-50 text-red-800"
+  low: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  medium: "border-amber-200 bg-amber-50 text-amber-800",
+  high: "border-red-200 bg-red-50 text-red-800"
 };
 
 function displayValue(value?: string | number | null) {
@@ -65,7 +65,7 @@ function ConsultoriaIAContent() {
   const [error, setError] = useState<string | null>(null);
 
   const reviewUrl = useMemo(() => `/revisao-humana?caseId=${encodeURIComponent(caseId)}`, [caseId]);
-  const requiresHumanReview = analysis?.riskLevel === "médio" || analysis?.riskLevel === "alto";
+  const requiresHumanReview = analysis?.riskLevel === "medium" || analysis?.riskLevel === "high";
 
   useEffect(() => {
     async function loadCase() {
@@ -281,14 +281,14 @@ function ConsultoriaIAContent() {
                 <p className="mt-2 text-sm leading-6 text-slate-700">{analysis.initialRecommendation}</p>
               </div>
               <AnalysisList title="Hipóteses prováveis" items={analysis.probableHypotheses} />
-              <AnalysisList title="Perguntas pendentes" items={analysis.pendingQuestions} />
+              <AnalysisList title="Perguntas pendentes" items={analysis.missingQuestions} />
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
                 <p className="font-semibold">Aviso de orientação não substitutiva</p>
-                <p className="mt-2">{analysis.nonSubstitutiveNotice}</p>
-                <p className="mt-2">{analysis.humanReviewSuggestion}</p>
+                <p className="mt-2">{analysis.disclaimer}</p>
+                <p className="mt-2">{analysis.whenToCallHumanSpecialist}</p>
               </div>
               {requiresHumanReview && (
                 <Link href={reviewUrl} className="inline-flex justify-center rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700">

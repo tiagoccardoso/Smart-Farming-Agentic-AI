@@ -77,5 +77,6 @@ export async function analyzeAgronomicCase(caseId: string, accessToken: string, 
     body: JSON.stringify({ caseId, question })
   });
 
-  return parseResponse(response);
+  const payload = await parseResponse(response);
+  return payload?.analysis ? payload : { analysis: payload };
 }

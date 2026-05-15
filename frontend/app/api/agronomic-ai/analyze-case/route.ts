@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchAgronomicCase, generateAgronomicPreAnalysis } from "../../../../lib/agronomic/case";
+import {
+  fetchAgronomicCase,
+  generateAgronomicPreAnalysis,
+  getAuthenticatedUser,
+  updateAgronomicCaseWithAnalysis
+} from "../../../../lib/agronomic/case";
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,6 +13,8 @@ export async function POST(request: NextRequest) {
     if (!token) {
       return NextResponse.json({ error: "Faça login para gerar a pré-análise do caso." }, { status: 401 });
     }
+
+    await getAuthenticatedUser(token);
 
     const payload = (await request.json()) as { caseId?: string; question?: string };
     const caseId = payload.caseId?.trim();
@@ -22,9 +29,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Caso não encontrado ou sem permissão de acesso." }, { status: 404 });
     }
 
-    const analysis = generateAgronomicPreAnalysis(caseData, payload.question);
+    const analysis = await generateAgronomicPreAnalysis(caseData, payload.question);
+    await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
 
-    return NextResponse.json({ analysis });
+    return NextResponse.json(analysis);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível gerar a pré-análise agronômica.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -28,16 +28,16 @@ export type AgronomicCase = {
   images: AgronomicCaseImage[];
 };
 
-export type AgronomicRiskLevel = "baixo" | "médio" | "alto";
+export type AgronomicRiskLevel = "low" | "medium" | "high";
 
 export type AgronomicPreAnalysis = {
   initialDiagnosis: string;
   probableHypotheses: string[];
-  pendingQuestions: string[];
+  missingQuestions: string[];
   riskLevel: AgronomicRiskLevel;
   initialRecommendation: string;
-  nonSubstitutiveNotice: string;
-  humanReviewSuggestion: string;
+  whenToCallHumanSpecialist: string;
+  disclaimer: string;
   conversationalAnswer?: string;
 };
 
@@ -47,6 +47,13 @@ type SupabaseConfig = {
 };
 
 type CaseRow = Omit<AgronomicCase, "farm" | "images">;
+
+type AuthenticatedUser = {
+  id: string;
+};
+
+const AGRONOMIC_AI_DISCLAIMER =
+  "Esta é uma orientação inicial gerada por IA e não substitui a avaliação de um profissional habilitado.";
 
 export function getSupabaseConfig(): SupabaseConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -79,6 +86,15 @@ export async function supabaseRequest<T>(path: string, init: RequestInit, token:
   }
 
   return payload as T;
+}
+
+export async function getAuthenticatedUser(token: string, config = getSupabaseConfig()) {
+  return supabaseRequest<AuthenticatedUser>(
+    "/auth/v1/user",
+    { method: "GET", headers: { "Content-Type": "application/json" } },
+    token,
+    config
+  );
 }
 
 export async function fetchAgronomicCase(caseId: string, token: string) {
@@ -125,12 +141,12 @@ function containsAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
 }
 
-function buildHypotheses(caseData: AgronomicCase) {
+function buildFallbackHypotheses(caseData: AgronomicCase) {
   const text = `${caseData.crop} ${caseData.symptoms} ${caseData.history ?? ""}`.toLowerCase();
   const hypotheses = new Set<string>();
 
   if (containsAny(text, ["mancha", "míldio", "ferrugem", "fung", "mofo", "lesão", "necrose"])) {
-    hypotheses.add("Doença foliar favorecida por umidade, inoculo presente ou baixa aeração do dossel.");
+    hypotheses.add("Doença foliar favorecida por umidade, inóculo presente ou baixa aeração do dossel.");
   }
 
   if (containsAny(text, ["amarel", "clorose", "defici", "nitrog", "potáss", "fosfor", "folha velha", "folha nova"])) {
@@ -157,29 +173,29 @@ function buildHypotheses(caseData: AgronomicCase) {
   return Array.from(hypotheses).slice(0, 5);
 }
 
-function inferRisk(caseData: AgronomicCase): AgronomicRiskLevel {
+function inferFallbackRisk(caseData: AgronomicCase): AgronomicRiskLevel {
   const text = `${caseData.symptoms} ${caseData.history ?? ""}`.toLowerCase();
   const highRiskTerms = ["morte", "perda", "severo", "rápido", "generalizado", "murcha", "necrose", "toda área", "alta infestação"];
   const mediumRiskTerms = ["mancha", "amarel", "praga", "lagarta", "ferrugem", "fung", "doença", "reboleira", "queda"];
 
-  if (containsAny(text, highRiskTerms)) {
-    return "alto";
+  if (containsAny(text, highRiskTerms) || caseData.symptoms.trim().length < 20) {
+    return "high";
   }
 
-  if (containsAny(text, mediumRiskTerms) || caseData.images.length > 0 || Boolean(caseData.soil_analysis_url)) {
-    return "médio";
+  if (containsAny(text, mediumRiskTerms) || caseData.images.length === 0 || !caseData.soil_analysis_url) {
+    return "medium";
   }
 
-  return "baixo";
+  return "low";
 }
 
-export function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string): AgronomicPreAnalysis {
-  const riskLevel = inferRisk(caseData);
+function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): AgronomicPreAnalysis {
+  const riskLevel = inferFallbackRisk(caseData);
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "localidade não informada";
   const hasSoilAnalysis = Boolean(caseData.soil_analysis_url);
   const hasImages = caseData.images.length > 0;
 
-  const pendingQuestions = [
+  const missingQuestions = [
     "Qual porcentagem aproximada da área ou do talhão apresenta os sintomas?",
     "Os sintomas começaram em reboleiras, bordaduras ou estão distribuídos de forma uniforme?",
     "Houve chuva, irrigação intensa, geada, calor extremo ou aplicação de defensivos nos últimos 7 a 14 dias?",
@@ -187,34 +203,201 @@ export function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?:
   ];
 
   if (!hasImages) {
-    pendingQuestions.push("É possível anexar fotos próximas dos sintomas e fotos gerais do talhão para comparar a distribuição?");
+    missingQuestions.push("É possível anexar fotos próximas dos sintomas e fotos gerais do talhão para comparar a distribuição?");
   }
 
   if (!hasSoilAnalysis) {
-    pendingQuestions.push("Há análise de solo recente com pH, matéria orgânica, macro e micronutrientes?");
+    missingQuestions.push("Há análise de solo recente com pH, matéria orgânica, macro e micronutrientes?");
   }
 
   const questionText = question?.trim();
 
   return {
-    initialDiagnosis: `Orientação inicial para ${caseData.crop} em ${location}: os sintomas relatados indicam necessidade de diferenciar causas bióticas, nutricionais e ambientais antes de qualquer decisão de manejo.`,
-    probableHypotheses: buildHypotheses(caseData),
-    pendingQuestions,
+    initialDiagnosis: `Orientação inicial para ${caseData.crop} em ${location}: os sintomas relatados ainda precisam ser comparados com o padrão no talhão, histórico de manejo e condições recentes de clima antes de qualquer decisão.`,
+    probableHypotheses: buildFallbackHypotheses(caseData),
+    missingQuestions,
     riskLevel,
     initialRecommendation:
-      riskLevel === "alto"
-        ? "Priorize vistoria presencial, registre a evolução diária, evite aplicações corretivas sem diagnóstico confirmado e isole decisões por talhão até revisão técnica."
-        : riskLevel === "médio"
+      riskLevel === "high"
+        ? "Priorize vistoria presencial, registre a evolução diária, evite aplicações corretivas sem diagnóstico confirmado e não use produtos controlados sem avaliação profissional."
+        : riskLevel === "medium"
           ? "Monitore a evolução por 24 a 48 horas, compare plantas sadias e afetadas, colete novas imagens e valide o histórico de irrigação, adubação e pulverizações."
           : "Mantenha observação sistemática, organize fotos e dados de manejo, e só avance para intervenção quando houver evidência técnica suficiente.",
-    nonSubstitutiveNotice:
-      "Esta pré-análise é uma orientação inicial gerada por IA, baseada apenas nas informações enviadas, e não substitui diagnóstico agronômico presencial, receituário, laudo técnico ou responsabilidade profissional habilitada.",
-    humanReviewSuggestion:
-      riskLevel === "baixo"
-        ? "A revisão humana é opcional neste momento, mas recomendada se os sintomas evoluírem ou se houver decisão de manejo com custo ou risco relevante."
-        : "Como o risco foi classificado como médio ou alto, recomenda-se solicitar revisão da especialista antes de tomar decisões de manejo sensíveis.",
+    whenToCallHumanSpecialist:
+      riskLevel === "low"
+        ? "Chame um especialista se os sintomas aumentarem, surgirem perdas visíveis ou se houver decisão de manejo com custo ou risco relevante."
+        : "Chame um especialista antes de tomar decisões de aplicação, uso de produto controlado, descarte de plantas ou mudanças importantes no manejo.",
+    disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer: questionText
-      ? `Sobre sua pergunta (“${questionText}”): pela triagem inicial, responda primeiro às perguntas pendentes e compare o padrão no talhão. A orientação continua sendo inicial; decisões de aplicação, dose ou intervenção devem ser revisadas por especialista, principalmente se o risco for ${riskLevel}.`
+      ? `Sobre sua pergunta (“${questionText}”): responda primeiro às perguntas faltantes e compare o padrão no talhão. A orientação continua inicial; decisões de aplicação, dose ou intervenção devem ser revisadas por especialista.`
       : undefined
   };
+}
+
+function buildAgronomicPrompt(caseData: AgronomicCase, question?: string) {
+  const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
+  const farmName = caseData.farm?.name || "não informada";
+  const area = caseData.farm?.area_hectares ? `${caseData.farm.area_hectares} ha` : "não informada";
+  const soilType = caseData.farm?.soil_type || "não informado";
+  const images = caseData.images.length
+    ? caseData.images.map((image, index) => `${index + 1}. ${image.image_url} (${image.image_type ?? "tipo não informado"})`).join("\n")
+    : "Nenhuma imagem anexada.";
+  const optionalQuestion = question?.trim() ? `\nPergunta complementar do usuário: ${question.trim()}` : "";
+
+  return `Você é um assistente de triagem agronômica inicial. Analise o caso com linguagem simples em português do Brasil.
+
+Dados do caso:
+- Cultura: ${caseData.crop || "não informada"}
+- Estádio de desenvolvimento: ${caseData.growth_stage || "não informado"}
+- Sintomas observados: ${caseData.symptoms || "não informado"}
+- Histórico de manejo: ${caseData.history || "não informado"}
+- Fazenda: ${farmName}
+- Localização: ${location}
+- Área: ${area}
+- Tipo de solo: ${soilType}
+- Análise de solo anexada: ${caseData.soil_analysis_url ? "sim" : "não"}
+- Imagens relacionadas:
+${images}${optionalQuestion}
+
+Regras obrigatórias:
+- Retorne somente JSON válido, sem markdown.
+- Não indique dosagem exata de defensivos.
+- Não recomende aplicação de produto controlado sem avaliação profissional.
+- Não emita laudo, parecer conclusivo ou diagnóstico definitivo.
+- Use linguagem simples.
+- Classifique riskLevel somente como "low", "medium" ou "high".
+- Use "low" para sintomas leves, informação suficiente e baixo impacto imediato.
+- Use "medium" para incerteza relevante ou possibilidade de perda.
+- Use "high" para risco de perda econômica, praga/doença agressiva, sintomas severos ou falta de dados críticos.
+
+Formato obrigatório:
+{
+  "initialDiagnosis": "",
+  "probableHypotheses": [],
+  "missingQuestions": [],
+  "riskLevel": "low | medium | high",
+  "initialRecommendation": "",
+  "whenToCallHumanSpecialist": "",
+  "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
+}`;
+}
+
+function getConfiguredAiModel() {
+  return process.env.AGRONOMIC_AI_MODEL || process.env.GEMINI_MODEL || process.env.GOOGLE_AI_MODEL || "gemini-pro";
+}
+
+async function callConfiguredAiModel(prompt: string) {
+  const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+
+  if (!googleApiKey) {
+    throw new Error("Configure GOOGLE_API_KEY ou GEMINI_API_KEY para gerar a pré-análise com IA.");
+  }
+
+  const model = getConfiguredAiModel();
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(googleApiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 1200,
+          responseMimeType: "application/json"
+        }
+      }),
+      cache: "no-store"
+    }
+  );
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "O modelo de IA configurado não conseguiu gerar a pré-análise.");
+  }
+
+  const text = payload?.candidates?.[0]?.content?.parts
+    ?.map((part: { text?: string }) => part.text)
+    .filter(Boolean)
+    .join("\n");
+
+  if (!text) {
+    throw new Error("O modelo de IA retornou uma resposta vazia.");
+  }
+
+  return text;
+}
+
+function parseModelJson(text: string) {
+  const trimmed = text.trim();
+  const jsonText = trimmed.startsWith("{") ? trimmed : trimmed.match(/\{[\s\S]*\}/)?.[0];
+
+  if (!jsonText) {
+    throw new Error("O modelo de IA não retornou JSON válido.");
+  }
+
+  return JSON.parse(jsonText) as Partial<AgronomicPreAnalysis>;
+}
+
+function normalizeStringArray(value: unknown, fallback: string[]) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const normalized = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function normalizeRiskLevel(value: unknown, fallback: AgronomicRiskLevel): AgronomicRiskLevel {
+  return value === "low" || value === "medium" || value === "high" ? value : fallback;
+}
+
+function normalizePreAnalysis(modelOutput: Partial<AgronomicPreAnalysis>, fallback: AgronomicPreAnalysis): AgronomicPreAnalysis {
+  const riskLevel = normalizeRiskLevel(modelOutput.riskLevel, fallback.riskLevel);
+
+  return {
+    initialDiagnosis: typeof modelOutput.initialDiagnosis === "string" && modelOutput.initialDiagnosis.trim() ? modelOutput.initialDiagnosis.trim() : fallback.initialDiagnosis,
+    probableHypotheses: normalizeStringArray(modelOutput.probableHypotheses, fallback.probableHypotheses),
+    missingQuestions: normalizeStringArray(modelOutput.missingQuestions, fallback.missingQuestions),
+    riskLevel,
+    initialRecommendation:
+      typeof modelOutput.initialRecommendation === "string" && modelOutput.initialRecommendation.trim()
+        ? modelOutput.initialRecommendation.trim()
+        : fallback.initialRecommendation,
+    whenToCallHumanSpecialist:
+      typeof modelOutput.whenToCallHumanSpecialist === "string" && modelOutput.whenToCallHumanSpecialist.trim()
+        ? modelOutput.whenToCallHumanSpecialist.trim()
+        : fallback.whenToCallHumanSpecialist,
+    disclaimer: AGRONOMIC_AI_DISCLAIMER,
+    conversationalAnswer: fallback.conversationalAnswer
+  };
+}
+
+export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string): Promise<AgronomicPreAnalysis> {
+  const fallback = buildFallbackPreAnalysis(caseData, question);
+  const modelText = await callConfiguredAiModel(buildAgronomicPrompt(caseData, question));
+  const parsed = parseModelJson(modelText);
+  return normalizePreAnalysis(parsed, fallback);
+}
+
+export async function updateAgronomicCaseWithAnalysis(caseId: string, token: string, analysis: AgronomicPreAnalysis) {
+  const config = getSupabaseConfig();
+  const encodedCaseId = encodeURIComponent(caseId);
+
+  await supabaseRequest(
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        ai_summary: analysis.initialDiagnosis,
+        ai_recommendation: analysis.initialRecommendation,
+        risk_level: analysis.riskLevel,
+        status: "ai_analyzed"
+      })
+    },
+    token,
+    config
+  );
 }
