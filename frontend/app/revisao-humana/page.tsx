@@ -56,7 +56,7 @@ function InfoItem({ label, value }: { label: string; value?: string | number | n
 function RevisaoHumanaContent() {
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId") ?? "";
-  const checkoutStatus = searchParams.get("checkout");
+  const checkoutStatus = searchParams.get("payment");
   const [caseData, setCaseData] = useState<AgronomicCase | null>(null);
   const [loadingCase, setLoadingCase] = useState(false);
   const [requesting, setRequesting] = useState(false);
@@ -128,28 +128,11 @@ function RevisaoHumanaContent() {
 
     try {
       const response = (await requestHumanReviewCheckout(caseId, accessToken)) as {
-        orderId: string;
-        checkoutUrl: string | null;
-        stripeConfigured: boolean;
+        checkoutUrl: string;
       };
 
-      if (response.checkoutUrl) {
-        window.location.href = response.checkoutUrl;
-        return;
-      }
-
-      setSuccessMessage(
-        `Ordem ${response.orderId} criada e caso marcado como pendente de pagamento. Configure STRIPE_SECRET_KEY e STRIPE_HUMAN_REVIEW_PRICE_ID para redirecionar ao checkout real.`
-      );
-      setCaseData((current) =>
-        current
-          ? {
-              ...current,
-              human_review_requested: true,
-              human_review_status: "pending_payment"
-            }
-          : current
-      );
+      window.location.href = response.checkoutUrl;
+      return;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Não foi possível solicitar a revisão humana.");
     } finally {
@@ -260,7 +243,7 @@ function RevisaoHumanaContent() {
             <div className="mt-8 rounded-2xl bg-slate-50 p-5">
               <p className="text-sm font-medium text-slate-600">Preço para revisão de caso simples</p>
               <p className="mt-2 text-4xl font-bold text-slate-900">{formattedPrice}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-500">Valor padrão configurável por NEXT_PUBLIC_HUMAN_REVIEW_PRICE_CENTS no front-end e HUMAN_REVIEW_PRICE_CENTS no servidor.</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">Valor inicial do serviço human_case_review criado diretamente no checkout Stripe em BRL.</p>
             </div>
 
             {alreadyRequested && (
@@ -279,7 +262,7 @@ function RevisaoHumanaContent() {
             </button>
 
             <p className="mt-4 text-xs leading-5 text-slate-500">
-              Ao clicar, o sistema cria uma ordem em one_time_orders, marca o caso como pending_payment e redireciona para o Stripe quando STRIPE_SECRET_KEY e STRIPE_HUMAN_REVIEW_PRICE_ID estiverem configurados.
+              Ao clicar, o sistema cria uma ordem em one_time_orders com pagamento pendente e redireciona para o checkout Stripe.
             </p>
           </aside>
         </div>
