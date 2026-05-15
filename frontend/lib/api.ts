@@ -49,3 +49,14 @@ export async function askQuestion(question: string) {
 
   return parseResponse(response);
 }
+
+
+export async function submitAgronomicCase(formData: FormData, accessToken: string) {
+  const response = await fetch("/api/agronomic-cases", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: formData
+  });
+
+  return parseResponse(response);
+}
