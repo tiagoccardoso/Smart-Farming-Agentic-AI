@@ -1,6 +1,34 @@
+import type { AuthenticatedUser, Profile } from "./auth";
+
+export type AuthSessionPayload = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  user?: AuthenticatedUser;
+  profile?: Profile | null;
+  needsEmailConfirmation?: boolean;
+  message?: string;
+};
+
+async function parseAuthResponse(response: Response) {
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || "A autenticação não pôde ser concluída.");
+  }
+
+  return payload as AuthSessionPayload;
+}
+
 export function getStoredSupabaseAccessToken() {
   if (typeof window === "undefined") {
     return null;
+  }
+
+  const appToken = window.localStorage.getItem("smart-farming-access-token");
+
+  if (appToken) {
+    return appToken;
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,4 +67,64 @@ export function getStoredSupabaseAccessToken() {
   }
 
   return null;
+}
+
+export function storeSupabaseSession(payload: AuthSessionPayload) {
+  if (typeof window === "undefined" || !payload.access_token) {
+    return;
+  }
+
+  window.localStorage.setItem("smart-farming-access-token", payload.access_token);
+
+  if (payload.refresh_token) {
+    window.localStorage.setItem("smart-farming-refresh-token", payload.refresh_token);
+  }
+}
+
+export function clearStoredSupabaseSession() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem("smart-farming-access-token");
+  window.localStorage.removeItem("smart-farming-refresh-token");
+}
+
+export async function loginWithEmailPassword(email: string, password: string) {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  const payload = await parseAuthResponse(response);
+  storeSupabaseSession(payload);
+  return payload;
+}
+
+export async function registerWithEmailPassword(data: { fullName: string; email: string; password: string; phone?: string }) {
+  const response = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  const payload = await parseAuthResponse(response);
+  storeSupabaseSession(payload);
+  return payload;
+}
+
+export async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  clearStoredSupabaseSession();
+}
+
+export async function getCurrentAuthSession() {
+  const response = await fetch("/api/auth/me", { cache: "no-store" });
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  const payload = await parseAuthResponse(response);
+  storeSupabaseSession(payload);
+  return payload;
 }
