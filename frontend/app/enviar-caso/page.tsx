@@ -1,29 +1,104 @@
-import SectionTitle from "../../components/SectionTitle";
+"use client";
 
-const caseSections = [
-  {
-    title: "Dados da cultura",
-    description: "Informe cultura, variedade, área, estágio da planta, talhão e localização aproximada.",
-    icon: "🌾"
-  },
-  {
-    title: "Sintomas no campo",
-    description: "Descreva manchas, amarelecimento, pragas, falhas de desenvolvimento e quando o problema começou.",
-    icon: "🔎"
-  },
-  {
-    title: "Fotos e documentos",
-    description: "Separe imagens das plantas, da lavoura, raízes, folhas e arquivos como análise de solo.",
-    icon: "📷"
-  },
-  {
-    title: "Histórico de manejo",
-    description: "Registre irrigação, adubação, defensivos aplicados, chuva recente e qualquer mudança importante.",
-    icon: "📝"
-  }
-];
+import { FormEvent, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import InputField from "../../components/InputField";
+import SectionTitle from "../../components/SectionTitle";
+import { submitAgronomicCase } from "../../lib/api";
+import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
+
+const STORAGE_BUCKET = "agronomic-cases";
+
+const initialForm = {
+  crop: "",
+  city: "",
+  state: "",
+  farmName: "",
+  areaHectares: "",
+  soilType: "",
+  growthStage: "",
+  symptoms: "",
+  managementHistory: ""
+};
+
+type FormState = typeof initialForm;
+type RequiredField = "crop" | "state" | "symptoms";
+
+type FormErrors = Partial<Record<RequiredField, string>>;
+
+const requiredLabels: Record<RequiredField, string> = {
+  crop: "Informe a cultura.",
+  state: "Informe o estado.",
+  symptoms: "Descreva os sintomas observados."
+};
 
 export default function EnviarCasoPage() {
+  const router = useRouter();
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [soilAnalysis, setSoilAnalysis] = useState<File | null>(null);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const selectedPhotoNames = useMemo(() => photos.map((file) => file.name).join(", "), [photos]);
+
+  const handleChange = (key: keyof FormState, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+    if (key in requiredLabels && value.trim()) {
+      setErrors((prev) => ({ ...prev, [key]: undefined }));
+    }
+  };
+
+  const validate = () => {
+    const nextErrors: FormErrors = {};
+
+    (Object.keys(requiredLabels) as RequiredField[]).forEach((field) => {
+      if (!form[field].trim()) {
+        nextErrors[field] = requiredLabels[field];
+      }
+    });
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitError(null);
+
+    if (!validate()) {
+      return;
+    }
+
+    const accessToken = getStoredSupabaseAccessToken();
+
+    if (!accessToken) {
+      setSubmitError("Faça login com Supabase antes de enviar o caso agronômico.");
+      return;
+    }
+
+    const formData = new FormData();
+    Object.entries(form).forEach(([key, value]) => formData.append(key, value));
+    photos.forEach((photo) => formData.append("photos", photo));
+
+    if (soilAnalysis) {
+      formData.append("soilAnalysis", soilAnalysis);
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await submitAgronomicCase(formData, accessToken);
+      router.push(`/consultoria-ia?caseId=${response.caseId}`);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Não foi possível enviar o caso.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
@@ -33,36 +108,120 @@ export default function EnviarCasoPage() {
           </p>
           <SectionTitle
             title="Enviar Caso"
-            subtitle="Envie dados da cultura, sintomas, fotos e análise de solo para receber uma pré-análise."
+            subtitle="Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."
           />
           <p className="text-base leading-7 text-slate-700">
-            Esta página organiza as informações essenciais para que a IA e, depois, uma especialista possam entender melhor a realidade da propriedade.
+            O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela.
           </p>
         </div>
       </div>
 
-      <div className="mt-8 grid gap-6 md:grid-cols-2">
-        {caseSections.map((section) => (
-          <article key={section.title} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-            <div className="flex items-start gap-4">
-              <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-leaf-50 text-2xl" aria-hidden>
-                {section.icon}
-              </span>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">{section.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
+      <form onSubmit={handleSubmit} className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+            <h3 className="text-lg font-semibold text-slate-900">Dados da propriedade e cultura</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Campos marcados com * são obrigatórios para criar o caso nas tabelas farms e agronomic_cases.
+            </p>
 
-      <div className="mt-8 rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
-        <h3 className="text-lg font-semibold text-slate-900">Pré-análise sem complicação</h3>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
-          Por enquanto, esta é apenas a estrutura visual do formulário. Em uma próxima etapa, os campos e uploads serão conectados ao fluxo real de atendimento.
-        </p>
-      </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <InputField label="Cultura *" name="crop" type="text" placeholder="Ex.: Soja" value={form.crop} onChange={(value) => handleChange("crop", value)} />
+              <InputField label="Cidade" name="city" type="text" placeholder="Ex.: Londrina" value={form.city} onChange={(value) => handleChange("city", value)} />
+              <InputField label="Estado *" name="state" type="text" placeholder="Ex.: PR" value={form.state} onChange={(value) => handleChange("state", value)} />
+              <InputField label="Nome da propriedade" name="farmName" type="text" placeholder="Ex.: Fazenda Boa Safra" value={form.farmName} onChange={(value) => handleChange("farmName", value)} />
+              <InputField label="Área em hectares" name="areaHectares" type="number" placeholder="Ex.: 120" value={form.areaHectares} onChange={(value) => handleChange("areaHectares", value)} />
+              <InputField label="Tipo de solo" name="soilType" type="text" placeholder="Ex.: Argiloso" value={form.soilType} onChange={(value) => handleChange("soilType", value)} />
+              <InputField label="Estágio da cultura" name="growthStage" type="text" placeholder="Ex.: V6, florescimento" value={form.growthStage} onChange={(value) => handleChange("growthStage", value)} />
+            </div>
+
+            {(errors.crop || errors.state) && (
+              <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+                {errors.crop && <p>{errors.crop}</p>}
+                {errors.state && <p>{errors.state}</p>}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+            <h3 className="text-lg font-semibold text-slate-900">Sintomas e manejo</h3>
+            <div className="mt-6 grid gap-4">
+              <label className="flex flex-col gap-2 text-sm text-slate-700">
+                Sintomas observados *
+                <textarea
+                  name="symptoms"
+                  value={form.symptoms}
+                  onChange={(event) => handleChange("symptoms", event.target.value)}
+                  rows={6}
+                  placeholder="Descreva manchas, amarelecimento, pragas, falhas de desenvolvimento, talhões afetados e quando o problema começou."
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                />
+              </label>
+              {errors.symptoms && <p className="text-sm text-red-600">{errors.symptoms}</p>}
+
+              <label className="flex flex-col gap-2 text-sm text-slate-700">
+                Histórico de manejo
+                <textarea
+                  name="managementHistory"
+                  value={form.managementHistory}
+                  onChange={(event) => handleChange("managementHistory", event.target.value)}
+                  rows={5}
+                  placeholder="Informe irrigação, adubação, defensivos aplicados, chuva recente e mudanças importantes no manejo."
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <aside className="space-y-6">
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+            <h3 className="text-lg font-semibold text-slate-900">Fotos e documentos</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Os uploads estão preparados para o bucket Supabase Storage <strong>{STORAGE_BUCKET}</strong>.
+            </p>
+
+            <div className="mt-6 space-y-5">
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
+                Upload de fotos
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => setPhotos(Array.from(event.target.files ?? []))}
+                />
+                {selectedPhotoNames && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Selecionado: {selectedPhotoNames}</span>}
+              </label>
+
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
+                Upload de análise de solo em PDF ou imagem
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={(event) => setSoilAnalysis(event.target.files?.[0] ?? null)}
+                />
+                {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Selecionado: {soilAnalysis.name}</span>}
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
+            <h3 className="text-lg font-semibold text-slate-900">Próxima etapa</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL. A análise técnica fica para a próxima etapa.
+            </p>
+          </div>
+
+          {submitError && <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{submitError}</div>}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {loading ? "Salvando caso..." : "Salvar caso e continuar"}
+          </button>
+        </aside>
+      </form>
     </section>
   );
 }
