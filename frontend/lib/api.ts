@@ -81,11 +81,11 @@ export async function analyzeAgronomicCase(caseId: string, accessToken: string, 
   return payload?.analysis ? payload : { analysis: payload };
 }
 
-export async function requestHumanReviewCheckout(caseId: string, accessToken: string) {
-  const response = await fetch("/api/human-review/checkout", {
+export async function requestHumanReviewCheckout(caseId: string, accessToken: string, serviceType = "human_case_review") {
+  const response = await fetch("/api/stripe/create-human-review-checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({ caseId })
+    body: JSON.stringify({ caseId, serviceType })
   });
 
   return parseResponse(response);
