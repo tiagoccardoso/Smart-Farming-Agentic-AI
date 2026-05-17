@@ -30,9 +30,19 @@ function setAuthCookies(response: NextResponse, payload: Required<Pick<SignupRes
 export async function POST(request: NextRequest) {
   try {
     const { fullName, email, password, phone } = await request.json();
+    const trimmedFullName = typeof fullName === "string" ? fullName.trim() : "";
+    const trimmedPhone = typeof phone === "string" ? phone.trim() : "";
 
-    if (!fullName || !email || !password) {
-      return NextResponse.json({ error: "Informe nome completo, e-mail e senha." }, { status: 400 });
+    if (!trimmedFullName) {
+      return NextResponse.json({ error: "Informe seu nome completo." }, { status: 400 });
+    }
+
+    if (!trimmedPhone) {
+      return NextResponse.json({ error: "Informe seu telefone." }, { status: 400 });
+    }
+
+    if (!email || !password) {
+      return NextResponse.json({ error: "Informe e-mail e senha." }, { status: 400 });
     }
 
     if (password.length < 6) {
@@ -44,7 +54,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         email,
         password,
-        data: { full_name: fullName, phone: phone || null, role: "client" }
+        data: { full_name: trimmedFullName, phone: trimmedPhone, role: "client" }
       })
     });
 
@@ -56,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const profile =
-      (await ensureClientProfile(signup.access_token, signup.user.id, fullName, phone).catch(() => null)) ??
+      (await ensureClientProfile(signup.access_token, signup.user.id, trimmedFullName, trimmedPhone).catch(() => null)) ??
       (await getCurrentProfile(signup.access_token, signup.user.id).catch(() => null));
     const response = NextResponse.json({ ...signup, profile });
     setAuthCookies(response, { access_token: signup.access_token, refresh_token: signup.refresh_token, expires_in: signup.expires_in });

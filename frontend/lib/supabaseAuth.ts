@@ -101,7 +101,7 @@ export async function loginWithEmailPassword(email: string, password: string) {
   return payload;
 }
 
-export async function registerWithEmailPassword(data: { fullName: string; email: string; password: string; phone?: string }) {
+export async function registerWithEmailPassword(data: { fullName: string; email: string; password: string; phone: string }) {
   const response = await fetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
