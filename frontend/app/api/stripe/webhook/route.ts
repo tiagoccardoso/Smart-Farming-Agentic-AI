@@ -1,6 +1,12 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { OneTimeOrder, StripeCheckoutSession, supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
+import {
+  OneTimeOrder,
+  StripeCheckoutSession,
+  getCaseUpdateForServiceType,
+  isHumanReviewServiceType,
+  supabaseAdminRequest
+} from "../../../../lib/stripe/humanReview";
 
 export const runtime = "nodejs";
 
@@ -10,6 +16,14 @@ type StripeEvent = {
   data?: {
     object?: StripeCheckoutSession;
   };
+};
+
+type PaidOrderResult = {
+  updated: boolean;
+  orderId?: string;
+  caseId?: string | null;
+  serviceType?: string | null;
+  reason?: string;
 };
 
 function verifyStripeSignature(payload: string, signatureHeader: string, webhookSecret: string) {
@@ -44,16 +58,39 @@ function getMetadataValue(metadata: Record<string, string | undefined> | null | 
   return metadata?.[camelKey] || metadata?.[snakeKey] || null;
 }
 
-async function markHumanReviewOrderAsPaid(session: StripeCheckoutSession) {
+async function updateCaseAfterPayment(caseId: string | null | undefined, serviceType: string | null | undefined) {
+  if (!caseId || !isHumanReviewServiceType(serviceType)) {
+    return;
+  }
+
+  const caseUpdate = getCaseUpdateForServiceType(serviceType);
+
+  if (!caseUpdate) {
+    return;
+  }
+
+  await supabaseAdminRequest(
+    `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(caseId)}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(caseUpdate)
+    }
+  );
+}
+
+async function markHumanReviewOrderAsPaid(session: StripeCheckoutSession): Promise<PaidOrderResult> {
   const orderId = getMetadataValue(session.metadata, "orderId", "order_id");
+  const metadataUserId = getMetadataValue(session.metadata, "userId", "user_id");
   const metadataCaseId = getMetadataValue(session.metadata, "caseId", "case_id");
+  const metadataServiceType = getMetadataValue(session.metadata, "serviceType", "service_type");
 
   if (!orderId) {
     return { updated: false, reason: "missing_order_id" };
   }
 
   const orders = await supabaseAdminRequest<OneTimeOrder[]>(
-    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&select=id,case_id,user_id,service_type&limit=1`,
+    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&select=id,case_id,user_id,service_type,payment_status&limit=1`,
     { method: "GET" }
   );
   const order = orders[0];
@@ -63,9 +100,31 @@ async function markHumanReviewOrderAsPaid(session: StripeCheckoutSession) {
   }
 
   const caseId = metadataCaseId || order.case_id;
+  const serviceType = metadataServiceType || order.service_type;
+
+  if (metadataUserId && order.user_id && metadataUserId !== order.user_id) {
+    return { updated: false, orderId, caseId, serviceType, reason: "metadata_user_mismatch" };
+  }
+
+  if (metadataCaseId && order.case_id && metadataCaseId !== order.case_id) {
+    return { updated: false, orderId, caseId, serviceType, reason: "metadata_case_mismatch" };
+  }
+
+  if (metadataServiceType && order.service_type && metadataServiceType !== order.service_type) {
+    return { updated: false, orderId, caseId, serviceType, reason: "metadata_service_mismatch" };
+  }
+
+  if (!isHumanReviewServiceType(serviceType)) {
+    return { updated: false, orderId, caseId, serviceType, reason: "invalid_service_type" };
+  }
+
+  if (order.payment_status === "paid") {
+    await updateCaseAfterPayment(caseId, serviceType);
+    return { updated: false, orderId, caseId, serviceType, reason: "already_paid" };
+  }
 
   await supabaseAdminRequest(
-    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}`,
+    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&payment_status=neq.paid`,
     {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
@@ -76,22 +135,9 @@ async function markHumanReviewOrderAsPaid(session: StripeCheckoutSession) {
     }
   );
 
-  if (caseId) {
-    await supabaseAdminRequest(
-      `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(caseId)}`,
-      {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          human_review_requested: true,
-          human_review_status: "waiting_review",
-          status: "waiting_human_review"
-        })
-      }
-    );
-  }
+  await updateCaseAfterPayment(caseId, serviceType);
 
-  return { updated: true, orderId, caseId };
+  return { updated: true, orderId, caseId, serviceType };
 }
 
 export async function POST(request: NextRequest) {
@@ -110,7 +156,7 @@ export async function POST(request: NextRequest) {
 
     const event = JSON.parse(payload) as StripeEvent;
 
-    if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") {
+    if (event.type !== "checkout.session.completed") {
       return NextResponse.json({ received: true, ignored: true });
     }
 
