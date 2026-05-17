@@ -23,13 +23,13 @@ const links: NavigationLink[] = [
     href: "/painel-doutora",
     label: "Painel da Doutora",
     requiresAuth: true,
-    allowedRoles: ["admin", "specialist"]
+    allowedRoles: ["admin", "specialist"],
   },
   {
     href: "/admin/oportunidades",
     label: "Oportunidades",
     requiresAuth: true,
-    allowedRoles: ["admin"]
+    allowedRoles: ["admin"],
   },
   { href: "/planos", label: "Planos", requiresAuth: true },
   { href: "/crop", label: "Culturas" },
@@ -38,7 +38,7 @@ const links: NavigationLink[] = [
   { href: "/dashboard", label: "Painel", requiresAuth: true },
   { href: "/models", label: "Modelos" },
   { href: "/about", label: "Sobre" },
-  { href: "/contact", label: "Contato" }
+  { href: "/contact", label: "Contato" },
 ];
 
 function canShowLink(link: NavigationLink, profile: Profile | null) {
@@ -46,7 +46,10 @@ function canShowLink(link: NavigationLink, profile: Profile | null) {
     return false;
   }
 
-  if (link.allowedRoles && !link.allowedRoles.includes(profile?.role as UserRole)) {
+  if (
+    link.allowedRoles &&
+    !link.allowedRoles.includes(profile?.role as UserRole)
+  ) {
     return false;
   }
 
@@ -79,7 +82,10 @@ export default function Navbar() {
     };
   }, [pathname]);
 
-  const visibleLinks = useMemo(() => links.filter((link) => canShowLink(link, profile)), [profile]);
+  const visibleLinks = useMemo(
+    () => links.filter((link) => canShowLink(link, profile)),
+    [profile],
+  );
 
   async function handleLogout() {
     await logout();
@@ -91,13 +97,22 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-leaf-100 bg-white/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-leaf-800">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-leaf-100 text-leaf-700">🌾</span>
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-semibold text-leaf-800"
+        >
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-leaf-100 text-leaf-700">
+            🌾
+          </span>
           Consultor Agrícola IA
         </Link>
         <nav className="hidden flex-1 flex-wrap justify-center gap-3 text-xs font-medium text-slate-700 md:flex xl:text-sm">
           {visibleLinks.map((link) => (
-            <Link key={link.href} href={link.href} className="hover:text-leaf-700">
+            <Link
+              key={link.href}
+              href={link.href}
+              className="hover:text-leaf-700"
+            >
               {link.label}
             </Link>
           ))}
@@ -118,17 +133,14 @@ export default function Navbar() {
             </>
           ) : (
             !loadingSession && (
-              <Link href="/login" className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+              <Link
+                href="/login"
+                className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50"
+              >
                 Entrar
               </Link>
             )
           )}
-          <Link
-            href={profile ? "/consultoria-ia" : "/login?next=/consultoria-ia"}
-            className="rounded-full bg-leaf-600 px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700"
-          >
-            Testar agora
-          </Link>
         </div>
       </div>
     </header>
