@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
 
 type OneTimeOrder = {
   id: string;
@@ -90,6 +91,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Caso não encontrado ou sem permissão de acesso." }, { status: 404 });
     }
 
+    if (caseData.user_id !== user.id) {
+      return NextResponse.json({ error: "Este caseId não pertence ao usuário autenticado." }, { status: 403 });
+    }
+
+    await assertPlanLimit(user.id, "human_review");
+
     const config = getSupabaseConfig();
     const priceCents = getHumanReviewPriceCents();
     const encodedCaseId = encodeURIComponent(caseId);
@@ -132,6 +139,8 @@ export async function POST(request: NextRequest) {
     const stripeSession = await createStripeCheckoutSession(request, order.id, caseId, priceCents);
 
     if (stripeSession?.id) {
+      await recordUsageEvent(user.id, "human_review");
+
       await supabaseRequest(
         `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(order.id)}`,
         {
@@ -151,6 +160,10 @@ export async function POST(request: NextRequest) {
       priceCents
     });
   } catch (error) {
+    if (error instanceof PlanLimitExceededError) {
+      return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
+    }
+
     const message = error instanceof Error ? error.message : "Não foi possível solicitar a revisão humana.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

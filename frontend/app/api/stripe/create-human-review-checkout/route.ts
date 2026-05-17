@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, UsageEventType, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
 import { HUMAN_REVIEW_SERVICES, createStripeCheckoutSession, isHumanReviewServiceType } from "../../../../lib/stripe/humanReview";
 
 type CreateCheckoutPayload = {
@@ -10,6 +11,18 @@ type CreateCheckoutPayload = {
 type CreatedOrder = {
   id: string;
 };
+
+function getUsageEventForServiceType(serviceType: string): UsageEventType | null {
+  if (serviceType === "human_case_review") {
+    return "human_review";
+  }
+
+  if (serviceType === "technical_report") {
+    return "pdf_report";
+  }
+
+  return null;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,6 +54,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Este caseId não pertence ao usuário autenticado." }, { status: 403 });
     }
 
+    const usageEventType = getUsageEventForServiceType(serviceType);
+
+    if (usageEventType) {
+      await assertPlanLimit(user.id, usageEventType);
+    }
+
     const config = getSupabaseConfig();
     const service = HUMAN_REVIEW_SERVICES[serviceType];
     const orders = await supabaseRequest<CreatedOrder[]>(
@@ -67,6 +86,10 @@ export async function POST(request: NextRequest) {
 
     const stripeSession = await createStripeCheckoutSession(request, order.id, user.id, caseId, serviceType);
 
+    if (usageEventType) {
+      await recordUsageEvent(user.id, usageEventType);
+    }
+
     await supabaseRequest(
       `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(order.id)}`,
       {
@@ -85,6 +108,10 @@ export async function POST(request: NextRequest) {
       priceCents: service.priceCents
     });
   } catch (error) {
+    if (error instanceof PlanLimitExceededError) {
+      return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
+    }
+
     const message = error instanceof Error ? error.message : "Não foi possível criar o checkout de revisão humana.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -1,3 +1,5 @@
+import { getStoredSupabaseAccessToken } from "./supabaseAuth";
+
 export type CropPayload = {
   N: number;
   P: number;
@@ -18,6 +20,12 @@ async function parseResponse(response: Response) {
   return payload;
 }
 
+function getOptionalAuthHeaders(): Record<string, string> {
+  const token = getStoredSupabaseAccessToken();
+
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function recommendCrop(payload: CropPayload) {
   const response = await fetch("/api/crop/recommend", {
     method: "POST",
@@ -34,6 +42,7 @@ export async function detectDisease(file: File) {
 
   const response = await fetch("/api/disease/predict", {
     method: "POST",
+    headers: getOptionalAuthHeaders(),
     body: formData
   });
 
@@ -43,7 +52,7 @@ export async function detectDisease(file: File) {
 export async function askQuestion(question: string) {
   const response = await fetch("/api/qa", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getOptionalAuthHeaders() },
     body: JSON.stringify({ question })
   });
 
