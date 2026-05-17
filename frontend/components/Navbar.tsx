@@ -26,6 +26,12 @@ const links: NavigationLink[] = [
     allowedRoles: ["admin", "specialist"],
   },
   {
+    href: "/painel-doutora/usuarios",
+    label: "Usuários",
+    requiresAuth: true,
+    allowedRoles: ["admin", "specialist"],
+  },
+  {
     href: "/admin/oportunidades",
     label: "Oportunidades",
     requiresAuth: true,

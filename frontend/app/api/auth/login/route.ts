@@ -41,6 +41,11 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({ email, password })
     });
     const profile = await getCurrentProfile(session.access_token, session.user.id).catch(() => null);
+
+    if ((profile?.status ?? "active") !== "active") {
+      return NextResponse.json({ error: "Usuário inativo. Entre em contato com o suporte." }, { status: 403 });
+    }
+
     const response = NextResponse.json({ ...session, profile });
     setAuthCookies(response, session);
 

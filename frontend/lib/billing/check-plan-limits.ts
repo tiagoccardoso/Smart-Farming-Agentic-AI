@@ -29,6 +29,11 @@ type UsageEventRow = {
   count: number | null;
 };
 
+type UserAccessProfile = {
+  status: "active" | "inactive" | null;
+  unlimited_access: boolean | null;
+};
+
 type QuestionHistoryInput = {
   userId: string;
   question: string;
@@ -57,6 +62,7 @@ export type PlanLimitCheckResult = {
   remaining: UsageLimit;
   periodStart: string;
   periodEnd: string;
+  unlimitedAccess?: boolean;
 };
 
 export const PLAN_LIMIT_REACHED_MESSAGE = "Você atingiu o limite do seu plano. Faça upgrade para continuar.";
@@ -148,6 +154,16 @@ export class PlanFeatureUnavailableError extends Error {
   }
 }
 
+export class UserInactiveError extends Error {
+  status: number;
+
+  constructor(message = "Usuário inativo. Entre em contato com o suporte.") {
+    super(message);
+    this.name = "UserInactiveError";
+    this.status = 403;
+  }
+}
+
 function getSupabaseAdminConfig(): SupabaseAdminConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -207,6 +223,15 @@ function isSubscriptionActive(subscription: SubscriptionWithPlan, now = new Date
   return new Date(subscription.current_period_end).getTime() > now.getTime();
 }
 
+async function getUserAccessProfile(userId: string) {
+  const profiles = await supabaseAdminRequest<UserAccessProfile[]>(
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=status,unlimited_access&limit=1`,
+    { method: "GET" }
+  );
+
+  return profiles[0] ?? { status: "active", unlimited_access: false };
+}
+
 async function getUserPlanSlug(userId: string) {
   const subscriptions = await supabaseAdminRequest<SubscriptionWithPlan[]>(
     `/rest/v1/subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,status,current_period_end,plans(slug,name)&order=created_at.desc&limit=10`,
@@ -228,24 +253,31 @@ async function getUsageCount(userId: string, eventType: UsageEventType, periodSt
 
 export async function getPlanLimitCheck(userId: string, eventType: UsageEventType, incrementBy = 1): Promise<PlanLimitCheckResult> {
   const normalizedIncrement = Math.max(1, Math.floor(incrementBy));
+  const accessProfile = await getUserAccessProfile(userId);
+
+  if ((accessProfile.status ?? "active") !== "active") {
+    throw new UserInactiveError();
+  }
+
   const planSlug = await getUserPlanSlug(userId);
   const rules = PLAN_RULES[planSlug];
   const { periodStart, periodEnd } = getCurrentMonthlyPeriod();
   const used = await getUsageCount(userId, eventType, periodStart, periodEnd);
-  const limit = rules.limits[eventType];
-  const allowed = limit === null || used + normalizedIncrement <= limit;
+  const limit = accessProfile.unlimited_access ? null : rules.limits[eventType];
+  const allowed = accessProfile.unlimited_access || limit === null || used + normalizedIncrement <= limit;
 
   return {
     allowed,
     userId,
     planSlug,
-    planLabel: rules.label,
+    planLabel: accessProfile.unlimited_access ? "Acesso ilimitado" : rules.label,
     eventType,
     limit,
     used,
     remaining: limit === null ? null : Math.max(0, limit - used),
     periodStart,
-    periodEnd
+    periodEnd,
+    unlimitedAccess: Boolean(accessProfile.unlimited_access)
   };
 }
 
@@ -319,11 +351,21 @@ export async function checkAndRecordUsageEvent(userId: string, eventType: UsageE
 }
 
 export async function assertPlanFeature(userId: string, feature: PlanFeature) {
+  const accessProfile = await getUserAccessProfile(userId);
+
+  if ((accessProfile.status ?? "active") !== "active") {
+    throw new UserInactiveError();
+  }
+
   const planSlug = await getUserPlanSlug(userId);
+
+  if (accessProfile.unlimited_access) {
+    return { userId, planSlug, planLabel: "Acesso ilimitado", feature, unlimitedAccess: true };
+  }
 
   if (!PLAN_RULES[planSlug].features[feature]) {
     throw new PlanFeatureUnavailableError();
   }
 
-  return { userId, planSlug, planLabel: PLAN_RULES[planSlug].label, feature };
+  return { userId, planSlug, planLabel: PLAN_RULES[planSlug].label, feature, unlimitedAccess: false };
 }
