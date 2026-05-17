@@ -23,8 +23,23 @@ export default function RegisterPage() {
     setError(null);
     setMessage(null);
 
+    const trimmedFullName = fullName.trim();
+    const trimmedPhone = phone.trim();
+
+    if (!trimmedFullName) {
+      setError("Informe seu nome completo.");
+      setLoading(false);
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setError("Informe seu telefone.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const payload = await registerWithEmailPassword({ fullName, email, phone, password });
+      const payload = await registerWithEmailPassword({ fullName: trimmedFullName, email, phone: trimmedPhone, password });
 
       if (payload.needsEmailConfirmation) {
         setMessage(payload.message ?? "Cadastro criado. Confirme seu e-mail antes de fazer login.");
@@ -52,11 +67,11 @@ export default function RegisterPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
+      <form onSubmit={handleSubmit} noValidate className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
         <div className="space-y-5">
-          <InputField label="Nome completo" name="fullName" value={fullName} onChange={(value) => setFullName(value)} required />
+          <InputField label="Nome completo" name="fullName" type="text" value={fullName} onChange={(value) => setFullName(value)} required />
           <InputField label="E-mail" name="email" type="email" value={email} onChange={(value) => setEmail(value)} required />
-          <InputField label="Telefone (opcional)" name="phone" type="tel" value={phone} onChange={(value) => setPhone(value)} />
+          <InputField label="Telefone" name="phone" type="tel" value={phone} onChange={(value) => setPhone(value)} required />
           <InputField label="Senha" name="password" type="password" value={password} onChange={(value) => setPassword(value)} required />
         </div>
 
