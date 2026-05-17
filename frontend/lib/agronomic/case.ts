@@ -37,6 +37,11 @@ export type AgronomicCase = {
 
 export type AgronomicRiskLevel = "low" | "medium" | "high";
 
+export type KnowledgeUsed = {
+  title: string;
+  category: string;
+};
+
 export type AgronomicPreAnalysis = {
   initialDiagnosis: string;
   probableHypotheses: string[];
@@ -45,6 +50,7 @@ export type AgronomicPreAnalysis = {
   initialRecommendation: string;
   whenToCallHumanSpecialist: string;
   disclaimer: string;
+  knowledgeUsed: KnowledgeUsed[];
   conversationalAnswer?: string;
 };
 
@@ -59,8 +65,28 @@ type AuthenticatedUser = {
   id: string;
 };
 
+type SpecialistKnowledgeMaterial = {
+  id: string;
+  title: string | null;
+  category: string | null;
+  crop: string | null;
+  content: string | null;
+  file_url: string | null;
+  active: boolean | null;
+  created_at: string | null;
+};
+
+type RankedKnowledgeMaterial = SpecialistKnowledgeMaterial & {
+  relevanceScore: number;
+  excerpt: string;
+};
+
 const AGRONOMIC_AI_DISCLAIMER =
   "Esta é uma orientação inicial gerada por IA e não substitui a avaliação de um profissional habilitado.";
+const KNOWLEDGE_CATEGORY_PRIORITY = ["protocolo", "recomendacao", "manejo", "pragas", "doencas", "solo"];
+const KNOWLEDGE_CONTEXT_MAX_CHARS = 6000;
+const KNOWLEDGE_ITEM_MAX_CHARS = 1200;
+const KNOWLEDGE_MAX_ITEMS = 6;
 
 export function getSupabaseConfig(): SupabaseConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -102,6 +128,146 @@ export async function getAuthenticatedUser(token: string, config = getSupabaseCo
     token,
     config
   );
+}
+
+function getSupabaseServerCredentials(fallbackToken: string, config = getSupabaseConfig()) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!serviceRoleKey) {
+    return { token: fallbackToken, config };
+  }
+
+  return { token: serviceRoleKey, config: { ...config, anonKey: serviceRoleKey } };
+}
+
+function normalizeForSearch(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function sanitizeKnowledgeContent(value: string | null | undefined) {
+  return (value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function excerptKnowledgeContent(content: string) {
+  return content.length > KNOWLEDGE_ITEM_MAX_CHARS ? `${content.slice(0, KNOWLEDGE_ITEM_MAX_CHARS).trim()}...` : content;
+}
+
+function getCaseSearchTerms(caseData: AgronomicCase, question?: string) {
+  const text = normalizeForSearch(`${caseData.crop} ${caseData.growth_stage ?? ""} ${caseData.symptoms} ${caseData.history ?? ""} ${question ?? ""}`);
+
+  return Array.from(new Set(text.match(/[a-z0-9]{4,}/g) ?? [])).slice(0, 40);
+}
+
+function rankKnowledgeMaterial(material: SpecialistKnowledgeMaterial, caseData: AgronomicCase, terms: string[]) {
+  const category = normalizeForSearch(material.category);
+  const crop = normalizeForSearch(material.crop);
+  const caseCrop = normalizeForSearch(caseData.crop);
+  const searchable = normalizeForSearch(`${material.title ?? ""} ${material.category ?? ""} ${material.crop ?? ""} ${material.content ?? ""}`);
+  let score = 0;
+
+  const categoryPriority = KNOWLEDGE_CATEGORY_PRIORITY.indexOf(category);
+  if (categoryPriority >= 0) {
+    score += (KNOWLEDGE_CATEGORY_PRIORITY.length - categoryPriority) * 10;
+  }
+
+  if (caseCrop && crop.includes(caseCrop)) {
+    score += 35;
+  } else if (!crop) {
+    score += 12;
+  }
+
+  for (const term of terms) {
+    if (searchable.includes(term)) {
+      score += 2;
+    }
+  }
+
+  return score;
+}
+
+function sanitizePostgrestPattern(value: string) {
+  return value.replace(/[(),*]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildKnowledgeSelectPath(caseData: AgronomicCase) {
+  const filters = [
+    "select=id,title,category,crop,content,file_url,active,created_at",
+    "active=eq.true",
+    "order=created_at.desc",
+    "limit=80"
+  ];
+  const crop = sanitizePostgrestPattern(caseData.crop ?? "");
+
+  if (crop) {
+    filters.push(`or=${encodeURIComponent(`(crop.ilike.*${crop}*,crop.is.null,crop.eq.)`)}`);
+  } else {
+    filters.push(`or=${encodeURIComponent("(crop.is.null,crop.eq.)")}`);
+  }
+
+  return `/rest/v1/specialist_knowledge?${filters.join("&")}`;
+}
+
+function selectRelevantKnowledge(materials: SpecialistKnowledgeMaterial[], caseData: AgronomicCase, question?: string) {
+  const terms = getCaseSearchTerms(caseData, question);
+  let usedChars = 0;
+  const selected: RankedKnowledgeMaterial[] = [];
+
+  const ranked = materials
+    .filter((material) => material.active !== false && material.title?.trim() && sanitizeKnowledgeContent(material.content).length > 0)
+    .map((material) => ({
+      ...material,
+      relevanceScore: rankKnowledgeMaterial(material, caseData, terms),
+      excerpt: excerptKnowledgeContent(sanitizeKnowledgeContent(material.content))
+    }))
+    .filter((material) => material.relevanceScore > 0)
+    .sort((a, b) => b.relevanceScore - a.relevanceScore || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+
+  for (const material of ranked) {
+    if (selected.length >= KNOWLEDGE_MAX_ITEMS) {
+      break;
+    }
+
+    const entrySize = material.excerpt.length + (material.title?.length ?? 0) + (material.category?.length ?? 0) + 120;
+
+    if (usedChars + entrySize > KNOWLEDGE_CONTEXT_MAX_CHARS) {
+      continue;
+    }
+
+    selected.push(material);
+    usedChars += entrySize;
+  }
+
+  return selected;
+}
+
+export async function fetchRelevantSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+  const config = getSupabaseConfig();
+  const serverCredentials = getSupabaseServerCredentials(token, config);
+
+  try {
+    const materials = await supabaseRequest<SpecialistKnowledgeMaterial[]>(
+      buildKnowledgeSelectPath(caseData),
+      { method: "GET" },
+      serverCredentials.token,
+      serverCredentials.config
+    );
+
+    return selectRelevantKnowledge(Array.isArray(materials) ? materials : [], caseData, question);
+  } catch (error) {
+    console.warn("Não foi possível carregar a base specialist_knowledge para a análise agronômica.", error);
+    return [];
+  }
+}
+
+function mapKnowledgeUsed(materials: Array<Pick<SpecialistKnowledgeMaterial, "title" | "category">>): KnowledgeUsed[] {
+  return materials
+    .filter((material) => material.title?.trim() && material.category?.trim())
+    .map((material) => ({ title: material.title!.trim(), category: material.category!.trim() }));
 }
 
 export async function fetchAgronomicCase(caseId: string, token: string) {
@@ -235,13 +401,14 @@ function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): A
         ? "Chame um especialista se os sintomas aumentarem, surgirem perdas visíveis ou se houver decisão de manejo com custo ou risco relevante."
         : "Chame um especialista antes de tomar decisões de aplicação, uso de produto controlado, descarte de plantas ou mudanças importantes no manejo.",
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
+    knowledgeUsed: [],
     conversationalAnswer: questionText
       ? `Sobre sua pergunta (“${questionText}”): responda primeiro às perguntas faltantes e compare o padrão no talhão. A orientação continua inicial; decisões de aplicação, dose ou intervenção devem ser revisadas por especialista.`
       : undefined
   };
 }
 
-function buildAgronomicPrompt(caseData: AgronomicCase, question?: string) {
+function buildAgronomicPrompt(caseData: AgronomicCase, question?: string, specialistKnowledge: RankedKnowledgeMaterial[] = []) {
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
   const farmName = caseData.farm?.name || "não informada";
   const area = caseData.farm?.area_hectares ? `${caseData.farm.area_hectares} ha` : "não informada";
@@ -250,6 +417,23 @@ function buildAgronomicPrompt(caseData: AgronomicCase, question?: string) {
     ? caseData.images.map((image, index) => `${index + 1}. ${image.image_url} (${image.image_type ?? "tipo não informado"})`).join("\n")
     : "Nenhuma imagem anexada.";
   const optionalQuestion = question?.trim() ? `\nPergunta complementar do usuário: ${question.trim()}` : "";
+  const knowledgeContext = specialistKnowledge.length
+    ? specialistKnowledge
+        .map((material, index) =>
+          [
+            `${index + 1}. Título: ${material.title}`,
+            `Categoria: ${material.category}`,
+            `Cultura: ${material.crop?.trim() || "geral / sem cultura específica"}`,
+            `Conteúdo: ${material.excerpt}`
+          ].join("\n")
+        )
+        .join("\n---\n")
+    : "Nenhum conteúdo ativo e relevante da base specialist_knowledge foi encontrado para este caso.";
+  const allowedKnowledgeSources = specialistKnowledge.length
+    ? mapKnowledgeUsed(specialistKnowledge)
+        .map((material) => `- ${material.title} (${material.category})`)
+        .join("\n")
+    : "- Nenhuma fonte da base specialist_knowledge foi fornecida.";
 
   return `Você é um assistente de triagem agronômica inicial. Analise o caso com linguagem simples em português do Brasil.
 
@@ -266,12 +450,21 @@ Dados do caso:
 - Imagens relacionadas:
 ${images}${optionalQuestion}
 
+Base de conhecimento specialist_knowledge disponível para este caso:
+${knowledgeContext}
+
+Fontes permitidas em knowledgeUsed:
+${allowedKnowledgeSources}
+
 Regras obrigatórias:
 - Retorne somente JSON válido, sem markdown.
 - Não indique dosagem exata de defensivos.
 - Não recomende aplicação de produto controlado sem avaliação profissional.
 - Não emita laudo, parecer conclusivo ou diagnóstico definitivo.
 - Use linguagem simples.
+- Use a base specialist_knowledge apenas quando ela for relevante para o caso.
+- Não invente fontes: preencha knowledgeUsed somente com títulos e categorias listados em "Fontes permitidas em knowledgeUsed".
+- Se nenhuma fonte da base specialist_knowledge foi fornecida ou usada, retorne knowledgeUsed como array vazio.
 - Classifique riskLevel somente como "low", "medium" ou "high".
 - Use "low" para sintomas leves, informação suficiente e baixo impacto imediato.
 - Use "medium" para incerteza relevante ou possibilidade de perda.
@@ -285,7 +478,13 @@ Formato obrigatório:
   "riskLevel": "low | medium | high",
   "initialRecommendation": "",
   "whenToCallHumanSpecialist": "",
-  "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
+  "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}",
+  "knowledgeUsed": [
+    {
+      "title": "",
+      "category": ""
+    }
+  ]
 }`;
 }
 
@@ -360,7 +559,36 @@ function normalizeRiskLevel(value: unknown, fallback: AgronomicRiskLevel): Agron
   return value === "low" || value === "medium" || value === "high" ? value : fallback;
 }
 
-function normalizePreAnalysis(modelOutput: Partial<AgronomicPreAnalysis>, fallback: AgronomicPreAnalysis): AgronomicPreAnalysis {
+function normalizeKnowledgeUsed(value: unknown, allowedKnowledge: KnowledgeUsed[]) {
+  if (!Array.isArray(value)) {
+    return allowedKnowledge;
+  }
+
+  const allowed = new Map(allowedKnowledge.map((item) => [`${item.title}::${item.category}`.toLowerCase(), item]));
+  const normalized: KnowledgeUsed[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const title = "title" in item && typeof item.title === "string" ? item.title.trim() : "";
+    const category = "category" in item && typeof item.category === "string" ? item.category.trim() : "";
+    const allowedItem = allowed.get(`${title}::${category}`.toLowerCase());
+
+    if (allowedItem && !normalized.some((existing) => existing.title === allowedItem.title && existing.category === allowedItem.category)) {
+      normalized.push(allowedItem);
+    }
+  }
+
+  return normalized;
+}
+
+function normalizePreAnalysis(
+  modelOutput: Partial<AgronomicPreAnalysis>,
+  fallback: AgronomicPreAnalysis,
+  allowedKnowledge: KnowledgeUsed[] = []
+): AgronomicPreAnalysis {
   const riskLevel = normalizeRiskLevel(modelOutput.riskLevel, fallback.riskLevel);
 
   return {
@@ -377,15 +605,18 @@ function normalizePreAnalysis(modelOutput: Partial<AgronomicPreAnalysis>, fallba
         ? modelOutput.whenToCallHumanSpecialist.trim()
         : fallback.whenToCallHumanSpecialist,
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
+    knowledgeUsed: normalizeKnowledgeUsed(modelOutput.knowledgeUsed, allowedKnowledge),
     conversationalAnswer: fallback.conversationalAnswer
   };
 }
 
-export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string): Promise<AgronomicPreAnalysis> {
+export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string, token?: string): Promise<AgronomicPreAnalysis> {
   const fallback = buildFallbackPreAnalysis(caseData, question);
-  const modelText = await callConfiguredAiModel(buildAgronomicPrompt(caseData, question));
+  const specialistKnowledge = token ? await fetchRelevantSpecialistKnowledge(caseData, token, question) : [];
+  const allowedKnowledge = mapKnowledgeUsed(specialistKnowledge);
+  const modelText = await callConfiguredAiModel(buildAgronomicPrompt(caseData, question, specialistKnowledge));
   const parsed = parseModelJson(modelText);
-  return normalizePreAnalysis(parsed, fallback);
+  return normalizePreAnalysis(parsed, fallback, allowedKnowledge);
 }
 
 export async function updateAgronomicCaseWithAnalysis(caseId: string, token: string, analysis: AgronomicPreAnalysis) {
