@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import SectionTitle from "../../components/SectionTitle";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase, AgronomicRiskLevel } from "../../lib/agronomic/case";
@@ -17,6 +17,53 @@ type ReviewForm = {
   reviewText: string;
   technicalRecommendation: string;
   finalObservations: string;
+};
+
+type KnowledgeCategory =
+  | "protocolo"
+  | "artigo"
+  | "aula"
+  | "recomendacao"
+  | "faq"
+  | "caso_pratico"
+  | "manejo"
+  | "solo"
+  | "pragas"
+  | "doencas";
+
+type KnowledgeMaterial = {
+  id: string;
+  title: string | null;
+  category: KnowledgeCategory | null;
+  crop: string | null;
+  content: string | null;
+  file_url: string | null;
+  created_by: string | null;
+  active: boolean | null;
+  created_at: string | null;
+};
+
+type KnowledgeForm = {
+  title: string;
+  category: KnowledgeCategory;
+  crop: string;
+  content: string;
+  file_url: string;
+  active: boolean;
+};
+
+type KnowledgeFilters = {
+  crop: string;
+  category: "" | KnowledgeCategory;
+};
+
+type KnowledgeResponse = {
+  materials: KnowledgeMaterial[];
+  role: "specialist" | "admin";
+};
+
+type KnowledgeMutationResponse = {
+  material: KnowledgeMaterial | null;
 };
 
 const riskLabels: Record<AgronomicRiskLevel, string> = {
@@ -37,6 +84,28 @@ const statusLabels: Record<string, string> = {
   reviewed: "Revisado",
   human_reviewed: "Revisão humana concluída",
   waiting_human_review: "Aguardando especialista"
+};
+
+const knowledgeCategories: Array<{ value: KnowledgeCategory; label: string }> = [
+  { value: "protocolo", label: "Protocolo" },
+  { value: "artigo", label: "Artigo" },
+  { value: "aula", label: "Aula" },
+  { value: "recomendacao", label: "Recomendação" },
+  { value: "faq", label: "FAQ" },
+  { value: "caso_pratico", label: "Caso prático" },
+  { value: "manejo", label: "Manejo" },
+  { value: "solo", label: "Solo" },
+  { value: "pragas", label: "Pragas" },
+  { value: "doencas", label: "Doenças" }
+];
+
+const emptyKnowledgeForm: KnowledgeForm = {
+  title: "",
+  category: "protocolo",
+  crop: "",
+  content: "",
+  file_url: "",
+  active: true
 };
 
 function parseResponse(response: Response) {
@@ -68,6 +137,45 @@ async function submitHumanReview(caseId: string, form: ReviewForm, action: Revie
   return parseResponse(response) as Promise<{ reviewId: string; reportId?: string | null; status: string }>;
 }
 
+async function getKnowledgeMaterials(accessToken: string, filters: KnowledgeFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.crop.trim()) {
+    params.set("crop", filters.crop.trim());
+  }
+
+  if (filters.category) {
+    params.set("category", filters.category);
+  }
+
+  const response = await fetch(`/api/specialist/knowledge${params.toString() ? `?${params.toString()}` : ""}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  return parseResponse(response) as Promise<KnowledgeResponse>;
+}
+
+async function saveKnowledgeMaterial(form: KnowledgeForm, accessToken: string, materialId?: string | null) {
+  const response = await fetch("/api/specialist/knowledge", {
+    method: materialId ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ id: materialId, ...form })
+  });
+
+  return parseResponse(response) as Promise<KnowledgeMutationResponse>;
+}
+
+async function updateKnowledgeStatus(material: KnowledgeMaterial, accessToken: string) {
+  const response = await fetch("/api/specialist/knowledge", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ id: material.id, active: !material.active })
+  });
+
+  return parseResponse(response) as Promise<KnowledgeMutationResponse>;
+}
+
 function displayValue(value?: string | number | null) {
   if (value === null || value === undefined || value === "") {
     return "Não informado";
@@ -94,6 +202,10 @@ function getStatusLabel(status?: string | null) {
   }
 
   return statusLabels[status] ?? status;
+}
+
+function getCategoryLabel(category?: KnowledgeCategory | null) {
+  return knowledgeCategories.find((item) => item.value === category)?.label ?? "Sem categoria";
 }
 
 function buildPendingQuestions(caseData: AgronomicCase) {
@@ -145,6 +257,13 @@ export default function PainelDoutoraPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [form, setForm] = useState<ReviewForm>({ reviewText: "", technicalRecommendation: "", finalObservations: "" });
+  const [knowledgeMaterials, setKnowledgeMaterials] = useState<KnowledgeMaterial[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(true);
+  const [knowledgeSubmitting, setKnowledgeSubmitting] = useState(false);
+  const [knowledgeStatusId, setKnowledgeStatusId] = useState<string | null>(null);
+  const [editingKnowledgeId, setEditingKnowledgeId] = useState<string | null>(null);
+  const [knowledgeForm, setKnowledgeForm] = useState<KnowledgeForm>(emptyKnowledgeForm);
+  const [knowledgeFilters, setKnowledgeFilters] = useState<KnowledgeFilters>({ crop: "", category: "" });
 
   const selectedCase = useMemo(() => cases.find((caseData) => caseData.id === selectedCaseId) ?? cases[0] ?? null, [cases, selectedCaseId]);
   const pendingQuestions = useMemo(() => (selectedCase ? buildPendingQuestions(selectedCase) : []), [selectedCase]);
@@ -164,9 +283,10 @@ export default function PainelDoutoraPage() {
       }
 
       try {
-        const response = await getSpecialistQueue(accessToken);
-        setCases(response.cases);
-        setSelectedCaseId(response.cases[0]?.id ?? null);
+        const [queueResponse, knowledgeResponse] = await Promise.all([getSpecialistQueue(accessToken), getKnowledgeMaterials(accessToken, { crop: "", category: "" })]);
+        setCases(queueResponse.cases);
+        setSelectedCaseId(queueResponse.cases[0]?.id ?? null);
+        setKnowledgeMaterials(knowledgeResponse.materials);
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : "Não foi possível carregar a fila da especialista.";
 
@@ -177,6 +297,7 @@ export default function PainelDoutoraPage() {
         }
       } finally {
         setLoading(false);
+        setKnowledgeLoading(false);
       }
     }
 
@@ -185,6 +306,114 @@ export default function PainelDoutoraPage() {
 
   function updateForm(field: keyof ReviewForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateKnowledgeForm(field: keyof KnowledgeForm, value: string | boolean) {
+    setKnowledgeForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function reloadKnowledge(filters = knowledgeFilters) {
+    const accessToken = getStoredSupabaseAccessToken();
+
+    if (!accessToken) {
+      setAccessDenied(true);
+      return;
+    }
+
+    setKnowledgeLoading(true);
+    setError(null);
+
+    try {
+      const response = await getKnowledgeMaterials(accessToken, filters);
+      setKnowledgeMaterials(response.materials);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar a base de conhecimento.");
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
+  function handleKnowledgeEdit(material: KnowledgeMaterial) {
+    setEditingKnowledgeId(material.id);
+    setKnowledgeForm({
+      title: material.title ?? "",
+      category: material.category ?? "protocolo",
+      crop: material.crop ?? "",
+      content: material.content ?? "",
+      file_url: material.file_url ?? "",
+      active: material.active ?? true
+    });
+  }
+
+  function resetKnowledgeForm() {
+    setEditingKnowledgeId(null);
+    setKnowledgeForm(emptyKnowledgeForm);
+  }
+
+  async function handleKnowledgeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const accessToken = getStoredSupabaseAccessToken();
+
+    if (!accessToken) {
+      setAccessDenied(true);
+      return;
+    }
+
+    setKnowledgeSubmitting(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await saveKnowledgeMaterial(knowledgeForm, accessToken, editingKnowledgeId);
+
+      if (response.material) {
+        setKnowledgeMaterials((current) => {
+          const withoutUpdated = current.filter((material) => material.id !== response.material?.id);
+          return [response.material as KnowledgeMaterial, ...withoutUpdated];
+        });
+      }
+
+      setSuccessMessage(editingKnowledgeId ? "Conteúdo técnico atualizado na base de conhecimento." : "Conteúdo técnico cadastrado na base de conhecimento.");
+      resetKnowledgeForm();
+      await reloadKnowledge();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Não foi possível salvar o conteúdo técnico.");
+    } finally {
+      setKnowledgeSubmitting(false);
+    }
+  }
+
+  async function handleKnowledgeToggle(material: KnowledgeMaterial) {
+    const accessToken = getStoredSupabaseAccessToken();
+
+    if (!accessToken) {
+      setAccessDenied(true);
+      return;
+    }
+
+    setKnowledgeStatusId(material.id);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await updateKnowledgeStatus(material, accessToken);
+
+      if (response.material) {
+        setKnowledgeMaterials((current) => current.map((item) => (item.id === response.material?.id ? (response.material as KnowledgeMaterial) : item)));
+      }
+
+      setSuccessMessage(material.active ? "Conteúdo desativado." : "Conteúdo ativado.");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Não foi possível alterar o status do conteúdo.");
+    } finally {
+      setKnowledgeStatusId(null);
+    }
+  }
+
+  async function handleKnowledgeFilter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await reloadKnowledge(knowledgeFilters);
   }
 
   async function handleReviewAction(action: ReviewAction) {
@@ -264,6 +493,183 @@ export default function PainelDoutoraPage() {
 
           {error && <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-900 shadow-soft">{error}</div>}
           {successMessage && <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900 shadow-soft">{successMessage}</div>}
+
+          <article className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Materiais da especialista</p>
+                <h2 className="mt-2 text-2xl font-bold text-slate-900">Base de Conhecimento</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  Cadastre protocolos, artigos, aulas, FAQs e demais conteúdos técnicos para consulta interna. Embeddings e uso direto pela IA ficarão para uma próxima etapa.
+                </p>
+              </div>
+              {editingKnowledgeId && (
+                <button
+                  type="button"
+                  onClick={resetKnowledgeForm}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar edição
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleKnowledgeSubmit} className="mt-6 grid gap-5 rounded-3xl border border-leaf-100 bg-leaf-50/50 p-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Título</span>
+                  <input
+                    value={knowledgeForm.title}
+                    onChange={(event) => updateKnowledgeForm("title", event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                    placeholder="Ex.: Protocolo de manejo de ferrugem"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Categoria</span>
+                  <select
+                    value={knowledgeForm.category}
+                    onChange={(event) => updateKnowledgeForm("category", event.target.value as KnowledgeCategory)}
+                    className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  >
+                    {knowledgeCategories.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Cultura</span>
+                  <input
+                    value={knowledgeForm.crop}
+                    onChange={(event) => updateKnowledgeForm("crop", event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                    placeholder="Ex.: soja, milho, café"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">URL do arquivo</span>
+                  <input
+                    value={knowledgeForm.file_url}
+                    onChange={(event) => updateKnowledgeForm("file_url", event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                    placeholder="https://..."
+                    type="url"
+                  />
+                </label>
+              </div>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">Conteúdo técnico</span>
+                <textarea
+                  value={knowledgeForm.content}
+                  onChange={(event) => updateKnowledgeForm("content", event.target.value)}
+                  rows={6}
+                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  placeholder="Cole ou descreva o conteúdo técnico que deve ficar disponível na base."
+                />
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={knowledgeForm.active}
+                    onChange={(event) => updateKnowledgeForm("active", event.target.checked)}
+                    className="h-4 w-4 rounded border-leaf-300 text-leaf-600 focus:ring-leaf-500"
+                  />
+                  Conteúdo ativo
+                </label>
+                <button
+                  type="submit"
+                  disabled={knowledgeSubmitting}
+                  className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {knowledgeSubmitting ? "Salvando..." : editingKnowledgeId ? "Atualizar conteúdo" : "Cadastrar conteúdo"}
+                </button>
+              </div>
+            </form>
+
+            <form onSubmit={handleKnowledgeFilter} className="mt-6 grid gap-4 rounded-3xl border border-slate-100 bg-slate-50 p-5 md:grid-cols-[1fr_1fr_auto] md:items-end">
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">Filtrar por cultura</span>
+                <input
+                  value={knowledgeFilters.crop}
+                  onChange={(event) => setKnowledgeFilters((current) => ({ ...current, crop: event.target.value }))}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  placeholder="Digite uma cultura"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">Filtrar por categoria</span>
+                <select
+                  value={knowledgeFilters.category}
+                  onChange={(event) => setKnowledgeFilters((current) => ({ ...current, category: event.target.value as KnowledgeFilters["category"] }))}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                >
+                  <option value="">Todas</option>
+                  {knowledgeCategories.map((category) => (
+                    <option key={category.value} value={category.value}>
+                      {category.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-800">
+                Aplicar filtros
+              </button>
+            </form>
+
+            <div className="mt-6 space-y-4">
+              {knowledgeLoading ? (
+                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-slate-600">Carregando conteúdos técnicos...</div>
+              ) : knowledgeMaterials.length === 0 ? (
+                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-slate-600">Nenhum conteúdo encontrado para os filtros selecionados.</div>
+              ) : (
+                knowledgeMaterials.map((material) => (
+                  <div key={material.id} className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full bg-leaf-100 px-3 py-1 text-xs font-semibold text-leaf-800">{getCategoryLabel(material.category)}</span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{material.crop || "Cultura geral"}</span>
+                          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${material.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
+                            {material.active ? "Ativo" : "Inativo"}
+                          </span>
+                        </div>
+                        <h3 className="mt-3 text-lg font-semibold text-slate-900">{material.title || "Sem título"}</h3>
+                        <p className="mt-2 text-xs text-slate-500">Criado em {formatDate(material.created_at)}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleKnowledgeEdit(material)}
+                          className="rounded-full border border-leaf-200 px-4 py-2 text-xs font-semibold text-leaf-700 hover:bg-leaf-50"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleKnowledgeToggle(material)}
+                          disabled={knowledgeStatusId === material.id}
+                          className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {knowledgeStatusId === material.id ? "Alterando..." : material.active ? "Desativar" : "Ativar"}
+                        </button>
+                      </div>
+                    </div>
+                    {material.content && <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-slate-700">{material.content}</p>}
+                    {material.file_url && (
+                      <a href={material.file_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-full bg-leaf-600 px-4 py-2 text-xs font-semibold text-white hover:bg-leaf-700">
+                        Abrir arquivo
+                      </a>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
+
           {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando casos aguardando revisão...</div>}
 
           {!loading && cases.length === 0 && (
