@@ -6,7 +6,7 @@ values
     'gratuito',
     0,
     'free',
-    '["2 perguntas agrícolas por mês", "1 triagem simples com imagem", "recomendação agrícola básica", "sem PDF", "sem histórico", "sem análise de solo", "sem revisão humana"]'::jsonb,
+    '["3 perguntas agrícolas por mês", "1 triagem simples por mês", "recomendação agrícola básica", "sem relatório PDF completo", "sem histórico", "sem análise de solo", "sem revisão humana incluída"]'::jsonb,
     true
   ),
   (

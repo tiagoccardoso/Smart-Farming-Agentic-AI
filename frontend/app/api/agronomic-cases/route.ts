@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature } from "../../../lib/billing/check-plan-limits";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -299,6 +300,15 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await getAuthenticatedUser(token, config);
+
+    if (photoFiles.length > 0) {
+      await assertPlanFeature(user.id, "photo_upload");
+    }
+
+    if (isFile(soilAnalysis)) {
+      await assertPlanFeature(user.id, "soil_analysis_upload");
+    }
+
     const farmName = optionalText(formData, "farmName");
     const city = optionalText(formData, "city");
     const areaHectares = optionalNumber(formData, "areaHectares");
@@ -390,6 +400,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ caseId: createdCase.id });
   } catch (error) {
+    if (error instanceof PlanFeatureUnavailableError) {
+      return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
+    }
+
     const message = error instanceof Error ? error.message : "Não foi possível salvar o caso agronômico.";
     const status = error instanceof FriendlyRequestError ? error.status : 500;
     return NextResponse.json({ error: message }, { status });
