@@ -1,0 +1,1 @@
+export const HUMAN_REVIEW_SUPPORT_PROMPT = `Organize o caso para revisão humana por especialista. Destaque: resumo do problema, dados confiáveis, lacunas, pontos de atenção, risco econômico, anexos necessários e decisões que não devem ser automatizadas.`;
