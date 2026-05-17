@@ -1,3 +1,8 @@
+import {
+  AGRONOMIC_AI_DISCLAIMER,
+  buildAgronomicConsultingPrompt
+} from "../prompts/agronomic-consulting";
+
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -59,8 +64,6 @@ type AuthenticatedUser = {
   id: string;
 };
 
-const AGRONOMIC_AI_DISCLAIMER =
-  "Esta é uma orientação inicial gerada por IA e não substitui a avaliação de um profissional habilitado.";
 
 export function getSupabaseConfig(): SupabaseConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -243,50 +246,24 @@ function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): A
 
 function buildAgronomicPrompt(caseData: AgronomicCase, question?: string) {
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
-  const farmName = caseData.farm?.name || "não informada";
   const area = caseData.farm?.area_hectares ? `${caseData.farm.area_hectares} ha` : "não informada";
   const soilType = caseData.farm?.soil_type || "não informado";
   const images = caseData.images.length
     ? caseData.images.map((image, index) => `${index + 1}. ${image.image_url} (${image.image_type ?? "tipo não informado"})`).join("\n")
-    : "Nenhuma imagem anexada.";
-  const optionalQuestion = question?.trim() ? `\nPergunta complementar do usuário: ${question.trim()}` : "";
+    : "Nenhuma foto anexada.";
 
-  return `Você é um assistente de triagem agronômica inicial. Analise o caso com linguagem simples em português do Brasil.
-
-Dados do caso:
-- Cultura: ${caseData.crop || "não informada"}
-- Estádio de desenvolvimento: ${caseData.growth_stage || "não informado"}
-- Sintomas observados: ${caseData.symptoms || "não informado"}
-- Histórico de manejo: ${caseData.history || "não informado"}
-- Fazenda: ${farmName}
-- Localização: ${location}
-- Área: ${area}
-- Tipo de solo: ${soilType}
-- Análise de solo anexada: ${caseData.soil_analysis_url ? "sim" : "não"}
-- Imagens relacionadas:
-${images}${optionalQuestion}
-
-Regras obrigatórias:
-- Retorne somente JSON válido, sem markdown.
-- Não indique dosagem exata de defensivos.
-- Não recomende aplicação de produto controlado sem avaliação profissional.
-- Não emita laudo, parecer conclusivo ou diagnóstico definitivo.
-- Use linguagem simples.
-- Classifique riskLevel somente como "low", "medium" ou "high".
-- Use "low" para sintomas leves, informação suficiente e baixo impacto imediato.
-- Use "medium" para incerteza relevante ou possibilidade de perda.
-- Use "high" para risco de perda econômica, praga/doença agressiva, sintomas severos ou falta de dados críticos.
-
-Formato obrigatório:
-{
-  "initialDiagnosis": "",
-  "probableHypotheses": [],
-  "missingQuestions": [],
-  "riskLevel": "low | medium | high",
-  "initialRecommendation": "",
-  "whenToCallHumanSpecialist": "",
-  "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
-}`;
+  return buildAgronomicConsultingPrompt({
+    cultura: caseData.crop || "não informada",
+    localizacao: location,
+    area,
+    tipoDeSolo: soilType,
+    sintomas: caseData.symptoms || "não informado",
+    estagioDaCultura: caseData.growth_stage || "não informado",
+    historico: caseData.history || "não informado",
+    analiseDeSolo: caseData.soil_analysis_url ? `Disponível em ${caseData.soil_analysis_url}` : "não informada",
+    fotosDisponiveis: images,
+    perguntaComplementar: question
+  });
 }
 
 function getConfiguredAiModel() {
