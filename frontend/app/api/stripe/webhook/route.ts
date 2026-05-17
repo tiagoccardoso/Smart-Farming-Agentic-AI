@@ -7,6 +7,16 @@ import {
   isHumanReviewServiceType,
   supabaseAdminRequest
 } from "../../../../lib/stripe/humanReview";
+import {
+  Plan,
+  StripeSubscription,
+  StripeSubscriptionCheckoutSession,
+  getStripeCustomerId,
+  getStripeSubscriptionId,
+  stripeRequest,
+  stripeTimestampToIso,
+  upsertSubscriptionRecord
+} from "../../../../lib/stripe/subscription";
 
 export const runtime = "nodejs";
 
@@ -14,7 +24,7 @@ type StripeEvent = {
   id?: string;
   type?: string;
   data?: {
-    object?: StripeCheckoutSession;
+    object?: StripeCheckoutSession | StripeSubscriptionCheckoutSession | StripeSubscription;
   };
 };
 
@@ -56,6 +66,68 @@ function verifyStripeSignature(payload: string, signatureHeader: string, webhook
 
 function getMetadataValue(metadata: Record<string, string | undefined> | null | undefined, camelKey: string, snakeKey: string) {
   return metadata?.[camelKey] || metadata?.[snakeKey] || null;
+}
+
+
+function getStripeMetadataValue(metadata: Record<string, string | undefined> | null | undefined, camelKey: string, snakeKey: string) {
+  return metadata?.[camelKey] || metadata?.[snakeKey] || null;
+}
+
+async function findPlanForSubscription(subscription: StripeSubscription, fallbackMetadata?: Record<string, string | undefined> | null) {
+  const planId = getStripeMetadataValue(subscription.metadata, "planId", "plan_id") || getStripeMetadataValue(fallbackMetadata, "planId", "plan_id");
+  const planSlug = getStripeMetadataValue(subscription.metadata, "planSlug", "plan_slug") || getStripeMetadataValue(fallbackMetadata, "planSlug", "plan_slug");
+  const priceId = subscription.items?.data?.find((item) => item.price?.id)?.price?.id;
+
+  const filters = [
+    planId ? `id=eq.${encodeURIComponent(planId)}` : null,
+    planSlug ? `slug=eq.${encodeURIComponent(planSlug)}` : null,
+    priceId ? `stripe_price_id=eq.${encodeURIComponent(priceId)}` : null
+  ].filter(Boolean);
+
+  if (filters.length === 0) {
+    return null;
+  }
+
+  const plans = await supabaseAdminRequest<Plan[]>(
+    `/rest/v1/plans?or=(${filters.join(",")})&select=id,slug,name,price_cents,billing_type,stripe_price_id,active&limit=1`,
+    { method: "GET" }
+  );
+
+  return plans[0] ?? null;
+}
+
+async function handleSubscriptionChange(subscription: StripeSubscription, fallbackMetadata?: Record<string, string | undefined> | null) {
+  const userId = getStripeMetadataValue(subscription.metadata, "userId", "user_id") || getStripeMetadataValue(fallbackMetadata, "userId", "user_id");
+  const stripeCustomerId = getStripeCustomerId(subscription);
+  const stripeSubscriptionId = subscription.id;
+  const plan = await findPlanForSubscription(subscription, fallbackMetadata);
+
+  if (!userId || !stripeCustomerId || !stripeSubscriptionId || !plan) {
+    return { updated: false, reason: "missing_subscription_metadata" };
+  }
+
+  const subscriptionId = await upsertSubscriptionRecord({
+    userId,
+    planId: plan.id,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    status: subscription.status || "unknown",
+    currentPeriodEnd: stripeTimestampToIso(subscription.current_period_end)
+  });
+
+  return { updated: true, subscriptionId, userId, planId: plan.id, planSlug: plan.slug, stripeSubscriptionId };
+}
+
+async function handleSubscriptionCheckoutCompleted(session: StripeSubscriptionCheckoutSession) {
+  const stripeSubscriptionId = getStripeSubscriptionId(session);
+
+  if (!stripeSubscriptionId) {
+    return { updated: false, reason: "missing_stripe_subscription_id" };
+  }
+
+  const subscription = await stripeRequest<StripeSubscription>(`/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`, { method: "GET" });
+
+  return handleSubscriptionChange(subscription, session.metadata);
 }
 
 async function updateCaseAfterPayment(caseId: string | null | undefined, serviceType: string | null | undefined) {
@@ -155,24 +227,35 @@ export async function POST(request: NextRequest) {
     }
 
     const event = JSON.parse(payload) as StripeEvent;
+    const stripeObject = event.data?.object;
 
-    if (event.type !== "checkout.session.completed") {
-      return NextResponse.json({ received: true, ignored: true });
+    if (!stripeObject) {
+      return NextResponse.json({ error: "Objeto do Stripe ausente no webhook." }, { status: 400 });
     }
 
-    const session = event.data?.object;
+    if (event.type === "checkout.session.completed") {
+      const session = stripeObject as StripeCheckoutSession & StripeSubscriptionCheckoutSession;
 
-    if (!session) {
-      return NextResponse.json({ error: "Sessão do Stripe ausente no webhook." }, { status: 400 });
+      if (session.mode === "subscription") {
+        const result = await handleSubscriptionCheckoutCompleted(session);
+        return NextResponse.json({ received: true, ...result });
+      }
+
+      if (session.payment_status && session.payment_status !== "paid") {
+        return NextResponse.json({ received: true, ignored: true, reason: "payment_not_paid" });
+      }
+
+      const result = await markHumanReviewOrderAsPaid(session);
+
+      return NextResponse.json({ received: true, ...result });
     }
 
-    if (session.payment_status && session.payment_status !== "paid") {
-      return NextResponse.json({ received: true, ignored: true, reason: "payment_not_paid" });
+    if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+      const result = await handleSubscriptionChange(stripeObject as StripeSubscription);
+      return NextResponse.json({ received: true, ...result });
     }
 
-    const result = await markHumanReviewOrderAsPaid(session);
-
-    return NextResponse.json({ received: true, ...result });
+    return NextResponse.json({ received: true, ignored: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível processar o webhook do Stripe.";
     return NextResponse.json({ error: message }, { status: 500 });
