@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import SectionTitle from "../../components/SectionTitle";
+import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
+import LoadingCard from "../../components/agronomic/LoadingCard";
+import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
-import type { AgronomicCase, AgronomicRiskLevel } from "../../lib/agronomic/case";
+import type { AgronomicCase } from "../../lib/agronomic/case";
 
 type SpecialistQueueResponse = {
   cases: AgronomicCase[];
@@ -64,18 +67,6 @@ type KnowledgeResponse = {
 
 type KnowledgeMutationResponse = {
   material: KnowledgeMaterial | null;
-};
-
-const riskLabels: Record<AgronomicRiskLevel, string> = {
-  low: "baixo",
-  medium: "médio",
-  high: "alto"
-};
-
-const riskStyles: Record<AgronomicRiskLevel, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  medium: "border-amber-200 bg-amber-50 text-amber-800",
-  high: "border-red-200 bg-red-50 text-red-800"
 };
 
 const statusLabels: Record<string, string> = {
@@ -481,6 +472,16 @@ export default function PainelDoutoraPage() {
 
       {!accessDenied && (
         <>
+          <WorkflowStepper
+            className="mt-8"
+            steps={[
+              { title: "Pagamento aprovado", description: "Caso entra na fila técnica.", status: "done" },
+              { title: "Painel da Doutora", description: "Especialista revisa dados e IA.", status: "current" },
+              { title: "Finalizar análise", description: "Parecer técnico e recomendações.", status: "next" },
+              { title: "Meus Relatórios", description: "Usuário acessa o resultado final.", status: "next" }
+            ]}
+          />
+
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {metrics.map((metric) => (
               <article key={metric.label} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
@@ -670,12 +671,13 @@ export default function PainelDoutoraPage() {
             </div>
           </article>
 
-          {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando casos aguardando revisão...</div>}
+          {loading && <div className="mt-8"><LoadingCard title="Carregando fila da Doutora" description="Buscando casos pagos e pendentes de revisão humana." rows={4} /></div>}
 
           {!loading && cases.length === 0 && (
             <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-8 text-center shadow-soft">
-              <h2 className="text-xl font-semibold text-slate-900">Nenhum caso aguardando revisão</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Quando um pagamento for confirmado, o caso aparecerá aqui com status waiting_review.</p>
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-leaf-50 text-2xl" aria-hidden>🩺</div>
+              <h2 className="mt-5 text-xl font-semibold text-slate-900">Nenhum caso aguardando revisão</h2>
+              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">Quando o usuário pagar uma revisão, o caso aparecerá aqui com status de fila e orientações para finalizar a análise.</p>
             </div>
           )}
 
@@ -698,11 +700,11 @@ export default function PainelDoutoraPage() {
                           <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">{caseData.crop}</p>
                           <h2 className="mt-1 text-lg font-semibold text-slate-900">{formatLocation(caseData)}</h2>
                         </div>
-                        {riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${riskStyles[riskLevel]}`}>Risco {riskLabels[riskLevel]}</span>}
+                        <RiskBadge riskLevel={riskLevel} />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm text-slate-600">
                         <span>Envio: {formatDate(caseData.created_at)}</span>
-                        <span>Status: {getStatusLabel(caseData.human_review_status)}</span>
+                        <span className="inline-flex"><StatusBadge status={caseData.human_review_status} label={getStatusLabel(caseData.human_review_status)} /></span>
                       </div>
                     </button>
                   );
@@ -828,7 +830,7 @@ export default function PainelDoutoraPage() {
                         disabled={Boolean(submitting)}
                         className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-semibold text-leaf-700 hover:bg-leaf-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {submitting === "draft" ? "Salvando..." : "Salvar rascunho"}
+                        {submitting === "draft" ? "Salvando rascunho..." : "Salvar rascunho"}
                       </button>
                       <button
                         type="button"
@@ -836,7 +838,7 @@ export default function PainelDoutoraPage() {
                         disabled={Boolean(submitting)}
                         className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                       >
-                        {submitting === "finalize" ? "Finalizando..." : "Finalizar revisão"}
+                        {submitting === "finalize" ? "Finalizando análise..." : "Finalizar análise"}
                       </button>
                       <button
                         type="button"
@@ -844,7 +846,7 @@ export default function PainelDoutoraPage() {
                         disabled={Boolean(submitting)}
                         className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                       >
-                        {submitting === "generate_report" ? "Preparando..." : "Gerar relatório final"}
+                        {submitting === "generate_report" ? "Preparando relatório..." : "Finalizar e gerar relatório"}
                       </button>
                     </div>
                   </article>

@@ -5,9 +5,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
+import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
+import LoadingCard from "../../components/agronomic/LoadingCard";
+import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import { getAgronomicCase, requestHumanReviewCheckout } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
-import type { AgronomicCase, AgronomicRiskLevel } from "../../lib/agronomic/case";
+import type { AgronomicCase } from "../../lib/agronomic/case";
 
 const benefits = [
   "Análise personalizada",
@@ -16,17 +19,6 @@ const benefits = [
   "Relatório final revisado"
 ];
 
-const riskLabels: Record<AgronomicRiskLevel, string> = {
-  low: "baixo",
-  medium: "médio",
-  high: "alto"
-};
-
-const riskStyles: Record<AgronomicRiskLevel, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  medium: "border-amber-200 bg-amber-50 text-amber-800",
-  high: "border-red-200 bg-red-50 text-red-800"
-};
 
 function getHumanReviewPriceCents() {
   const configuredPrice = Number(process.env.NEXT_PUBLIC_HUMAN_REVIEW_PRICE_CENTS);
@@ -154,6 +146,17 @@ function RevisaoHumanaContent() {
         <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />
       </div>
 
+      <WorkflowStepper
+        className="mt-8"
+        steps={[
+          { title: "Enviar caso", description: "Caso salvo com sintomas e anexos.", href: "/enviar-caso", status: caseData ? "done" : "next" },
+          { title: "Pré-análise IA", description: "Risco identificado antes do pagamento.", href: caseId ? `/consultoria-ia?caseId=${encodeURIComponent(caseId)}` : "/consultoria-ia", status: caseData?.ai_summary ? "done" : "next" },
+          { title: "Pagar revisão", description: "Confirme a revisão humana especializada.", status: alreadyRequested ? "done" : "current" },
+          { title: "Painel da Doutora", description: "Especialista finaliza o parecer.", status: alreadyRequested ? "current" : "next" },
+          { title: "Meus relatórios", description: "Relatório final aparece para o usuário.", href: "/meus-relatorios", status: "next" }
+        ]}
+      />
+
       {!caseId && (
         <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-900 shadow-soft">
           <h3 className="font-semibold">caseId não informado</h3>
@@ -166,7 +169,7 @@ function RevisaoHumanaContent() {
 
       {error && <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-soft">{error}</div>}
       {successMessage && <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800 shadow-soft">{successMessage}</div>}
-      {loadingCase && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando dados do caso...</div>}
+      {loadingCase && <div className="mt-8"><LoadingCard title="Carregando caso para revisão" description="Buscando status, risco e pré-análise antes de liberar o pagamento." rows={4} /></div>}
 
       {caseData && (
         <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
@@ -177,7 +180,7 @@ function RevisaoHumanaContent() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Caso agronômico</p>
                   <h3 className="mt-2 text-2xl font-semibold text-slate-900">{caseData.crop}</h3>
                 </div>
-                <span className="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">{caseData.status ?? "sem status"}</span>
+                <StatusBadge status={caseData.status} label={caseData.status ?? "Sem status"} />
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -199,7 +202,7 @@ function RevisaoHumanaContent() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Resumo da IA</p>
                   <h3 className="mt-2 text-2xl font-semibold text-slate-900">Pré-análise registrada</h3>
                 </div>
-                {riskLevel && <span className={`rounded-full border px-4 py-2 text-sm font-semibold ${riskStyles[riskLevel]}`}>Risco {riskLabels[riskLevel]}</span>}
+                <RiskBadge riskLevel={riskLevel} />
               </div>
 
               {caseData.ai_summary || caseData.ai_recommendation ? (
@@ -260,7 +263,7 @@ function RevisaoHumanaContent() {
               disabled={requesting || !caseData.ai_summary}
               className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {requesting ? "Criando ordem..." : "Solicitar revisão humana"}
+              {requesting ? "Abrindo pagamento..." : "Pagar revisão humana"}
             </button>
 
             <p className="mt-4 text-xs leading-5 text-slate-500">
