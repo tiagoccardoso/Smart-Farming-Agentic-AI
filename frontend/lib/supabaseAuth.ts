@@ -14,7 +14,11 @@ async function parseAuthResponse(response: Response) {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.message || "A autenticação não pôde ser concluída.");
+    throw new Error(
+      payload?.error ||
+        payload?.message ||
+        "A autenticação não pôde ser concluída.",
+    );
   }
 
   return payload as AuthSessionPayload;
@@ -35,14 +39,16 @@ export function getStoredSupabaseAccessToken() {
   const projectRef = url?.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
   const preferredKeys = [
     projectRef ? `sb-${projectRef}-auth-token` : null,
-    "supabase.auth.token"
+    "supabase.auth.token",
   ].filter(Boolean) as string[];
 
   const keys = [
     ...preferredKeys,
-    ...Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index)).filter(
-      (key): key is string => Boolean(key?.startsWith("sb-") && key.endsWith("-auth-token"))
-    )
+    ...Array.from({ length: window.localStorage.length }, (_, index) =>
+      window.localStorage.key(index),
+    ).filter((key): key is string =>
+      Boolean(key?.startsWith("sb-") && key.endsWith("-auth-token")),
+    ),
   ];
 
   for (const key of keys) {
@@ -54,7 +60,10 @@ export function getStoredSupabaseAccessToken() {
 
     try {
       const parsed = JSON.parse(rawValue);
-      const token = parsed?.access_token ?? parsed?.currentSession?.access_token ?? parsed?.session?.access_token;
+      const token =
+        parsed?.access_token ??
+        parsed?.currentSession?.access_token ??
+        parsed?.session?.access_token;
 
       if (typeof token === "string" && token.length > 0) {
         return token;
@@ -74,10 +83,16 @@ export function storeSupabaseSession(payload: AuthSessionPayload) {
     return;
   }
 
-  window.localStorage.setItem("smart-farming-access-token", payload.access_token);
+  window.localStorage.setItem(
+    "smart-farming-access-token",
+    payload.access_token,
+  );
 
   if (payload.refresh_token) {
-    window.localStorage.setItem("smart-farming-refresh-token", payload.refresh_token);
+    window.localStorage.setItem(
+      "smart-farming-refresh-token",
+      payload.refresh_token,
+    );
   }
 }
 
@@ -94,18 +109,41 @@ export async function loginWithEmailPassword(email: string, password: string) {
   const response = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify({ email, password }),
   });
   const payload = await parseAuthResponse(response);
   storeSupabaseSession(payload);
   return payload;
 }
 
-export async function registerWithEmailPassword(data: { fullName: string; email: string; password: string; phone: string }) {
+export async function requestPasswordRecovery(email: string) {
+  const response = await fetch("/api/auth/recover-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error || "Não foi possível enviar a recuperação de senha.",
+    );
+  }
+
+  return payload as { message?: string };
+}
+
+export async function registerWithEmailPassword(data: {
+  fullName: string;
+  email: string;
+  password: string;
+  phone: string;
+}) {
   const response = await fetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
   });
   const payload = await parseAuthResponse(response);
   storeSupabaseSession(payload);
