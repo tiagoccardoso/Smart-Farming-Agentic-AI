@@ -1,3 +1,4 @@
+import { areEmbeddingsConfigured, generateEmbeddingIfConfigured } from "../ai/embeddings";
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -71,9 +72,10 @@ type SpecialistKnowledgeMaterial = {
   category: string | null;
   crop: string | null;
   content: string | null;
-  file_url: string | null;
-  active: boolean | null;
-  created_at: string | null;
+  file_url?: string | null;
+  active?: boolean | null;
+  created_at?: string | null;
+  similarity?: number | null;
 };
 
 type RankedKnowledgeMaterial = SpecialistKnowledgeMaterial & {
@@ -194,6 +196,57 @@ function sanitizePostgrestPattern(value: string) {
   return value.replace(/[(),*]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+
+function buildCaseEmbeddingText(caseData: AgronomicCase, question?: string) {
+  return [
+    `Cultura: ${caseData.crop || "não informada"}`,
+    caseData.growth_stage ? `Estádio: ${caseData.growth_stage}` : null,
+    caseData.symptoms ? `Sintomas: ${caseData.symptoms}` : null,
+    caseData.history ? `Histórico de manejo: ${caseData.history}` : null,
+    caseData.farm?.soil_type ? `Tipo de solo: ${caseData.farm.soil_type}` : null,
+    caseData.farm?.city || caseData.farm?.state ? `Localização: ${[caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/")}` : null,
+    question?.trim() ? `Pergunta complementar: ${question.trim()}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function normalizeVectorForRpc(embedding: number[]) {
+  return `[${embedding.join(",")}]`;
+}
+
+function prepareSemanticKnowledge(materials: SpecialistKnowledgeMaterial[]) {
+  let usedChars = 0;
+  const selected: RankedKnowledgeMaterial[] = [];
+
+  const ranked = materials
+    .filter((material) => material.title?.trim() && sanitizeKnowledgeContent(material.content).length > 0)
+    .map((material) => ({
+      ...material,
+      relevanceScore: typeof material.similarity === "number" ? material.similarity : 0,
+      excerpt: excerptKnowledgeContent(sanitizeKnowledgeContent(material.content))
+    }))
+    .filter((material) => material.relevanceScore > 0)
+    .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  for (const material of ranked) {
+    if (selected.length >= KNOWLEDGE_MAX_ITEMS) {
+      break;
+    }
+
+    const entrySize = material.excerpt.length + (material.title?.length ?? 0) + (material.category?.length ?? 0) + 120;
+
+    if (usedChars + entrySize > KNOWLEDGE_CONTEXT_MAX_CHARS) {
+      continue;
+    }
+
+    selected.push(material);
+    usedChars += entrySize;
+  }
+
+  return selected;
+}
+
 function buildKnowledgeSelectPath(caseData: AgronomicCase) {
   const filters = [
     "select=id,title,category,crop,content,file_url,active,created_at",
@@ -245,19 +298,62 @@ function selectRelevantKnowledge(materials: SpecialistKnowledgeMaterial[], caseD
   return selected;
 }
 
-export async function fetchRelevantSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+async function fetchSemanticSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+  if (!areEmbeddingsConfigured()) {
+    return null;
+  }
+
+  const embedding = await generateEmbeddingIfConfigured(buildCaseEmbeddingText(caseData, question));
+
+  if (!embedding) {
+    return null;
+  }
+
   const config = getSupabaseConfig();
   const serverCredentials = getSupabaseServerCredentials(token, config);
+  const materials = await supabaseRequest<SpecialistKnowledgeMaterial[]>(
+    "/rest/v1/rpc/match_specialist_knowledge",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        query_embedding: normalizeVectorForRpc(embedding),
+        match_count: KNOWLEDGE_MAX_ITEMS,
+        crop_filter: caseData.crop || null
+      })
+    },
+    serverCredentials.token,
+    serverCredentials.config
+  );
+
+  return prepareSemanticKnowledge(Array.isArray(materials) ? materials : []);
+}
+
+async function fetchFallbackSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+  const config = getSupabaseConfig();
+  const serverCredentials = getSupabaseServerCredentials(token, config);
+  const materials = await supabaseRequest<SpecialistKnowledgeMaterial[]>(
+    buildKnowledgeSelectPath(caseData),
+    { method: "GET" },
+    serverCredentials.token,
+    serverCredentials.config
+  );
+
+  return selectRelevantKnowledge(Array.isArray(materials) ? materials : [], caseData, question);
+}
+
+export async function fetchRelevantSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+  try {
+    const semanticMaterials = await fetchSemanticSpecialistKnowledge(caseData, token, question);
+
+    if (semanticMaterials) {
+      return semanticMaterials;
+    }
+  } catch (error) {
+    console.warn("Não foi possível usar embeddings para consultar specialist_knowledge; usando busca simples.", error);
+  }
 
   try {
-    const materials = await supabaseRequest<SpecialistKnowledgeMaterial[]>(
-      buildKnowledgeSelectPath(caseData),
-      { method: "GET" },
-      serverCredentials.token,
-      serverCredentials.config
-    );
-
-    return selectRelevantKnowledge(Array.isArray(materials) ? materials : [], caseData, question);
+    return await fetchFallbackSpecialistKnowledge(caseData, token, question);
   } catch (error) {
     console.warn("Não foi possível carregar a base specialist_knowledge para a análise agronômica.", error);
     return [];
