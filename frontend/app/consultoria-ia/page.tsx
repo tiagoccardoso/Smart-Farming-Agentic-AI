@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
+import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { analyzeAgronomicCase, getAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase, AgronomicPreAnalysis, AgronomicRiskLevel } from "../../lib/agronomic/case";
@@ -181,6 +182,7 @@ function ConsultoriaIAContent() {
             <p className="text-sm leading-6 text-slate-600">
               A IA organiza os dados do caso para uma triagem inicial. Ela sempre deve ser usada como apoio preliminar, não como substituta de diagnóstico ou revisão profissional.
             </p>
+            <SafetyDisclaimer className="mt-5" />
 
             {!caseId && (
               <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">

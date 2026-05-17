@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
+import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { getAgronomicCase, requestHumanReviewCheckout } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase, AgronomicRiskLevel } from "../../lib/agronomic/case";
@@ -150,6 +151,7 @@ function RevisaoHumanaContent() {
         <p className="max-w-3xl text-base leading-7 text-slate-700">
           Informe um caso pela URL, revise o resumo da pré-análise e solicite a avaliação de uma Doutora em Agronomia antes de decisões de manejo sensíveis.
         </p>
+        <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />
       </div>
 
       {!caseId && (

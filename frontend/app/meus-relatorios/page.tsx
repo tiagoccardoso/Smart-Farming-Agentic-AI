@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import SectionTitle from "../../components/SectionTitle";
+import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { getAgronomicCases } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicFarm, AgronomicRiskLevel } from "../../lib/agronomic/case";
@@ -183,6 +184,9 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
   const hasHumanReview = hasCompletedHumanReview(caseItem);
   const hasPdfReport = Boolean(caseItem.latestReport?.report_url);
   const reportInPreparation = Boolean(caseItem.latestReport && !caseItem.latestReport.report_url);
+  const reportResponsibilityLabel = hasHumanReview
+    ? "Relatório revisado por especialista habilitado."
+    : "Orientação inicial automatizada, sem revisão humana.";
 
   return (
     <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
@@ -193,6 +197,10 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
             {riskLevel ? <Pill className={`border ${riskStyles[riskLevel]}`}>Risco {riskLabels[riskLevel]}</Pill> : <Pill className="bg-slate-100 text-slate-600">Risco não definido</Pill>}
           </div>
           <h3 className="mt-4 text-2xl font-semibold text-slate-900">{caseItem.crop || "Cultura não informada"}</h3>
+          <div className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${hasHumanReview ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            <p className="font-semibold">{reportResponsibilityLabel}</p>
+            {!hasHumanReview && <p className="mt-1">Solicite revisão humana antes de usar este conteúdo como base para decisões técnicas, defensivos ou recomendações com responsabilidade profissional.</p>}
+          </div>
           <dl className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt className="font-semibold text-slate-900">Propriedade</dt>
@@ -245,6 +253,7 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
         <div id={`revisao-${caseItem.id}`} className="mt-6 rounded-2xl border border-leaf-100 bg-leaf-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h4 className="font-semibold text-slate-900">Revisão humana mais recente</h4>
+            <p className="basis-full text-sm leading-6 text-leaf-900">Este relatório foi revisado por especialista e complementa a triagem automatizada inicial.</p>
             <Pill className="bg-white text-leaf-700">{getHumanReviewStatusLabel(caseItem.latestHumanReview.status)}</Pill>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -304,6 +313,7 @@ export default function MeusRelatoriosPage() {
         <p className="max-w-3xl text-base leading-7 text-slate-700">
           Veja o andamento de cada caso agronômico enviado, filtre por etapa e acesse rapidamente a análise da IA, a solicitação de revisão humana e o download do relatório quando estiver disponível.
         </p>
+        <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />
       </div>
 
       <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-4 shadow-soft">

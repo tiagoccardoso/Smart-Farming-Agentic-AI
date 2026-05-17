@@ -84,7 +84,9 @@ type RankedKnowledgeMaterial = SpecialistKnowledgeMaterial & {
 };
 
 const AGRONOMIC_AI_DISCLAIMER =
-  "Esta é uma orientação inicial gerada por IA e não substitui a avaliação de um profissional habilitado.";
+  "As orientações geradas por IA são informativas e não substituem a avaliação de um profissional habilitado. Para decisões técnicas, aplicações de defensivos, laudos ou recomendações com responsabilidade profissional, solicite revisão humana.";
+const EXACT_PESTICIDE_DOSAGE_WARNING =
+  "Não posso indicar dosagem exata de defensivos. Consulte o rótulo/bula, a legislação aplicável e um responsável técnico habilitado antes de qualquer aplicação.";
 const KNOWLEDGE_CATEGORY_PRIORITY = ["protocolo", "recomendacao", "manejo", "pragas", "doencas", "solo"];
 const KNOWLEDGE_CONTEXT_MAX_CHARS = 6000;
 const KNOWLEDGE_ITEM_MAX_CHARS = 1200;
@@ -554,9 +556,10 @@ ${allowedKnowledgeSources}
 
 Regras obrigatórias:
 - Retorne somente JSON válido, sem markdown.
-- Não indique dosagem exata de defensivos.
-- Não recomende aplicação de produto controlado sem avaliação profissional.
+- Não indique dosagem exata de defensivos, taxa por hectare, calda, concentração ou quantidade por planta.
+- Não recomende aplicação de produto controlado sem avaliação profissional e sem responsável técnico.
 - Não emita laudo, parecer conclusivo ou diagnóstico definitivo.
+- Não se apresente como responsável técnico e não substitua engenheiro agrônomo, consultor habilitado ou outro profissional competente.
 - Use linguagem simples.
 - Use a base specialist_knowledge apenas quando ela for relevante para o caso.
 - Não invente fontes: preencha knowledgeUsed somente com títulos e categorias listados em "Fontes permitidas em knowledgeUsed".
@@ -642,12 +645,29 @@ function parseModelJson(text: string) {
   return JSON.parse(jsonText) as Partial<AgronomicPreAnalysis>;
 }
 
+function sanitizeAiSafetyText(value: string) {
+  const exactDosagePattern = /\b\d+(?:[,.]\d+)?\s*(?:m\s*l|ml|l|litros?|g|gramas?|kg|quilos?)\s*(?:\/|por)\s*(?:ha|hectare|hectares|planta|plantas|litro|litros|l)\b/gi;
+  const sanitized = value.replace(exactDosagePattern, EXACT_PESTICIDE_DOSAGE_WARNING);
+
+  if (sanitized !== value && !sanitized.includes(EXACT_PESTICIDE_DOSAGE_WARNING)) {
+    return `${sanitized.trim()} ${EXACT_PESTICIDE_DOSAGE_WARNING}`.trim();
+  }
+
+  return sanitized.trim();
+}
+
+function normalizeSafeText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? sanitizeAiSafetyText(value) : fallback;
+}
+
 function normalizeStringArray(value: unknown, fallback: string[]) {
   if (!Array.isArray(value)) {
     return fallback;
   }
 
-  const normalized = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+  const normalized = value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => sanitizeAiSafetyText(item));
   return normalized.length > 0 ? normalized : fallback;
 }
 
@@ -688,21 +708,21 @@ function normalizePreAnalysis(
   const riskLevel = normalizeRiskLevel(modelOutput.riskLevel, fallback.riskLevel);
 
   return {
-    initialDiagnosis: typeof modelOutput.initialDiagnosis === "string" && modelOutput.initialDiagnosis.trim() ? modelOutput.initialDiagnosis.trim() : fallback.initialDiagnosis,
+    initialDiagnosis: normalizeSafeText(modelOutput.initialDiagnosis, fallback.initialDiagnosis),
     probableHypotheses: normalizeStringArray(modelOutput.probableHypotheses, fallback.probableHypotheses),
     missingQuestions: normalizeStringArray(modelOutput.missingQuestions, fallback.missingQuestions),
     riskLevel,
     initialRecommendation:
       typeof modelOutput.initialRecommendation === "string" && modelOutput.initialRecommendation.trim()
-        ? modelOutput.initialRecommendation.trim()
+        ? sanitizeAiSafetyText(modelOutput.initialRecommendation)
         : fallback.initialRecommendation,
     whenToCallHumanSpecialist:
       typeof modelOutput.whenToCallHumanSpecialist === "string" && modelOutput.whenToCallHumanSpecialist.trim()
-        ? modelOutput.whenToCallHumanSpecialist.trim()
+        ? sanitizeAiSafetyText(modelOutput.whenToCallHumanSpecialist)
         : fallback.whenToCallHumanSpecialist,
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     knowledgeUsed: normalizeKnowledgeUsed(modelOutput.knowledgeUsed, allowedKnowledge),
-    conversationalAnswer: fallback.conversationalAnswer
+    conversationalAnswer: fallback.conversationalAnswer ? sanitizeAiSafetyText(fallback.conversationalAnswer) : undefined
   };
 }
 
