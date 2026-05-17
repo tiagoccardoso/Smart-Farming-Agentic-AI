@@ -60,6 +60,16 @@ export async function askQuestion(question: string) {
 }
 
 
+
+export async function getQuestionHistory() {
+  const response = await fetch("/api/qa", {
+    method: "GET",
+    headers: getOptionalAuthHeaders()
+  });
+
+  return parseResponse(response);
+}
+
 export async function submitAgronomicCase(formData: FormData, accessToken: string) {
   const response = await fetch("/api/agronomic-cases", {
     method: "POST",

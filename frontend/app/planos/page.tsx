@@ -45,7 +45,7 @@ const plans: Plan[] = [
     price: "R$ 0",
     audience: "Para conhecer a plataforma e validar valor rapidamente.",
     description: "Uma entrada objetiva para testar a IA orientativa em dúvidas agrícolas pontuais.",
-    features: ["2 perguntas agrícolas por mês", "1 triagem simples com imagem", "Recomendação agrícola básica", "Sem PDF", "Sem histórico", "Sem análise de solo", "Sem revisão humana"],
+    features: ["3 perguntas agrícolas por mês", "1 triagem simples com imagem", "Recomendação agrícola básica", "Sem PDF", "Histórico das perguntas realizadas", "Sem análise de solo", "Sem revisão humana"],
     buttonLabel: "Começar grátis"
   },
   {

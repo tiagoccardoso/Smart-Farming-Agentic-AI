@@ -96,6 +96,15 @@ function ConsultoriaIAContent() {
       try {
         const response = (await getAgronomicCase(caseId, accessToken)) as { case: AgronomicCase };
         setCaseData(response.case);
+        setChatMessages(
+          (response.case.question_history ?? []).flatMap((historyItem) => [
+            { role: "user" as const, content: historyItem.question },
+            {
+              role: "assistant" as const,
+              content: historyItem.answer ?? "Resposta registrada no histórico, mas sem conteúdo salvo para exibição."
+            }
+          ])
+        );
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar o caso.");
       } finally {
