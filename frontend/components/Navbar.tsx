@@ -25,6 +25,12 @@ const links: NavigationLink[] = [
     requiresAuth: true,
     allowedRoles: ["admin", "specialist"]
   },
+  {
+    href: "/admin/oportunidades",
+    label: "Oportunidades",
+    requiresAuth: true,
+    allowedRoles: ["admin"]
+  },
   { href: "/planos", label: "Planos", requiresAuth: true },
   { href: "/crop", label: "Culturas" },
   { href: "/disease", label: "Doenças" },
