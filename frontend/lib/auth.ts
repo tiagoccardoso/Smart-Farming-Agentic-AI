@@ -10,6 +10,8 @@ export type Profile = {
   full_name: string | null;
   role: UserRole;
   phone: string | null;
+  status?: "active" | "inactive" | null;
+  unlimited_access?: boolean | null;
   created_at?: string | null;
 };
 
@@ -70,7 +72,7 @@ export async function getCurrentUser(token: string, config = getSupabaseAuthConf
 export async function getCurrentProfile(token: string, userId?: string, config = getSupabaseAuthConfig()) {
   const user = userId ? { id: userId } : await getCurrentUser(token, config);
   const profiles = await supabaseAuthRequest<Profile[]>(
-    `/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=id,full_name,role,phone,created_at&limit=1`,
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=id,full_name,role,phone,status,unlimited_access,created_at&limit=1`,
     { method: "GET" },
     token,
     config
@@ -79,13 +81,17 @@ export async function getCurrentProfile(token: string, userId?: string, config =
   return profiles[0] ?? null;
 }
 
-export function hasRole(profile: Pick<Profile, "role"> | null | undefined, allowedRoles: UserRole[]) {
-  return Boolean(profile?.role && allowedRoles.includes(profile.role));
+export function isActiveProfile(profile: Pick<Profile, "status"> | null | undefined) {
+  return (profile?.status ?? "active") === "active";
+}
+
+export function hasRole(profile: Pick<Profile, "role" | "status"> | null | undefined, allowedRoles: UserRole[]) {
+  return Boolean(profile?.role && allowedRoles.includes(profile.role) && isActiveProfile(profile));
 }
 
 export async function ensureClientProfile(token: string, userId: string, fullName: string, phone?: string | null, config = getSupabaseAuthConfig()) {
   const rows = await supabaseAuthRequest<Profile[]>(
-    "/rest/v1/profiles?on_conflict=id&select=id,full_name,role,phone,created_at",
+    "/rest/v1/profiles?on_conflict=id&select=id,full_name,role,phone,status,unlimited_access,created_at",
     {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },

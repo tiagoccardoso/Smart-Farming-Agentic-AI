@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE, getCurrentProfile, getCurrentUser, hasRole } from "./lib/auth";
+import { AUTH_ACCESS_COOKIE, getCurrentProfile, getCurrentUser, hasRole, isActiveProfile } from "./lib/auth";
 
 const protectedRoutes = ["/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/planos", "/dashboard"];
 const specialistRoutes = ["/painel-doutora"];
@@ -32,9 +32,13 @@ export async function middleware(request: NextRequest) {
   try {
     const user = await getCurrentUser(token);
 
-    if (matchesRoute(pathname, specialistRoutes)) {
-      const profile = await getCurrentProfile(token, user.id);
+    const profile = await getCurrentProfile(token, user.id);
 
+    if (!isActiveProfile(profile)) {
+      return loginRedirect(request);
+    }
+
+    if (matchesRoute(pathname, specialistRoutes)) {
       if (!hasRole(profile, ["specialist", "admin"])) {
         const url = request.nextUrl.clone();
         url.pathname = "/consultoria-ia";

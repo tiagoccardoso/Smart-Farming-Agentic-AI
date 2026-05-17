@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import SectionTitle from "../../components/SectionTitle";
@@ -461,6 +462,15 @@ export default function PainelDoutoraPage() {
         <p className="max-w-3xl text-base leading-7 text-slate-700">
           Acompanhe a fila de casos com pagamento confirmado, confira a pré-análise da IA e registre a recomendação técnica final antes da emissão do relatório.
         </p>
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link href="/painel-doutora" className="rounded-full bg-leaf-600 px-4 py-2 text-sm font-semibold text-white shadow-soft">
+          Revisões e conhecimento
+        </Link>
+        <Link href="/painel-doutora/usuarios" className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+          Usuários
+        </Link>
       </div>
 
       {accessDenied && (
