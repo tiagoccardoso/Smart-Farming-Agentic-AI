@@ -1,3 +1,4 @@
+import { analyzeAgronomicCase } from "../../src/lib/ai/orchestrator/analyze-case";
 import { areEmbeddingsConfigured, generateEmbeddingIfConfigured } from "../ai/embeddings";
 export type AgronomicFarm = {
   id: string;
@@ -726,13 +727,13 @@ function normalizePreAnalysis(
   };
 }
 
-export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string, token?: string): Promise<AgronomicPreAnalysis> {
-  const fallback = buildFallbackPreAnalysis(caseData, question);
-  const specialistKnowledge = token ? await fetchRelevantSpecialistKnowledge(caseData, token, question) : [];
-  const allowedKnowledge = mapKnowledgeUsed(specialistKnowledge);
-  const modelText = await callConfiguredAiModel(buildAgronomicPrompt(caseData, question, specialistKnowledge));
-  const parsed = parseModelJson(modelText);
-  return normalizePreAnalysis(parsed, fallback, allowedKnowledge);
+export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string, _token?: string): Promise<AgronomicPreAnalysis> {
+  return analyzeAgronomicCase(caseData, {
+    question,
+    userId: caseData.user_id,
+    enableKnowledgeSearch: true,
+    logUsage: true
+  });
 }
 
 export async function updateAgronomicCaseWithAnalysis(caseId: string, token: string, analysis: AgronomicPreAnalysis) {
