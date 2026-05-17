@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { generateKnowledgeEmbedding } from "../../../../lib/ai/embeddings";
 import { getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 
 export type SpecialistKnowledgeCategory =
@@ -25,6 +26,18 @@ type KnowledgePayload = {
   content?: string;
   file_url?: string;
   active?: boolean;
+};
+
+type KnowledgeMutationValue = string | boolean | number[] | null;
+
+type KnowledgeMaterialRow = {
+  id: string;
+  title: string | null;
+  category: SpecialistKnowledgeCategory | null;
+  crop: string | null;
+  content: string | null;
+  file_url: string | null;
+  active: boolean | null;
 };
 
 const categories = new Set<SpecialistKnowledgeCategory>([
@@ -68,6 +81,37 @@ function validateCategory(value: unknown) {
 
 function requireToken(request: NextRequest) {
   return request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
+}
+
+
+async function generateKnowledgeEmbeddingSafely(input: {
+  title?: string | null;
+  category?: string | null;
+  crop?: string | null;
+  content?: string | null;
+  fileUrl?: string | null;
+}) {
+  try {
+    return await generateKnowledgeEmbedding(input);
+  } catch (error) {
+    console.warn("Não foi possível gerar embedding para specialist_knowledge; o conteúdo será salvo sem vetor semântico.", error);
+    return null;
+  }
+}
+
+async function getKnowledgeMaterialById(id: string, token: string) {
+  const rows = await supabaseRequest<KnowledgeMaterialRow[]>(
+    `/rest/v1/specialist_knowledge?id=eq.${encodeURIComponent(id)}&select=id,title,category,crop,content,file_url,active&limit=1`,
+    { method: "GET" },
+    token,
+    getSupabaseConfig()
+  );
+
+  return rows[0] ?? null;
+}
+
+function shouldRefreshEmbedding(payload: KnowledgePayload) {
+  return ["title", "category", "crop", "content", "file_url"].some((key) => key in payload);
 }
 
 async function ensureSpecialist(token: string) {
@@ -158,6 +202,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Informe o conteúdo técnico ou uma URL de arquivo." }, { status: 400 });
     }
 
+    const embedding = await generateKnowledgeEmbeddingSafely({ title, category, crop, content, fileUrl });
+
     const materials = await supabaseRequest(
       "/rest/v1/specialist_knowledge?select=id,title,category,crop,content,file_url,created_by,active,created_at",
       {
@@ -170,7 +216,8 @@ export async function POST(request: NextRequest) {
           content,
           file_url: fileUrl,
           created_by: auth.user.id,
-          active: payload?.active ?? true
+          active: payload?.active ?? true,
+          embedding
         })
       },
       token,
@@ -205,7 +252,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Informe o conteúdo que será editado." }, { status: 400 });
     }
 
-    const updates: Record<string, string | boolean | null> = {};
+    const updates: Record<string, KnowledgeMutationValue> = {};
 
     if ("title" in (payload ?? {})) {
       const title = cleanOptionalText(payload?.title);
@@ -241,6 +288,22 @@ export async function PATCH(request: NextRequest) {
 
     if (typeof payload?.active === "boolean") {
       updates.active = payload.active;
+    }
+
+    if (shouldRefreshEmbedding(payload ?? {})) {
+      const currentMaterial = await getKnowledgeMaterialById(id, token);
+
+      if (!currentMaterial) {
+        return NextResponse.json({ error: "Conteúdo técnico não encontrado." }, { status: 404 });
+      }
+
+      updates.embedding = await generateKnowledgeEmbeddingSafely({
+        title: "title" in (payload ?? {}) ? (updates.title as string | null) : currentMaterial.title,
+        category: "category" in (payload ?? {}) ? (updates.category as string | null) : currentMaterial.category,
+        crop: "crop" in (payload ?? {}) ? (updates.crop as string | null) : currentMaterial.crop,
+        content: "content" in (payload ?? {}) ? (updates.content as string | null) : currentMaterial.content,
+        fileUrl: "file_url" in (payload ?? {}) ? (updates.file_url as string | null) : currentMaterial.file_url
+      });
     }
 
     if (Object.keys(updates).length === 0) {
