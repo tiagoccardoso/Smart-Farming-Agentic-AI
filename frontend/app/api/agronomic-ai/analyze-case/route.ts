@@ -5,7 +5,8 @@ import {
   getAuthenticatedUser,
   updateAgronomicCaseWithAnalysis
 } from "../../../../lib/agronomic/case";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordQuestionHistory, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
+import type { UsageEventType } from "../../../../lib/billing/check-plan-limits";
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,11 +35,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Este caseId não pertence ao usuário autenticado." }, { status: 403 });
     }
 
-    await assertPlanLimit(user.id, "case_analysis");
+    const question = payload.question?.trim();
+    const usageEventType: UsageEventType = question ? "ai_question" : "case_analysis";
 
-    const analysis = await generateAgronomicPreAnalysis(caseData, payload.question, token);
+    await assertPlanLimit(user.id, usageEventType);
+
+    const analysis = await generateAgronomicPreAnalysis(caseData, question, token);
     await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
-    await recordUsageEvent(user.id, "case_analysis");
+    await recordUsageEvent(user.id, usageEventType);
+
+    if (question) {
+      await recordQuestionHistory({
+        userId: user.id,
+        caseId,
+        question,
+        answer: analysis.conversationalAnswer ?? null,
+        source: "agronomic_case"
+      });
+    }
 
     return NextResponse.json(analysis);
   } catch (error) {

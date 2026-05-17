@@ -17,6 +17,14 @@ export type AgronomicCaseImage = {
   created_at: string | null;
 };
 
+export type AgronomicQuestionHistory = {
+  id: string;
+  case_id?: string | null;
+  question: string;
+  answer: string | null;
+  created_at: string | null;
+};
+
 export type AgronomicCase = {
   id: string;
   user_id?: string | null;
@@ -35,6 +43,7 @@ export type AgronomicCase = {
   farm_id: string | null;
   farm: AgronomicFarm | null;
   images: AgronomicCaseImage[];
+  question_history?: AgronomicQuestionHistory[];
 };
 
 export type AgronomicRiskLevel = "low" | "medium" | "high";
@@ -61,7 +70,7 @@ type SupabaseConfig = {
   anonKey: string;
 };
 
-type CaseRow = Omit<AgronomicCase, "farm" | "images">;
+type CaseRow = Omit<AgronomicCase, "farm" | "images" | "question_history">;
 
 type AuthenticatedUser = {
   id: string;
@@ -385,7 +394,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
     return null;
   }
 
-  const [farms, images] = await Promise.all([
+  const [farms, images, questionHistory] = await Promise.all([
     agronomicCase.farm_id
       ? supabaseRequest<AgronomicFarm[]>(
           `/rest/v1/farms?id=eq.${encodeURIComponent(agronomicCase.farm_id)}&select=id,name,city,state,area_hectares,soil_type&limit=1`,
@@ -399,13 +408,20 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
       { method: "GET" },
       token,
       config
+    ),
+    supabaseRequest<AgronomicQuestionHistory[]>(
+      `/rest/v1/ai_question_history?case_id=eq.${encodedCaseId}&select=id,case_id,question,answer,created_at&order=created_at.asc`,
+      { method: "GET" },
+      token,
+      config
     )
   ]);
 
   return {
     ...agronomicCase,
     farm: farms[0] ?? null,
-    images
+    images,
+    question_history: questionHistory
   } satisfies AgronomicCase;
 }
 

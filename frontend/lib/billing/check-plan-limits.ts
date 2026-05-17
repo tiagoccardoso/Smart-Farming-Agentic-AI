@@ -1,6 +1,7 @@
 export type UsageEventType = "ai_question" | "case_analysis" | "image_triage" | "pdf_report" | "human_review";
 
 export type PlanFeature = "photo_upload" | "soil_analysis_upload" | "simple_history";
+export type QuestionHistorySource = "qa" | "agronomic_case";
 
 type PlanSlug = "gratuito" | "ia-basica" | "ia-profissional" | "ia-revisao-humana";
 
@@ -26,6 +27,23 @@ type SubscriptionWithPlan = {
 
 type UsageEventRow = {
   count: number | null;
+};
+
+type QuestionHistoryInput = {
+  userId: string;
+  question: string;
+  answer?: string | null;
+  source?: QuestionHistorySource;
+  caseId?: string | null;
+};
+
+export type QuestionHistoryEntry = {
+  id: string;
+  case_id: string | null;
+  source: QuestionHistorySource;
+  question: string;
+  answer: string | null;
+  created_at: string | null;
 };
 
 export type PlanLimitCheckResult = {
@@ -58,7 +76,7 @@ const PLAN_RULES: Record<PlanSlug, PlanRules> = {
     features: {
       photo_upload: false,
       soil_analysis_upload: false,
-      simple_history: false
+      simple_history: true
     }
   },
   "ia-basica": {
@@ -256,6 +274,39 @@ export async function recordUsageEvent(userId: string, eventType: UsageEventType
         count: normalizedCount,
         period_start: periodStart,
         period_end: periodEnd
+      })
+    }
+  );
+}
+
+export async function getQuestionHistory(userId: string, source?: QuestionHistorySource, limit = 25) {
+  const normalizedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+  const sourceFilter = source ? `&source=eq.${encodeURIComponent(source)}` : "";
+
+  return supabaseAdminRequest<QuestionHistoryEntry[]>(
+    `/rest/v1/ai_question_history?user_id=eq.${encodeURIComponent(userId)}${sourceFilter}&select=id,case_id,source,question,answer,created_at&order=created_at.desc&limit=${normalizedLimit}`,
+    { method: "GET" }
+  );
+}
+
+export async function recordQuestionHistory(input: QuestionHistoryInput) {
+  const question = input.question.trim();
+
+  if (question.length < 3) {
+    return;
+  }
+
+  await supabaseAdminRequest(
+    "/rest/v1/ai_question_history",
+    {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        user_id: input.userId,
+        case_id: input.caseId ?? null,
+        source: input.source ?? "qa",
+        question,
+        answer: input.answer ?? null
       })
     }
   );
