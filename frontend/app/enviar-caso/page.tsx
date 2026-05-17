@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
+import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { submitAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
@@ -194,6 +195,7 @@ export default function EnviarCasoPage() {
           <p className="text-base leading-7 text-slate-700">
             O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela.
           </p>
+          <SafetyDisclaimer className="mt-5 bg-white/90" />
         </div>
       </div>
 
