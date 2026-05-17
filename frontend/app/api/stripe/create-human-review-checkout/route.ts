@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Caso não encontrado ou sem permissão de acesso." }, { status: 404 });
     }
 
+    if (caseData.user_id !== user.id) {
+      return NextResponse.json({ error: "Este caseId não pertence ao usuário autenticado." }, { status: 403 });
+    }
+
     const config = getSupabaseConfig();
     const service = HUMAN_REVIEW_SERVICES[serviceType];
     const orders = await supabaseRequest<CreatedOrder[]>(

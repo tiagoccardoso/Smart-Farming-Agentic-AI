@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-export type HumanReviewServiceType = "human_case_review" | "soil_analysis_review" | "technical_report";
+export type HumanReviewServiceType = "human_case_review" | "soil_analysis_review" | "technical_report" | "monthly_farm_followup";
 
 export type StripeCheckoutSession = {
   id?: string;
@@ -17,20 +17,52 @@ export type OneTimeOrder = {
   case_id?: string | null;
   user_id?: string | null;
   service_type?: string | null;
+  payment_status?: string | null;
+};
+
+export type HumanReviewCaseUpdate = {
+  human_review_requested: boolean;
+  human_review_status: "waiting_review" | "waiting_soil_review" | "waiting_technical_report";
+  status: "waiting_human_review";
 };
 
 export const HUMAN_REVIEW_SERVICES: Record<HumanReviewServiceType, { label: string; priceCents: number }> = {
   human_case_review: { label: "Revisão humana de caso agronômico", priceCents: 19700 },
   soil_analysis_review: { label: "Revisão de análise de solo", priceCents: 25000 },
-  technical_report: { label: "Relatório técnico agronômico", priceCents: 50000 }
+  technical_report: { label: "Relatório técnico agronômico", priceCents: 49700 },
+  monthly_farm_followup: { label: "Acompanhamento mensal da fazenda", priceCents: 99700 }
+};
+
+const HUMAN_REVIEW_CASE_STATUS_BY_SERVICE: Partial<Record<HumanReviewServiceType, HumanReviewCaseUpdate["human_review_status"]>> = {
+  human_case_review: "waiting_review",
+  soil_analysis_review: "waiting_soil_review",
+  technical_report: "waiting_technical_report"
 };
 
 export function isHumanReviewServiceType(value: unknown): value is HumanReviewServiceType {
   return typeof value === "string" && value in HUMAN_REVIEW_SERVICES;
 }
 
+export function getCaseUpdateForServiceType(serviceType: HumanReviewServiceType): HumanReviewCaseUpdate | null {
+  const humanReviewStatus = HUMAN_REVIEW_CASE_STATUS_BY_SERVICE[serviceType];
+
+  if (!humanReviewStatus) {
+    return null;
+  }
+
+  return {
+    human_review_requested: true,
+    human_review_status: humanReviewStatus,
+    status: "waiting_human_review"
+  };
+}
+
 export function getRequestOrigin(request: NextRequest) {
-  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || request.nextUrl.origin;
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    request.nextUrl.origin
+  );
 }
 
 export function getSupabaseAdminConfig() {
