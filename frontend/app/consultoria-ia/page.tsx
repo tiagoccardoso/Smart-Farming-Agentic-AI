@@ -5,19 +5,24 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
+import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
+import LoadingCard from "../../components/agronomic/LoadingCard";
+import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import { analyzeAgronomicCase, getAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
-import type { AgronomicCase, AgronomicPreAnalysis, AgronomicRiskLevel } from "../../lib/agronomic/case";
+import type { AgronomicCase, AgronomicPreAnalysis } from "../../lib/agronomic/case";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-const riskStyles: Record<AgronomicRiskLevel, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  medium: "border-amber-200 bg-amber-50 text-amber-800",
-  high: "border-red-200 bg-red-50 text-red-800"
+const statusLabels: Record<string, string> = {
+  submitted: "Caso enviado",
+  ai_analyzed: "Pré-análise gerada",
+  waiting_human_review: "Aguardando revisão humana",
+  human_reviewed: "Revisão humana concluída",
+  completed: "Concluído"
 };
 
 function displayValue(value?: string | number | null) {
@@ -173,7 +178,16 @@ function ConsultoriaIAContent() {
   return (
     <div className="bg-hero-gradient">
       <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-        <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
+        <WorkflowStepper
+          steps={[
+            { title: "Enviar caso", description: "Dados e anexos registrados.", href: "/enviar-caso", status: caseData ? "done" : "next" },
+            { title: "Gerar pré-análise", description: "IA organiza hipóteses e risco.", status: analysis ? "done" : "current" },
+            { title: "Revisão humana", description: "Recomendada para risco médio ou alto.", href: caseId ? reviewUrl : undefined, status: requiresHumanReview ? "current" : "next" },
+            { title: "Meus relatórios", description: "Acesse o parecer final quando disponível.", href: "/meus-relatorios", status: "next" }
+          ]}
+        />
+
+        <div className="mt-8 grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
           <div className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-soft md:p-8">
             <p className="mb-4 inline-flex rounded-full bg-leaf-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
               Consultoria agronômica com IA
@@ -196,7 +210,7 @@ function ConsultoriaIAContent() {
               <button
                 type="button"
                 onClick={handleGenerateAnalysis}
-                disabled={!caseData || generating}
+                disabled={!caseData || generating || loadingCase}
                 className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {generating ? "Gerando pré-análise..." : "Gerar pré-análise com IA"}
@@ -208,9 +222,12 @@ function ConsultoriaIAContent() {
           </div>
 
           <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-            <h3 className="text-xl font-semibold text-slate-900">Resumo do caso</h3>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h3 className="text-xl font-semibold text-slate-900">Resumo do caso</h3>
+              {caseData && <StatusBadge status={caseData.status} label={statusLabels[caseData.status ?? ""] ?? caseData.status ?? "Sem status"} />}
+            </div>
             {loadingCase ? (
-              <p className="mt-4 text-sm text-slate-600">Carregando dados do caso no Supabase...</p>
+              <div className="mt-4"><LoadingCard title="Carregando caso" description="Buscando dados, sintomas e anexos salvos no Supabase..." rows={4} /></div>
             ) : caseData ? (
               <div className="mt-6 space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -263,6 +280,22 @@ function ConsultoriaIAContent() {
           </div>
         </div>
 
+        {!analysis && !generating && (
+          <div className="mt-10 rounded-3xl border border-dashed border-leaf-200 bg-white p-8 text-center shadow-soft">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-leaf-50 text-2xl" aria-hidden>🤖</div>
+            <h3 className="mt-5 text-xl font-semibold text-slate-900">A pré-análise ainda não foi gerada</h3>
+            <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Confira o resumo do caso e clique em “Gerar pré-análise com IA”. Se o risco vier médio ou alto, a tela indicará a revisão humana paga.
+            </p>
+          </div>
+        )}
+
+        {generating && (
+          <div className="mt-10">
+            <LoadingCard title="Gerando pré-análise com IA" description="A IA está avaliando sintomas, histórico e anexos para produzir uma triagem inicial." rows={5} />
+          </div>
+        )}
+
         {analysis && (
           <div className="mt-10 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -270,7 +303,7 @@ function ConsultoriaIAContent() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Resultado da IA</p>
                 <h3 className="mt-2 text-2xl font-semibold text-slate-900">Pré-análise agronômica inicial</h3>
               </div>
-              <span className={`rounded-full border px-4 py-2 text-sm font-semibold ${riskStyles[analysis.riskLevel]}`}>Risco {analysis.riskLevel}</span>
+              <RiskBadge riskLevel={analysis.riskLevel} />
             </div>
 
             <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -292,9 +325,13 @@ function ConsultoriaIAContent() {
                 <p className="mt-2">{analysis.disclaimer}</p>
                 <p className="mt-2">{analysis.whenToCallHumanSpecialist}</p>
               </div>
-              {requiresHumanReview && (
+              {requiresHumanReview ? (
                 <Link href={reviewUrl} className="inline-flex justify-center rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700">
-                  Solicitar revisão da especialista
+                  Pagar revisão humana
+                </Link>
+              ) : (
+                <Link href="/meus-relatorios" className="inline-flex justify-center rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-semibold text-leaf-700 shadow-soft hover:border-leaf-300">
+                  Ver em Meus Relatórios
                 </Link>
               )}
             </div>
@@ -309,7 +346,7 @@ function ConsultoriaIAContent() {
 
           <div className="mt-5 space-y-3">
             {chatMessages.length === 0 ? (
-              <div className="rounded-2xl bg-leaf-50 p-4 text-sm text-slate-600">Gere a pré-análise para iniciar a conversa contextualizada.</div>
+              <div className="rounded-2xl border border-dashed border-leaf-200 bg-leaf-50 p-4 text-sm text-slate-600">Gere a pré-análise para iniciar a conversa contextualizada. Depois você poderá perguntar sobre hipóteses, lacunas e próximos passos.</div>
             ) : (
               chatMessages.map((message, index) => (
                 <div key={`${message.role}-${index}`} className={`rounded-2xl p-4 text-sm leading-6 ${message.role === "user" ? "ml-auto max-w-2xl bg-leaf-600 text-white" : "max-w-3xl bg-leaf-50 text-slate-700"}`}>
@@ -332,7 +369,7 @@ function ConsultoriaIAContent() {
               disabled={!analysis || chatLoading || !question.trim()}
               className="rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {chatLoading ? "Enviando..." : "Perguntar"}
+              {chatLoading ? "Enviando pergunta..." : "Perguntar à IA"}
             </button>
           </form>
         </div>

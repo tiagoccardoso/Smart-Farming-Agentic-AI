@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
+import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
+import LoadingCard from "../../components/agronomic/LoadingCard";
+import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import { getAgronomicCases } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicFarm, AgronomicRiskLevel } from "../../lib/agronomic/case";
@@ -51,18 +54,6 @@ const filters: Array<{ key: ReportFilter; label: string }> = [
   { key: "reviewed", label: "Revisado" },
   { key: "completed", label: "Concluído" }
 ];
-
-const riskLabels: Record<AgronomicRiskLevel, string> = {
-  low: "Baixo",
-  medium: "Médio",
-  high: "Alto"
-};
-
-const riskStyles: Record<AgronomicRiskLevel, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  medium: "border-amber-200 bg-amber-50 text-amber-800",
-  high: "border-red-200 bg-red-50 text-red-800"
-};
 
 const statusLabels: Record<string, string> = {
   draft: "Rascunho",
@@ -193,8 +184,8 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Pill className="bg-leaf-50 text-leaf-700">{getStatusLabel(caseItem.status)}</Pill>
-            {riskLevel ? <Pill className={`border ${riskStyles[riskLevel]}`}>Risco {riskLabels[riskLevel]}</Pill> : <Pill className="bg-slate-100 text-slate-600">Risco não definido</Pill>}
+            <StatusBadge status={caseItem.status} label={getStatusLabel(caseItem.status)} />
+            <RiskBadge riskLevel={riskLevel} />
           </div>
           <h3 className="mt-4 text-2xl font-semibold text-slate-900">{caseItem.crop || "Cultura não informada"}</h3>
           <div className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${hasHumanReview ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
@@ -222,29 +213,29 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap">
         <Link href={`/consultoria-ia?caseId=${encodeURIComponent(caseItem.id)}`} className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700">
-          Ver análise da IA
+          Abrir análise IA
         </Link>
         <Link href={`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`} className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-semibold text-leaf-700 shadow-soft hover:border-leaf-300">
-          Solicitar revisão humana
+          Pagar revisão humana
         </Link>
         {hasHumanReview ? (
           <Link href={`#revisao-${caseItem.id}`} className="rounded-full border border-slate-200 bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700">
-            Ver revisão humana
+            Ver parecer humano
           </Link>
         ) : (
           <button type="button" disabled className="rounded-full border border-slate-200 bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-400">
-            Ver revisão humana
+            Ver parecer humano
           </button>
         )}
         {hasPdfReport ? (
           <a href={caseItem.latestReport?.report_url ?? "#"} download className="rounded-full border border-sun-200 bg-sun-50 px-5 py-3 text-sm font-semibold text-sun-800 shadow-soft hover:bg-sun-100">
-            Baixar relatório
+            Baixar relatório final
           </a>
         ) : (
           <button type="button" disabled className="rounded-full border border-slate-200 bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-400">
-            Baixar relatório
+            Baixar relatório final
           </button>
         )}
       </div>
@@ -316,6 +307,16 @@ export default function MeusRelatoriosPage() {
         <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />
       </div>
 
+      <WorkflowStepper
+        className="mt-8"
+        steps={[
+          { title: "Enviar caso", description: "Cultura, sintomas, histórico e anexos.", href: "/enviar-caso", status: cases.length > 0 ? "done" : "next" },
+          { title: "Consultoria IA", description: "Pré-análise e badge de risco.", href: "/consultoria-ia", status: cases.some((caseItem) => caseItem.ai_summary) ? "done" : "next" },
+          { title: "Revisão humana", description: "Pagamento e fila da especialista.", href: "/revisao-humana", status: cases.some((caseItem) => caseItem.human_review_requested) ? "done" : "next" },
+          { title: "Relatório final", description: "Parecer da Doutora e download.", status: cases.some((caseItem) => caseItem.latestHumanReview || caseItem.latestReport) ? "current" : "next" }
+        ]}
+      />
+
       <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-4 shadow-soft">
         <div className="flex flex-wrap gap-2">
           {filters.map((filter) => (
@@ -334,7 +335,7 @@ export default function MeusRelatoriosPage() {
       </div>
 
       {error && <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-soft">{error}</div>}
-      {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando seus casos agronômicos...</div>}
+      {loading && <div className="mt-8"><LoadingCard title="Carregando seus relatórios" description="Buscando casos, revisões humanas e arquivos finais vinculados à sua conta." rows={4} /></div>}
 
       {!loading && !error && (
         <div className="mt-8 space-y-5">

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
+import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
+import LoadingCard from "../../components/agronomic/LoadingCard";
 import { submitAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
@@ -55,6 +57,7 @@ export default function EnviarCasoPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [attachmentErrors, setAttachmentErrors] = useState<AttachmentError>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const photoPreviews = useMemo<PhotoPreview[]>(
@@ -144,6 +147,7 @@ export default function EnviarCasoPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitError(null);
+    setSuccessMessage(null);
 
     if (!validate()) {
       return;
@@ -173,7 +177,8 @@ export default function EnviarCasoPage() {
 
     try {
       const response = await submitAgronomicCase(formData, accessToken);
-      router.push(`/consultoria-ia?caseId=${response.caseId}`);
+      setSuccessMessage("Caso salvo com sucesso. Redirecionando para a Consultoria IA...");
+      window.setTimeout(() => router.push(`/consultoria-ia?caseId=${response.caseId}`), 650);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Não foi possível enviar o caso.");
     } finally {
@@ -198,6 +203,23 @@ export default function EnviarCasoPage() {
           <SafetyDisclaimer className="mt-5 bg-white/90" />
         </div>
       </div>
+
+      <WorkflowStepper
+        className="mt-8"
+        steps={[
+          { title: "Entrar", description: "Use sua conta para manter o caso salvo.", status: "done" },
+          { title: "Enviar caso", description: "Preencha cultura, sintomas, histórico e anexos.", status: "current" },
+          { title: "Consultoria IA", description: "Gere a pré-análise após o salvamento.", status: "next" },
+          { title: "Revisão humana", description: "Pague a revisão se o risco for médio ou alto.", status: "next" },
+          { title: "Meus relatórios", description: "Acompanhe o parecer final revisado.", status: "next" }
+        ]}
+      />
+
+      {loading && (
+        <div className="mt-8">
+          <LoadingCard title="Salvando o caso agronômico" description="Estamos validando os dados e enviando anexos com segurança. Não feche esta página." rows={4} />
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
@@ -265,7 +287,7 @@ export default function EnviarCasoPage() {
 
             <div className="mt-6 space-y-5">
               <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                Upload de fotos
+                <span className="font-semibold text-slate-900">Upload de fotos</span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
@@ -287,7 +309,7 @@ export default function EnviarCasoPage() {
               </label>
 
               <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                Upload de análise de solo em PDF ou imagem
+                <span className="font-semibold text-slate-900">Upload de análise de solo em PDF ou imagem</span>
                 <input
                   type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
@@ -307,7 +329,8 @@ export default function EnviarCasoPage() {
             </p>
           </div>
 
-          {submitError && <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{submitError}</div>}
+          {submitError && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">{submitError}</div>}
+          {successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{successMessage}</div>}
 
           <button
             type="submit"
