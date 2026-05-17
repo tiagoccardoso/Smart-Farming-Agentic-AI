@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     await assertPlanLimit(user.id, "case_analysis");
 
-    const analysis = await generateAgronomicPreAnalysis(caseData, payload.question);
+    const analysis = await generateAgronomicPreAnalysis(caseData, payload.question, token);
     await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
     await recordUsageEvent(user.id, "case_analysis");
 
