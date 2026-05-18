@@ -1,5 +1,8 @@
 import { analyzeAgronomicCase } from "../../src/lib/ai/orchestrator/analyze-case";
-import { areEmbeddingsConfigured, generateEmbeddingIfConfigured } from "../ai/embeddings";
+import {
+  areEmbeddingsConfigured,
+  generateEmbeddingIfConfigured,
+} from "../ai/embeddings";
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -25,6 +28,32 @@ export type AgronomicQuestionHistory = {
   created_at: string | null;
 };
 
+export type CropKnowledge = {
+  id: string;
+  name: string;
+  scientific_name: string | null;
+  recommended_soil: string | null;
+  ideal_climate: string | null;
+  common_diseases: string | null;
+  common_pests: string | null;
+  growth_cycle: string | null;
+  irrigation_notes: string | null;
+  fertilization_notes: string | null;
+  recommended_region: string | null;
+  known_risks: string | null;
+  management_notes: string | null;
+  active: boolean | null;
+};
+
+export type AgronomicCaseChatMessage = {
+  id: string;
+  case_id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  message: string;
+  created_at: string | null;
+};
+
 export type AgronomicCase = {
   id: string;
   user_id?: string | null;
@@ -44,6 +73,8 @@ export type AgronomicCase = {
   farm: AgronomicFarm | null;
   images: AgronomicCaseImage[];
   question_history?: AgronomicQuestionHistory[];
+  chat_messages?: AgronomicCaseChatMessage[];
+  crop_context?: CropKnowledge | null;
 };
 
 export type AgronomicRiskLevel = "low" | "medium" | "high";
@@ -70,7 +101,10 @@ type SupabaseConfig = {
   anonKey: string;
 };
 
-type CaseRow = Omit<AgronomicCase, "farm" | "images" | "question_history">;
+type CaseRow = Omit<
+  AgronomicCase,
+  "farm" | "images" | "question_history" | "chat_messages" | "crop_context"
+>;
 
 type AuthenticatedUser = {
   id: string;
@@ -97,7 +131,14 @@ const AGRONOMIC_AI_DISCLAIMER =
   "As orientações geradas por IA são informativas e não substituem a avaliação de um profissional habilitado. Para decisões técnicas, aplicações de defensivos, laudos ou recomendações com responsabilidade profissional, solicite revisão humana.";
 const EXACT_PESTICIDE_DOSAGE_WARNING =
   "Não posso indicar dosagem exata de defensivos. Consulte o rótulo/bula, a legislação aplicável e um responsável técnico habilitado antes de qualquer aplicação.";
-const KNOWLEDGE_CATEGORY_PRIORITY = ["protocolo", "recomendacao", "manejo", "pragas", "doencas", "solo"];
+const KNOWLEDGE_CATEGORY_PRIORITY = [
+  "protocolo",
+  "recomendacao",
+  "manejo",
+  "pragas",
+  "doencas",
+  "solo",
+];
 const KNOWLEDGE_CONTEXT_MAX_CHARS = 6000;
 const KNOWLEDGE_ITEM_MAX_CHARS = 1200;
 const KNOWLEDGE_MAX_ITEMS = 6;
@@ -107,51 +148,74 @@ export function getSupabaseConfig(): SupabaseConfig {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !anonKey) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY para consultar casos.");
+    throw new Error(
+      "Configure NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY para consultar casos.",
+    );
   }
 
   return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), anonKey };
 }
 
-export async function supabaseRequest<T>(path: string, init: RequestInit, token: string, config = getSupabaseConfig()) {
+export async function supabaseRequest<T>(
+  path: string,
+  init: RequestInit,
+  token: string,
+  config = getSupabaseConfig(),
+) {
   const response = await fetch(`${config.supabaseUrl}${path}`, {
     ...init,
     headers: {
       apikey: config.anonKey,
       Authorization: `Bearer ${token}`,
-      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init.headers
+      ...(init.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...init.headers,
     },
-    cache: "no-store"
+    cache: "no-store",
   });
 
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase.");
+    throw new Error(
+      payload?.message ||
+        payload?.error_description ||
+        payload?.error ||
+        "Erro ao comunicar com o Supabase.",
+    );
   }
 
   return payload as T;
 }
 
-export async function getAuthenticatedUser(token: string, config = getSupabaseConfig()) {
+export async function getAuthenticatedUser(
+  token: string,
+  config = getSupabaseConfig(),
+) {
   return supabaseRequest<AuthenticatedUser>(
     "/auth/v1/user",
     { method: "GET", headers: { "Content-Type": "application/json" } },
     token,
-    config
+    config,
   );
 }
 
-function getSupabaseServerCredentials(fallbackToken: string, config = getSupabaseConfig()) {
+function getSupabaseServerCredentials(
+  fallbackToken: string,
+  config = getSupabaseConfig(),
+) {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!serviceRoleKey) {
     return { token: fallbackToken, config };
   }
 
-  return { token: serviceRoleKey, config: { ...config, anonKey: serviceRoleKey } };
+  return {
+    token: serviceRoleKey,
+    config: { ...config, anonKey: serviceRoleKey },
+  };
 }
 
 function normalizeForSearch(value: string | null | undefined) {
@@ -162,26 +226,34 @@ function normalizeForSearch(value: string | null | undefined) {
 }
 
 function sanitizeKnowledgeContent(value: string | null | undefined) {
-  return (value ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function excerptKnowledgeContent(content: string) {
-  return content.length > KNOWLEDGE_ITEM_MAX_CHARS ? `${content.slice(0, KNOWLEDGE_ITEM_MAX_CHARS).trim()}...` : content;
+  return content.length > KNOWLEDGE_ITEM_MAX_CHARS
+    ? `${content.slice(0, KNOWLEDGE_ITEM_MAX_CHARS).trim()}...`
+    : content;
 }
 
 function getCaseSearchTerms(caseData: AgronomicCase, question?: string) {
-  const text = normalizeForSearch(`${caseData.crop} ${caseData.growth_stage ?? ""} ${caseData.symptoms} ${caseData.history ?? ""} ${question ?? ""}`);
+  const text = normalizeForSearch(
+    `${caseData.crop} ${caseData.growth_stage ?? ""} ${caseData.symptoms} ${caseData.history ?? ""} ${question ?? ""}`,
+  );
 
   return Array.from(new Set(text.match(/[a-z0-9]{4,}/g) ?? [])).slice(0, 40);
 }
 
-function rankKnowledgeMaterial(material: SpecialistKnowledgeMaterial, caseData: AgronomicCase, terms: string[]) {
+function rankKnowledgeMaterial(
+  material: SpecialistKnowledgeMaterial,
+  caseData: AgronomicCase,
+  terms: string[],
+) {
   const category = normalizeForSearch(material.category);
   const crop = normalizeForSearch(material.crop);
   const caseCrop = normalizeForSearch(caseData.crop);
-  const searchable = normalizeForSearch(`${material.title ?? ""} ${material.category ?? ""} ${material.crop ?? ""} ${material.content ?? ""}`);
+  const searchable = normalizeForSearch(
+    `${material.title ?? ""} ${material.category ?? ""} ${material.crop ?? ""} ${material.content ?? ""}`,
+  );
   let score = 0;
 
   const categoryPriority = KNOWLEDGE_CATEGORY_PRIORITY.indexOf(category);
@@ -205,9 +277,11 @@ function rankKnowledgeMaterial(material: SpecialistKnowledgeMaterial, caseData: 
 }
 
 function sanitizePostgrestPattern(value: string) {
-  return value.replace(/[(),*]/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/[(),*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-
 
 function buildCaseEmbeddingText(caseData: AgronomicCase, question?: string) {
   return [
@@ -215,9 +289,13 @@ function buildCaseEmbeddingText(caseData: AgronomicCase, question?: string) {
     caseData.growth_stage ? `Estádio: ${caseData.growth_stage}` : null,
     caseData.symptoms ? `Sintomas: ${caseData.symptoms}` : null,
     caseData.history ? `Histórico de manejo: ${caseData.history}` : null,
-    caseData.farm?.soil_type ? `Tipo de solo: ${caseData.farm.soil_type}` : null,
-    caseData.farm?.city || caseData.farm?.state ? `Localização: ${[caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/")}` : null,
-    question?.trim() ? `Pergunta complementar: ${question.trim()}` : null
+    caseData.farm?.soil_type
+      ? `Tipo de solo: ${caseData.farm.soil_type}`
+      : null,
+    caseData.farm?.city || caseData.farm?.state
+      ? `Localização: ${[caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/")}`
+      : null,
+    question?.trim() ? `Pergunta complementar: ${question.trim()}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -232,11 +310,18 @@ function prepareSemanticKnowledge(materials: SpecialistKnowledgeMaterial[]) {
   const selected: RankedKnowledgeMaterial[] = [];
 
   const ranked = materials
-    .filter((material) => material.title?.trim() && sanitizeKnowledgeContent(material.content).length > 0)
+    .filter(
+      (material) =>
+        material.title?.trim() &&
+        sanitizeKnowledgeContent(material.content).length > 0,
+    )
     .map((material) => ({
       ...material,
-      relevanceScore: typeof material.similarity === "number" ? material.similarity : 0,
-      excerpt: excerptKnowledgeContent(sanitizeKnowledgeContent(material.content))
+      relevanceScore:
+        typeof material.similarity === "number" ? material.similarity : 0,
+      excerpt: excerptKnowledgeContent(
+        sanitizeKnowledgeContent(material.content),
+      ),
     }))
     .filter((material) => material.relevanceScore > 0)
     .sort((a, b) => b.relevanceScore - a.relevanceScore);
@@ -246,7 +331,11 @@ function prepareSemanticKnowledge(materials: SpecialistKnowledgeMaterial[]) {
       break;
     }
 
-    const entrySize = material.excerpt.length + (material.title?.length ?? 0) + (material.category?.length ?? 0) + 120;
+    const entrySize =
+      material.excerpt.length +
+      (material.title?.length ?? 0) +
+      (material.category?.length ?? 0) +
+      120;
 
     if (usedChars + entrySize > KNOWLEDGE_CONTEXT_MAX_CHARS) {
       continue;
@@ -264,12 +353,14 @@ function buildKnowledgeSelectPath(caseData: AgronomicCase) {
     "select=id,title,category,crop,content,file_url,active,created_at",
     "active=eq.true",
     "order=created_at.desc",
-    "limit=80"
+    "limit=80",
   ];
   const crop = sanitizePostgrestPattern(caseData.crop ?? "");
 
   if (crop) {
-    filters.push(`or=${encodeURIComponent(`(crop.ilike.*${crop}*,crop.is.null,crop.eq.)`)}`);
+    filters.push(
+      `or=${encodeURIComponent(`(crop.ilike.*${crop}*,crop.is.null,crop.eq.)`)}`,
+    );
   } else {
     filters.push(`or=${encodeURIComponent("(crop.is.null,crop.eq.)")}`);
   }
@@ -277,27 +368,46 @@ function buildKnowledgeSelectPath(caseData: AgronomicCase) {
   return `/rest/v1/specialist_knowledge?${filters.join("&")}`;
 }
 
-function selectRelevantKnowledge(materials: SpecialistKnowledgeMaterial[], caseData: AgronomicCase, question?: string) {
+function selectRelevantKnowledge(
+  materials: SpecialistKnowledgeMaterial[],
+  caseData: AgronomicCase,
+  question?: string,
+) {
   const terms = getCaseSearchTerms(caseData, question);
   let usedChars = 0;
   const selected: RankedKnowledgeMaterial[] = [];
 
   const ranked = materials
-    .filter((material) => material.active !== false && material.title?.trim() && sanitizeKnowledgeContent(material.content).length > 0)
+    .filter(
+      (material) =>
+        material.active !== false &&
+        material.title?.trim() &&
+        sanitizeKnowledgeContent(material.content).length > 0,
+    )
     .map((material) => ({
       ...material,
       relevanceScore: rankKnowledgeMaterial(material, caseData, terms),
-      excerpt: excerptKnowledgeContent(sanitizeKnowledgeContent(material.content))
+      excerpt: excerptKnowledgeContent(
+        sanitizeKnowledgeContent(material.content),
+      ),
     }))
     .filter((material) => material.relevanceScore > 0)
-    .sort((a, b) => b.relevanceScore - a.relevanceScore || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+    .sort(
+      (a, b) =>
+        b.relevanceScore - a.relevanceScore ||
+        (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+    );
 
   for (const material of ranked) {
     if (selected.length >= KNOWLEDGE_MAX_ITEMS) {
       break;
     }
 
-    const entrySize = material.excerpt.length + (material.title?.length ?? 0) + (material.category?.length ?? 0) + 120;
+    const entrySize =
+      material.excerpt.length +
+      (material.title?.length ?? 0) +
+      (material.category?.length ?? 0) +
+      120;
 
     if (usedChars + entrySize > KNOWLEDGE_CONTEXT_MAX_CHARS) {
       continue;
@@ -310,12 +420,18 @@ function selectRelevantKnowledge(materials: SpecialistKnowledgeMaterial[], caseD
   return selected;
 }
 
-async function fetchSemanticSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+async function fetchSemanticSpecialistKnowledge(
+  caseData: AgronomicCase,
+  token: string,
+  question?: string,
+) {
   if (!areEmbeddingsConfigured()) {
     return null;
   }
 
-  const embedding = await generateEmbeddingIfConfigured(buildCaseEmbeddingText(caseData, question));
+  const embedding = await generateEmbeddingIfConfigured(
+    buildCaseEmbeddingText(caseData, question),
+  );
 
   if (!embedding) {
     return null;
@@ -330,52 +446,79 @@ async function fetchSemanticSpecialistKnowledge(caseData: AgronomicCase, token: 
       body: JSON.stringify({
         query_embedding: normalizeVectorForRpc(embedding),
         match_count: KNOWLEDGE_MAX_ITEMS,
-        crop_filter: caseData.crop || null
-      })
+        crop_filter: caseData.crop || null,
+      }),
     },
     serverCredentials.token,
-    serverCredentials.config
+    serverCredentials.config,
   );
 
   return prepareSemanticKnowledge(Array.isArray(materials) ? materials : []);
 }
 
-async function fetchFallbackSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+async function fetchFallbackSpecialistKnowledge(
+  caseData: AgronomicCase,
+  token: string,
+  question?: string,
+) {
   const config = getSupabaseConfig();
   const serverCredentials = getSupabaseServerCredentials(token, config);
   const materials = await supabaseRequest<SpecialistKnowledgeMaterial[]>(
     buildKnowledgeSelectPath(caseData),
     { method: "GET" },
     serverCredentials.token,
-    serverCredentials.config
+    serverCredentials.config,
   );
 
-  return selectRelevantKnowledge(Array.isArray(materials) ? materials : [], caseData, question);
+  return selectRelevantKnowledge(
+    Array.isArray(materials) ? materials : [],
+    caseData,
+    question,
+  );
 }
 
-export async function fetchRelevantSpecialistKnowledge(caseData: AgronomicCase, token: string, question?: string) {
+export async function fetchRelevantSpecialistKnowledge(
+  caseData: AgronomicCase,
+  token: string,
+  question?: string,
+) {
   try {
-    const semanticMaterials = await fetchSemanticSpecialistKnowledge(caseData, token, question);
+    const semanticMaterials = await fetchSemanticSpecialistKnowledge(
+      caseData,
+      token,
+      question,
+    );
 
     if (semanticMaterials) {
       return semanticMaterials;
     }
   } catch (error) {
-    console.warn("Não foi possível usar embeddings para consultar specialist_knowledge; usando busca simples.", error);
+    console.warn(
+      "Não foi possível usar embeddings para consultar specialist_knowledge; usando busca simples.",
+      error,
+    );
   }
 
   try {
     return await fetchFallbackSpecialistKnowledge(caseData, token, question);
   } catch (error) {
-    console.warn("Não foi possível carregar a base specialist_knowledge para a análise agronômica.", error);
+    console.warn(
+      "Não foi possível carregar a base specialist_knowledge para a análise agronômica.",
+      error,
+    );
     return [];
   }
 }
 
-function mapKnowledgeUsed(materials: Array<Pick<SpecialistKnowledgeMaterial, "title" | "category">>): KnowledgeUsed[] {
+function mapKnowledgeUsed(
+  materials: Array<Pick<SpecialistKnowledgeMaterial, "title" | "category">>,
+): KnowledgeUsed[] {
   return materials
     .filter((material) => material.title?.trim() && material.category?.trim())
-    .map((material) => ({ title: material.title!.trim(), category: material.category!.trim() }));
+    .map((material) => ({
+      title: material.title!.trim(),
+      category: material.category!.trim(),
+    }));
 }
 
 export async function fetchAgronomicCase(caseId: string, token: string) {
@@ -385,7 +528,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
     `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,farm_id&limit=1`,
     { method: "GET" },
     token,
-    config
+    config,
   );
 
   const agronomicCase = cases[0];
@@ -394,35 +537,99 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
     return null;
   }
 
-  const [farms, images, questionHistory] = await Promise.all([
-    agronomicCase.farm_id
-      ? supabaseRequest<AgronomicFarm[]>(
-          `/rest/v1/farms?id=eq.${encodeURIComponent(agronomicCase.farm_id)}&select=id,name,city,state,area_hectares,soil_type&limit=1`,
-          { method: "GET" },
-          token,
-          config
-        )
-      : Promise.resolve([]),
-    supabaseRequest<AgronomicCaseImage[]>(
-      `/rest/v1/case_images?case_id=eq.${encodedCaseId}&select=id,image_url,image_type,created_at&order=created_at.asc`,
-      { method: "GET" },
-      token,
-      config
-    ),
-    supabaseRequest<AgronomicQuestionHistory[]>(
-      `/rest/v1/ai_question_history?case_id=eq.${encodedCaseId}&select=id,case_id,question,answer,created_at&order=created_at.asc`,
-      { method: "GET" },
-      token,
-      config
-    )
-  ]);
+  const [farms, images, questionHistory, chatMessages, cropContext] =
+    await Promise.all([
+      agronomicCase.farm_id
+        ? supabaseRequest<AgronomicFarm[]>(
+            `/rest/v1/farms?id=eq.${encodeURIComponent(agronomicCase.farm_id)}&select=id,name,city,state,area_hectares,soil_type&limit=1`,
+            { method: "GET" },
+            token,
+            config,
+          )
+        : Promise.resolve([]),
+      supabaseRequest<AgronomicCaseImage[]>(
+        `/rest/v1/case_images?case_id=eq.${encodedCaseId}&select=id,image_url,image_type,created_at&order=created_at.asc`,
+        { method: "GET" },
+        token,
+        config,
+      ),
+      supabaseRequest<AgronomicQuestionHistory[]>(
+        `/rest/v1/ai_question_history?case_id=eq.${encodedCaseId}&select=id,case_id,question,answer,created_at&order=created_at.asc`,
+        { method: "GET" },
+        token,
+        config,
+      ),
+      supabaseRequest<AgronomicCaseChatMessage[]>(
+        `/rest/v1/case_chat_messages?case_id=eq.${encodedCaseId}&select=id,case_id,user_id,role,message,created_at&order=created_at.asc`,
+        { method: "GET" },
+        token,
+        config,
+      ).catch(() => []),
+      fetchCropContext(agronomicCase.crop, token, config),
+    ]);
 
   return {
     ...agronomicCase,
     farm: farms[0] ?? null,
     images,
-    question_history: questionHistory
+    question_history: questionHistory,
+    chat_messages: chatMessages,
+    crop_context: cropContext,
   } satisfies AgronomicCase;
+}
+
+function cleanCropSearch(value: string | null | undefined) {
+  return (value ?? "")
+    .trim()
+    .replace(/[(),*]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+async function fetchCropContext(
+  cropName: string | null | undefined,
+  token: string,
+  config = getSupabaseConfig(),
+) {
+  const crop = cleanCropSearch(cropName);
+
+  if (!crop) {
+    return null;
+  }
+
+  const serverCredentials = getSupabaseServerCredentials(token, config);
+  const rows = await supabaseRequest<CropKnowledge[]>(
+    `/rest/v1/crops?name=ilike.*${encodeURIComponent(crop)}*&select=id,name,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,active&limit=1`,
+    { method: "GET" },
+    serverCredentials.token,
+    serverCredentials.config,
+  ).catch(() => []);
+
+  return rows[0] ?? null;
+}
+
+function summarizeCropContext(crop: CropKnowledge | null | undefined) {
+  if (!crop) {
+    return "Nenhum cadastro ativo em crops foi encontrado para a cultura informada.";
+  }
+
+  return [
+    `Nome cadastrado: ${crop.name}`,
+    crop.scientific_name ? `Nome científico: ${crop.scientific_name}` : null,
+    crop.ideal_climate ? `Clima ideal: ${crop.ideal_climate}` : null,
+    crop.recommended_soil ? `Solo recomendado: ${crop.recommended_soil}` : null,
+    crop.growth_cycle ? `Ciclo: ${crop.growth_cycle}` : null,
+    crop.recommended_region
+      ? `Região recomendada: ${crop.recommended_region}`
+      : null,
+    crop.common_diseases ? `Doenças comuns: ${crop.common_diseases}` : null,
+    crop.common_pests ? `Pragas comuns: ${crop.common_pests}` : null,
+    crop.known_risks ? `Riscos conhecidos: ${crop.known_risks}` : null,
+    crop.irrigation_notes ? `Irrigação: ${crop.irrigation_notes}` : null,
+    crop.fertilization_notes ? `Adubação: ${crop.fertilization_notes}` : null,
+    crop.management_notes ? `Manejo: ${crop.management_notes}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function containsAny(text: string, words: string[]) {
@@ -430,32 +637,98 @@ function containsAny(text: string, words: string[]) {
 }
 
 function buildFallbackHypotheses(caseData: AgronomicCase) {
-  const text = `${caseData.crop} ${caseData.symptoms} ${caseData.history ?? ""}`.toLowerCase();
+  const text =
+    `${caseData.crop} ${caseData.symptoms} ${caseData.history ?? ""}`.toLowerCase();
   const hypotheses = new Set<string>();
 
-  if (containsAny(text, ["mancha", "míldio", "ferrugem", "fung", "mofo", "lesão", "necrose"])) {
-    hypotheses.add("Doença foliar favorecida por umidade, inóculo presente ou baixa aeração do dossel.");
+  if (
+    containsAny(text, [
+      "mancha",
+      "míldio",
+      "ferrugem",
+      "fung",
+      "mofo",
+      "lesão",
+      "necrose",
+    ])
+  ) {
+    hypotheses.add(
+      "Doença foliar favorecida por umidade, inóculo presente ou baixa aeração do dossel.",
+    );
   }
 
-  if (containsAny(text, ["amarel", "clorose", "defici", "nitrog", "potáss", "fosfor", "folha velha", "folha nova"])) {
-    hypotheses.add("Desequilíbrio nutricional ou limitação de absorção por pH, compactação, salinidade ou umidade inadequada.");
+  if (
+    containsAny(text, [
+      "amarel",
+      "clorose",
+      "defici",
+      "nitrog",
+      "potáss",
+      "fosfor",
+      "folha velha",
+      "folha nova",
+    ])
+  ) {
+    hypotheses.add(
+      "Desequilíbrio nutricional ou limitação de absorção por pH, compactação, salinidade ou umidade inadequada.",
+    );
   }
 
-  if (containsAny(text, ["inset", "praga", "lagarta", "pulg", "ácar", "mosca", "furos", "raspagem"])) {
-    hypotheses.add("Ataque de pragas sugadoras ou mastigadoras, exigindo inspeção do baixeiro, ponteiros e reboleiras.");
+  if (
+    containsAny(text, [
+      "inset",
+      "praga",
+      "lagarta",
+      "pulg",
+      "ácar",
+      "mosca",
+      "furos",
+      "raspagem",
+    ])
+  ) {
+    hypotheses.add(
+      "Ataque de pragas sugadoras ou mastigadoras, exigindo inspeção do baixeiro, ponteiros e reboleiras.",
+    );
   }
 
-  if (containsAny(text, ["seca", "murch", "calor", "encharc", "chuva", "irrig", "estiagem"])) {
-    hypotheses.add("Estresse hídrico ou climático causando sintomas fisiológicos e maior predisposição a doenças.");
+  if (
+    containsAny(text, [
+      "seca",
+      "murch",
+      "calor",
+      "encharc",
+      "chuva",
+      "irrig",
+      "estiagem",
+    ])
+  ) {
+    hypotheses.add(
+      "Estresse hídrico ou climático causando sintomas fisiológicos e maior predisposição a doenças.",
+    );
   }
 
-  if (containsAny(text, ["herbicida", "defensivo", "aplic", "pulver", "deriva", "fitotox"])) {
-    hypotheses.add("Possível fitotoxicidade, deriva ou interação entre aplicação recente, clima e estádio da cultura.");
+  if (
+    containsAny(text, [
+      "herbicida",
+      "defensivo",
+      "aplic",
+      "pulver",
+      "deriva",
+      "fitotox",
+    ])
+  ) {
+    hypotheses.add(
+      "Possível fitotoxicidade, deriva ou interação entre aplicação recente, clima e estádio da cultura.",
+    );
   }
 
   if (hypotheses.size === 0) {
-    hypotheses.add("Triagem inicial inconclusiva: os sintomas podem estar associados a manejo, nutrição, pragas, doenças ou estresse ambiental.");
-    hypotheses.add("Necessidade de correlacionar distribuição no talhão, evolução temporal e imagens de detalhes da planta.");
+    hypotheses.add(
+      "Triagem inicial inconclusiva: os sintomas podem estar associados a manejo, nutrição, pragas, doenças ou estresse ambiental.",
+    );
+    hypotheses.add(
+      "Necessidade de correlacionar distribuição no talhão, evolução temporal e imagens de detalhes da planta.",
+    );
   }
 
   return Array.from(hypotheses).slice(0, 5);
@@ -463,23 +736,55 @@ function buildFallbackHypotheses(caseData: AgronomicCase) {
 
 function inferFallbackRisk(caseData: AgronomicCase): AgronomicRiskLevel {
   const text = `${caseData.symptoms} ${caseData.history ?? ""}`.toLowerCase();
-  const highRiskTerms = ["morte", "perda", "severo", "rápido", "generalizado", "murcha", "necrose", "toda área", "alta infestação"];
-  const mediumRiskTerms = ["mancha", "amarel", "praga", "lagarta", "ferrugem", "fung", "doença", "reboleira", "queda"];
+  const highRiskTerms = [
+    "morte",
+    "perda",
+    "severo",
+    "rápido",
+    "generalizado",
+    "murcha",
+    "necrose",
+    "toda área",
+    "alta infestação",
+  ];
+  const mediumRiskTerms = [
+    "mancha",
+    "amarel",
+    "praga",
+    "lagarta",
+    "ferrugem",
+    "fung",
+    "doença",
+    "reboleira",
+    "queda",
+  ];
 
-  if (containsAny(text, highRiskTerms) || caseData.symptoms.trim().length < 20) {
+  if (
+    containsAny(text, highRiskTerms) ||
+    caseData.symptoms.trim().length < 20
+  ) {
     return "high";
   }
 
-  if (containsAny(text, mediumRiskTerms) || caseData.images.length === 0 || !caseData.soil_analysis_url) {
+  if (
+    containsAny(text, mediumRiskTerms) ||
+    caseData.images.length === 0 ||
+    !caseData.soil_analysis_url
+  ) {
     return "medium";
   }
 
   return "low";
 }
 
-function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): AgronomicPreAnalysis {
+function buildFallbackPreAnalysis(
+  caseData: AgronomicCase,
+  question?: string,
+): AgronomicPreAnalysis {
   const riskLevel = inferFallbackRisk(caseData);
-  const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "localidade não informada";
+  const location =
+    [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") ||
+    "localidade não informada";
   const hasSoilAnalysis = Boolean(caseData.soil_analysis_url);
   const hasImages = caseData.images.length > 0;
 
@@ -487,15 +792,19 @@ function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): A
     "Qual porcentagem aproximada da área ou do talhão apresenta os sintomas?",
     "Os sintomas começaram em reboleiras, bordaduras ou estão distribuídos de forma uniforme?",
     "Houve chuva, irrigação intensa, geada, calor extremo ou aplicação de defensivos nos últimos 7 a 14 dias?",
-    "As folhas novas e velhas apresentam o mesmo padrão de sintoma?"
+    "As folhas novas e velhas apresentam o mesmo padrão de sintoma?",
   ];
 
   if (!hasImages) {
-    missingQuestions.push("É possível anexar fotos próximas dos sintomas e fotos gerais do talhão para comparar a distribuição?");
+    missingQuestions.push(
+      "É possível anexar fotos próximas dos sintomas e fotos gerais do talhão para comparar a distribuição?",
+    );
   }
 
   if (!hasSoilAnalysis) {
-    missingQuestions.push("Há análise de solo recente com pH, matéria orgânica, macro e micronutrientes?");
+    missingQuestions.push(
+      "Há análise de solo recente com pH, matéria orgânica, macro e micronutrientes?",
+    );
   }
 
   const questionText = question?.trim();
@@ -519,19 +828,34 @@ function buildFallbackPreAnalysis(caseData: AgronomicCase, question?: string): A
     knowledgeUsed: [],
     conversationalAnswer: questionText
       ? `Sobre sua pergunta (“${questionText}”): responda primeiro às perguntas faltantes e compare o padrão no talhão. A orientação continua inicial; decisões de aplicação, dose ou intervenção devem ser revisadas por especialista.`
-      : undefined
+      : undefined,
   };
 }
 
-function buildAgronomicPrompt(caseData: AgronomicCase, question?: string, specialistKnowledge: RankedKnowledgeMaterial[] = []) {
-  const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
+function buildAgronomicPrompt(
+  caseData: AgronomicCase,
+  question?: string,
+  specialistKnowledge: RankedKnowledgeMaterial[] = [],
+) {
+  const location =
+    [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") ||
+    "não informada";
   const farmName = caseData.farm?.name || "não informada";
-  const area = caseData.farm?.area_hectares ? `${caseData.farm.area_hectares} ha` : "não informada";
+  const area = caseData.farm?.area_hectares
+    ? `${caseData.farm.area_hectares} ha`
+    : "não informada";
   const soilType = caseData.farm?.soil_type || "não informado";
   const images = caseData.images.length
-    ? caseData.images.map((image, index) => `${index + 1}. ${image.image_url} (${image.image_type ?? "tipo não informado"})`).join("\n")
+    ? caseData.images
+        .map(
+          (image, index) =>
+            `${index + 1}. ${image.image_url} (${image.image_type ?? "tipo não informado"})`,
+        )
+        .join("\n")
     : "Nenhuma imagem anexada.";
-  const optionalQuestion = question?.trim() ? `\nPergunta complementar do usuário: ${question.trim()}` : "";
+  const optionalQuestion = question?.trim()
+    ? `\nPergunta complementar do usuário: ${question.trim()}`
+    : "";
   const knowledgeContext = specialistKnowledge.length
     ? specialistKnowledge
         .map((material, index) =>
@@ -539,8 +863,8 @@ function buildAgronomicPrompt(caseData: AgronomicCase, question?: string, specia
             `${index + 1}. Título: ${material.title}`,
             `Categoria: ${material.category}`,
             `Cultura: ${material.crop?.trim() || "geral / sem cultura específica"}`,
-            `Conteúdo: ${material.excerpt}`
-          ].join("\n")
+            `Conteúdo: ${material.excerpt}`,
+          ].join("\n"),
         )
         .join("\n---\n")
     : "Nenhum conteúdo ativo e relevante da base specialist_knowledge foi encontrado para este caso.";
@@ -605,14 +929,21 @@ Formato obrigatório:
 }
 
 function getConfiguredAiModel() {
-  return process.env.AGRONOMIC_AI_MODEL || process.env.GEMINI_MODEL || process.env.GOOGLE_AI_MODEL || "gemini-pro";
+  return (
+    process.env.AGRONOMIC_AI_MODEL ||
+    process.env.GEMINI_MODEL ||
+    process.env.GOOGLE_AI_MODEL ||
+    "gemini-pro"
+  );
 }
 
 async function callConfiguredAiModel(prompt: string) {
   const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
 
   if (!googleApiKey) {
-    throw new Error("Configure GOOGLE_API_KEY ou GEMINI_API_KEY para gerar a pré-análise com IA.");
+    throw new Error(
+      "Configure GOOGLE_API_KEY ou GEMINI_API_KEY para gerar a pré-análise com IA.",
+    );
   }
 
   const model = getConfiguredAiModel();
@@ -626,17 +957,20 @@ async function callConfiguredAiModel(prompt: string) {
         generationConfig: {
           temperature: 0.2,
           maxOutputTokens: 1200,
-          responseMimeType: "application/json"
-        }
+          responseMimeType: "application/json",
+        },
       }),
-      cache: "no-store"
-    }
+      cache: "no-store",
+    },
   );
 
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(payload?.error?.message || "O modelo de IA configurado não conseguiu gerar a pré-análise.");
+    throw new Error(
+      payload?.error?.message ||
+        "O modelo de IA configurado não conseguiu gerar a pré-análise.",
+    );
   }
 
   const text = payload?.candidates?.[0]?.content?.parts
@@ -653,7 +987,9 @@ async function callConfiguredAiModel(prompt: string) {
 
 function parseModelJson(text: string) {
   const trimmed = text.trim();
-  const jsonText = trimmed.startsWith("{") ? trimmed : trimmed.match(/\{[\s\S]*\}/)?.[0];
+  const jsonText = trimmed.startsWith("{")
+    ? trimmed
+    : trimmed.match(/\{[\s\S]*\}/)?.[0];
 
   if (!jsonText) {
     throw new Error("O modelo de IA não retornou JSON válido.");
@@ -663,10 +999,17 @@ function parseModelJson(text: string) {
 }
 
 function sanitizeAiSafetyText(value: string) {
-  const exactDosagePattern = /\b\d+(?:[,.]\d+)?\s*(?:m\s*l|ml|l|litros?|g|gramas?|kg|quilos?)\s*(?:\/|por)\s*(?:ha|hectare|hectares|planta|plantas|litro|litros|l)\b/gi;
-  const sanitized = value.replace(exactDosagePattern, EXACT_PESTICIDE_DOSAGE_WARNING);
+  const exactDosagePattern =
+    /\b\d+(?:[,.]\d+)?\s*(?:m\s*l|ml|l|litros?|g|gramas?|kg|quilos?)\s*(?:\/|por)\s*(?:ha|hectare|hectares|planta|plantas|litro|litros|l)\b/gi;
+  const sanitized = value.replace(
+    exactDosagePattern,
+    EXACT_PESTICIDE_DOSAGE_WARNING,
+  );
 
-  if (sanitized !== value && !sanitized.includes(EXACT_PESTICIDE_DOSAGE_WARNING)) {
+  if (
+    sanitized !== value &&
+    !sanitized.includes(EXACT_PESTICIDE_DOSAGE_WARNING)
+  ) {
     return `${sanitized.trim()} ${EXACT_PESTICIDE_DOSAGE_WARNING}`.trim();
   }
 
@@ -674,7 +1017,9 @@ function sanitizeAiSafetyText(value: string) {
 }
 
 function normalizeSafeText(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim() ? sanitizeAiSafetyText(value) : fallback;
+  return typeof value === "string" && value.trim()
+    ? sanitizeAiSafetyText(value)
+    : fallback;
 }
 
 function normalizeStringArray(value: unknown, fallback: string[]) {
@@ -683,21 +1028,37 @@ function normalizeStringArray(value: unknown, fallback: string[]) {
   }
 
   const normalized = value
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .filter(
+      (item): item is string =>
+        typeof item === "string" && item.trim().length > 0,
+    )
     .map((item) => sanitizeAiSafetyText(item));
   return normalized.length > 0 ? normalized : fallback;
 }
 
-function normalizeRiskLevel(value: unknown, fallback: AgronomicRiskLevel): AgronomicRiskLevel {
-  return value === "low" || value === "medium" || value === "high" ? value : fallback;
+function normalizeRiskLevel(
+  value: unknown,
+  fallback: AgronomicRiskLevel,
+): AgronomicRiskLevel {
+  return value === "low" || value === "medium" || value === "high"
+    ? value
+    : fallback;
 }
 
-function normalizeKnowledgeUsed(value: unknown, allowedKnowledge: KnowledgeUsed[]) {
+function normalizeKnowledgeUsed(
+  value: unknown,
+  allowedKnowledge: KnowledgeUsed[],
+) {
   if (!Array.isArray(value)) {
     return allowedKnowledge;
   }
 
-  const allowed = new Map(allowedKnowledge.map((item) => [`${item.title}::${item.category}`.toLowerCase(), item]));
+  const allowed = new Map(
+    allowedKnowledge.map((item) => [
+      `${item.title}::${item.category}`.toLowerCase(),
+      item,
+    ]),
+  );
   const normalized: KnowledgeUsed[] = [];
 
   for (const item of value) {
@@ -705,11 +1066,24 @@ function normalizeKnowledgeUsed(value: unknown, allowedKnowledge: KnowledgeUsed[
       continue;
     }
 
-    const title = "title" in item && typeof item.title === "string" ? item.title.trim() : "";
-    const category = "category" in item && typeof item.category === "string" ? item.category.trim() : "";
+    const title =
+      "title" in item && typeof item.title === "string"
+        ? item.title.trim()
+        : "";
+    const category =
+      "category" in item && typeof item.category === "string"
+        ? item.category.trim()
+        : "";
     const allowedItem = allowed.get(`${title}::${category}`.toLowerCase());
 
-    if (allowedItem && !normalized.some((existing) => existing.title === allowedItem.title && existing.category === allowedItem.category)) {
+    if (
+      allowedItem &&
+      !normalized.some(
+        (existing) =>
+          existing.title === allowedItem.title &&
+          existing.category === allowedItem.category,
+      )
+    ) {
       normalized.push(allowedItem);
     }
   }
@@ -720,39 +1094,73 @@ function normalizeKnowledgeUsed(value: unknown, allowedKnowledge: KnowledgeUsed[
 function normalizePreAnalysis(
   modelOutput: Partial<AgronomicPreAnalysis>,
   fallback: AgronomicPreAnalysis,
-  allowedKnowledge: KnowledgeUsed[] = []
+  allowedKnowledge: KnowledgeUsed[] = [],
 ): AgronomicPreAnalysis {
-  const riskLevel = normalizeRiskLevel(modelOutput.riskLevel, fallback.riskLevel);
+  const riskLevel = normalizeRiskLevel(
+    modelOutput.riskLevel,
+    fallback.riskLevel,
+  );
 
   return {
-    initialDiagnosis: normalizeSafeText(modelOutput.initialDiagnosis, fallback.initialDiagnosis),
-    probableHypotheses: normalizeStringArray(modelOutput.probableHypotheses, fallback.probableHypotheses),
-    missingQuestions: normalizeStringArray(modelOutput.missingQuestions, fallback.missingQuestions),
+    initialDiagnosis: normalizeSafeText(
+      modelOutput.initialDiagnosis,
+      fallback.initialDiagnosis,
+    ),
+    probableHypotheses: normalizeStringArray(
+      modelOutput.probableHypotheses,
+      fallback.probableHypotheses,
+    ),
+    missingQuestions: normalizeStringArray(
+      modelOutput.missingQuestions,
+      fallback.missingQuestions,
+    ),
     riskLevel,
     initialRecommendation:
-      typeof modelOutput.initialRecommendation === "string" && modelOutput.initialRecommendation.trim()
+      typeof modelOutput.initialRecommendation === "string" &&
+      modelOutput.initialRecommendation.trim()
         ? sanitizeAiSafetyText(modelOutput.initialRecommendation)
         : fallback.initialRecommendation,
     whenToCallHumanSpecialist:
-      typeof modelOutput.whenToCallHumanSpecialist === "string" && modelOutput.whenToCallHumanSpecialist.trim()
+      typeof modelOutput.whenToCallHumanSpecialist === "string" &&
+      modelOutput.whenToCallHumanSpecialist.trim()
         ? sanitizeAiSafetyText(modelOutput.whenToCallHumanSpecialist)
         : fallback.whenToCallHumanSpecialist,
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
-    knowledgeUsed: normalizeKnowledgeUsed(modelOutput.knowledgeUsed, allowedKnowledge),
-    conversationalAnswer: fallback.conversationalAnswer ? sanitizeAiSafetyText(fallback.conversationalAnswer) : undefined
+    knowledgeUsed: normalizeKnowledgeUsed(
+      modelOutput.knowledgeUsed,
+      allowedKnowledge,
+    ),
+    conversationalAnswer: fallback.conversationalAnswer
+      ? sanitizeAiSafetyText(fallback.conversationalAnswer)
+      : undefined,
   };
 }
 
-export async function generateAgronomicPreAnalysis(caseData: AgronomicCase, question?: string, _token?: string): Promise<AgronomicPreAnalysis> {
-  return analyzeAgronomicCase(caseData, {
-    question,
-    userId: caseData.user_id,
-    enableKnowledgeSearch: true,
-    logUsage: true
-  });
+export async function generateAgronomicPreAnalysis(
+  caseData: AgronomicCase,
+  question?: string,
+  _token?: string,
+): Promise<AgronomicPreAnalysis> {
+  const cropContext =
+    caseData.crop_context ??
+    (_token ? await fetchCropContext(caseData.crop, _token) : null);
+
+  return analyzeAgronomicCase(
+    { ...caseData, crop_context: cropContext },
+    {
+      question,
+      userId: caseData.user_id,
+      enableKnowledgeSearch: true,
+      logUsage: true,
+    },
+  );
 }
 
-export async function updateAgronomicCaseWithAnalysis(caseId: string, token: string, analysis: AgronomicPreAnalysis) {
+export async function updateAgronomicCaseWithAnalysis(
+  caseId: string,
+  token: string,
+  analysis: AgronomicPreAnalysis,
+) {
   const config = getSupabaseConfig();
   const encodedCaseId = encodeURIComponent(caseId);
 
@@ -765,10 +1173,47 @@ export async function updateAgronomicCaseWithAnalysis(caseId: string, token: str
         ai_summary: analysis.initialDiagnosis,
         ai_recommendation: analysis.initialRecommendation,
         risk_level: analysis.riskLevel,
-        status: "ai_analyzed"
-      })
+        status: "ai_analyzed",
+      }),
     },
     token,
-    config
+    config,
   );
 }
+
+export async function insertCaseChatMessage(
+  input: {
+    caseId: string;
+    userId: string;
+    role: "user" | "assistant";
+    message: string;
+  },
+  token: string,
+) {
+  const rows = await supabaseRequest<AgronomicCaseChatMessage[]>(
+    "/rest/v1/case_chat_messages?select=id,case_id,user_id,role,message,created_at",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        case_id: input.caseId,
+        user_id: input.userId,
+        role: input.role,
+        message: input.message,
+      }),
+    },
+    token,
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function fetchCaseChatMessages(caseId: string, token: string) {
+  return supabaseRequest<AgronomicCaseChatMessage[]>(
+    `/rest/v1/case_chat_messages?case_id=eq.${encodeURIComponent(caseId)}&select=id,case_id,user_id,role,message,created_at&order=created_at.asc`,
+    { method: "GET" },
+    token,
+  );
+}
+
+export { fetchCropContext, summarizeCropContext };
