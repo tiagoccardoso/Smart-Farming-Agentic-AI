@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
@@ -13,11 +14,19 @@ import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase } from "../../lib/agronomic/case";
 
 const benefits = [
-  "Análise personalizada",
-  "Revisão das fotos e sintomas",
-  "Complementação da resposta da IA",
-  "Relatório final revisado"
+  "Análise por Doutora em Agronomia",
+  "Revisão técnica personalizada",
+  "Parecer profissional",
+  "Relatório técnico",
+  "Análise aprofundada"
 ];
+
+const statusLabels: Record<string, string> = {
+  waiting_payment_human_review: "Aguardando pagamento da revisão humana",
+  waiting_human_review: "Aguardando revisão humana pela especialista",
+  ai_analyzed: "Pré-análise da IA concluída",
+  submitted: "Caso enviado",
+};
 
 
 function getHumanReviewPriceCents() {
@@ -47,12 +56,17 @@ function InfoItem({ label, value }: { label: string; value?: string | number | n
 }
 
 function RevisaoHumanaContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId") ?? "";
   const checkoutStatus = searchParams.get("payment");
   const [caseData, setCaseData] = useState<AgronomicCase | null>(null);
   const [loadingCase, setLoadingCase] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -60,6 +74,9 @@ function RevisaoHumanaContent() {
   const formattedPrice = useMemo(() => formatCurrency(priceCents), [priceCents]);
   const riskLevel = caseData?.risk_level ?? null;
   const alreadyRequested = caseData?.human_review_requested;
+  const canDelete = deleteConfirmation.trim().toUpperCase() === "EXCLUIR";
+  const answeredQuestions = caseData?.pending_questions?.filter((question) => question.status === "answered") ?? [];
+  const pendingQuestions = caseData?.pending_questions?.filter((question) => question.status !== "answered") ?? [];
 
   useEffect(() => {
     if (checkoutStatus === "success") {
@@ -133,6 +150,51 @@ function RevisaoHumanaContent() {
     }
   }
 
+  async function handleCancelReview() {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !caseId) return;
+    setCancelling(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/human-review`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível cancelar a solicitação.");
+      setCaseData((current) => (current ? { ...current, ...payload.case } : current));
+      setSuccessMessage("Solicitação de revisão humana cancelada. O caso voltou para a consultoria IA.");
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Não foi possível cancelar a solicitação.");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function handleDeleteCase() {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !caseId || !canDelete) return;
+    setDeleting(true);
+    setError(null);
+    setSuccessMessage("Excluindo caso...");
+    try {
+      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Erro ao excluir caso.");
+      setSuccessMessage("Caso excluído com sucesso.");
+      router.replace("/consultoria-ia");
+    } catch (deleteError) {
+      setSuccessMessage(null);
+      setError(deleteError instanceof Error ? deleteError.message : "Erro ao excluir caso.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
@@ -180,7 +242,7 @@ function RevisaoHumanaContent() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Caso agronômico</p>
                   <h3 className="mt-2 text-2xl font-semibold text-slate-900">{caseData.crop}</h3>
                 </div>
-                <StatusBadge status={caseData.status} label={caseData.status ?? "Sem status"} />
+                <StatusBadge status={caseData.status} label={statusLabels[caseData.status ?? ""] ?? caseData.status ?? "Sem status"} />
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -194,6 +256,16 @@ function RevisaoHumanaContent() {
                 <h4 className="font-semibold text-slate-900">Sintomas informados</h4>
                 <p className="mt-2 text-sm leading-6 text-slate-700">{caseData.symptoms}</p>
               </div>
+
+              {caseData.images.length > 0 && (
+                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                  {caseData.images.map((image) => (
+                    <div key={image.id} className="relative h-44 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
+                      <Image src={image.image_url} alt="Imagem anexada ao caso" fill sizes="(max-width: 768px) 100vw, 320px" className="object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
             </article>
 
             <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
@@ -227,6 +299,25 @@ function RevisaoHumanaContent() {
                 </div>
               )}
             </article>
+
+            <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
+              <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Perguntas respondidas</p>
+              <h3 className="mt-2 text-2xl font-semibold text-slate-900">Contexto adicional para a especialista</h3>
+              <div className="mt-5 space-y-3">
+                {answeredQuestions.length === 0 && pendingQuestions.length === 0 && <p className="text-sm text-slate-500">Nenhuma pergunta complementar registrada para este caso.</p>}
+                {answeredQuestions.map((question) => (
+                  <div key={question.id} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm">
+                    <p className="font-semibold text-slate-900">{question.question}</p>
+                    <p className="mt-2 text-slate-700">{question.answer}</p>
+                  </div>
+                ))}
+                {pendingQuestions.map((question) => (
+                  <div key={question.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
+                    <p className="font-semibold">Pendente: {question.question}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
           </div>
 
           <aside className="rounded-3xl border border-sun-200 bg-white p-6 shadow-soft md:p-8">
@@ -253,7 +344,7 @@ function RevisaoHumanaContent() {
 
             {alreadyRequested && (
               <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                Este caso já foi marcado para revisão humana. Status atual: {caseData.human_review_status ?? "não informado"}.
+                <strong>Status atual:</strong> {caseData.human_review_status === "pending_payment" ? "Aguardando pagamento da revisão humana" : caseData.human_review_status ?? "não informado"}.
               </div>
             )}
 
@@ -263,13 +354,47 @@ function RevisaoHumanaContent() {
               disabled={requesting || !caseData.ai_summary}
               className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {requesting ? "Abrindo pagamento..." : "Pagar revisão humana"}
+              {requesting ? "Abrindo pagamento..." : "Pagar e enviar para especialista"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCancelReview}
+              disabled={cancelling || deleting || caseData.human_review_status === "waiting_review"}
+              className="mt-3 w-full rounded-full border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {cancelling ? "Cancelando..." : "Cancelar solicitação"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setDeleteConfirmation(""); setShowDelete(true); }}
+              disabled={deleting}
+              className="mt-3 w-full rounded-full border border-red-200 bg-red-50 px-6 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Excluir caso
             </button>
 
             <p className="mt-4 text-xs leading-5 text-slate-500">
               Ao clicar, o sistema cria uma ordem em one_time_orders com pagamento pendente e redireciona para o checkout Stripe.
             </p>
           </aside>
+        </div>
+      )}
+      {showDelete && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur">
+          <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-soft">
+            <h2 className="text-2xl font-black text-slate-950">Excluir caso permanentemente</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">Esta ação não poderá ser desfeita. O caso, imagens, conversa, perguntas, pedidos de revisão, relatórios e arquivos serão removidos.</p>
+            <label className="mt-5 block text-sm font-bold text-slate-700">
+              Digite EXCLUIR para confirmar
+              <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} disabled={deleting} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-red-300" placeholder="EXCLUIR" />
+            </label>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setShowDelete(false)} disabled={deleting} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black disabled:opacity-60">Cancelar</button>
+              <button type="button" onClick={handleDeleteCase} disabled={!canDelete || deleting} className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">{deleting ? "Excluindo..." : "Excluir caso"}</button>
+            </div>
+          </div>
         </div>
       )}
     </section>

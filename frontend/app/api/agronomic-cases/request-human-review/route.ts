@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError } from "../../../../lib/billing/check-plan-limits";
 import { supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
-
-type PaidHumanReviewOrder = { id: string };
 
 type UpdatedCase = {
   id: string;
@@ -44,22 +42,25 @@ async function logActivity(caseId: string, userId: string, token: string) {
   }
 }
 
-async function hasPaidHumanReviewOrder(userId: string, caseId: string) {
-  const orders = await supabaseAdminRequest<PaidHumanReviewOrder[]>(
-    `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(userId)}&case_id=eq.${encodeURIComponent(caseId)}&service_type=eq.human_case_review&payment_status=eq.paid&select=id&limit=1`,
-    { method: "GET" },
-  ).catch((error) => {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("Não foi possível verificar ordem paga de revisão humana.", error);
-    }
-    return [];
-  });
-
-  return orders.length > 0;
-}
-
 async function createHumanReviewQueueRow(caseId: string) {
   try {
+    const existing = await supabaseAdminRequest<Array<{ id: string }>>(
+      `/rest/v1/human_reviews?case_id=eq.${encodeURIComponent(caseId)}&select=id&order=created_at.desc&limit=1`,
+      { method: "GET" },
+    );
+
+    if (existing[0]?.id) {
+      await supabaseAdminRequest(
+        `/rest/v1/human_reviews?id=eq.${encodeURIComponent(existing[0].id)}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ status: "pending", specialist_id: null, reviewed_at: null }),
+        },
+      );
+      return;
+    }
+
     await supabaseAdminRequest(
       "/rest/v1/human_reviews",
       {
@@ -110,14 +111,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const hasPaidOrder = await hasPaidHumanReviewOrder(user.id, caseId);
-    let shouldRecordUsage = false;
-
-    if (!hasPaidOrder) {
-      await assertPlanLimit(user.id, "human_review");
-      shouldRecordUsage = true;
-    }
-
     const now = new Date().toISOString();
     const updatedCase = (
       await supabaseRequest<UpdatedCase[]>(
@@ -127,8 +120,8 @@ export async function POST(request: NextRequest) {
           headers: { Prefer: "return=representation" },
           body: JSON.stringify({
             human_review_requested: true,
-            human_review_status: "waiting_review",
-            status: "waiting_human_review",
+            human_review_status: "pending_payment",
+            status: "waiting_payment_human_review",
             updated_at: now,
           }),
         },
@@ -142,14 +135,9 @@ export async function POST(request: NextRequest) {
     }
 
     await createHumanReviewQueueRow(caseId);
-    if (shouldRecordUsage) {
-      await recordUsageEvent(user.id, "human_review").catch((error) => {
-        if (process.env.NODE_ENV !== "production") console.error("Não foi possível registrar uso de revisão humana.", error);
-      });
-    }
     await logActivity(caseId, user.id, token);
 
-    return NextResponse.json({ success: true, case: updatedCase });
+    return NextResponse.json({ success: true, redirectTo: `/revisao-humana?caseId=${encodeURIComponent(caseId)}`, case: updatedCase });
   } catch (error) {
     if (error instanceof PlanLimitExceededError) {
       return NextResponse.json(
