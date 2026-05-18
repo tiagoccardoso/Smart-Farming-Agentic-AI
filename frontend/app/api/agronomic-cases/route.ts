@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature } from "../../../lib/billing/check-plan-limits";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature, getPlanLimitCheck } from "../../../lib/billing/check-plan-limits";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -160,6 +160,7 @@ type ListedCaseRow = {
   human_review_requested: boolean;
   human_review_status: string | null;
   created_at: string | null;
+  updated_at?: string | null;
   farm_id: string | null;
 };
 
@@ -205,15 +206,29 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await getAuthenticatedUser(token, config);
+    const { searchParams } = request.nextUrl;
+    const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") ?? "25") || 25));
+    const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
+    const offset = (page - 1) * limit;
     const cases = await supabaseRequest<ListedCaseRow[]>(
-      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,farm_id&order=created_at.desc`,
+      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=created_at.desc&limit=${limit}&offset=${offset}`,
       { method: "GET" },
       token,
       config
     );
 
     if (cases.length === 0) {
-      return NextResponse.json({ cases: [] });
+      const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(() => null);
+      return NextResponse.json({
+        cases: [],
+        pagination: { page, limit, hasMore: false },
+        plan: planCheck ? {
+          slug: planCheck.planSlug === "ia-revisao-humana" ? "premium" : planCheck.planSlug,
+          label: planCheck.planSlug === "ia-revisao-humana" ? "Premium" : planCheck.planLabel.replace("Plano ", ""),
+          remaining: planCheck.remaining,
+          subscriptionStatus: planCheck.planSlug === "gratuito" ? "Sem assinatura ativa" : "Assinatura ativa"
+        } : undefined
+      });
     }
 
     const farmIds = Array.from(new Set(cases.map((caseItem) => caseItem.farm_id).filter((id): id is string => Boolean(id))));
@@ -242,6 +257,15 @@ export async function GET(request: NextRequest) {
       )
     ]);
 
+    const imageRows = await supabaseRequest<Array<{ case_id: string }>>(
+      `/rest/v1/case_images?case_id=${buildInFilter(caseIds)}&select=case_id`,
+      { method: "GET" },
+      token,
+      config
+    ).catch(() => []);
+    const imageCounts = imageRows.reduce((acc, row) => acc.set(row.case_id, (acc.get(row.case_id) ?? 0) + 1), new Map<string, number>());
+    const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(() => null);
+
     const farmsById = new Map(farms.map((farm) => [farm.id, farm]));
     const reviewsByCaseId = new Map<string, ListedHumanReview>();
     const reportsByCaseId = new Map<string, ListedReport>();
@@ -263,8 +287,16 @@ export async function GET(request: NextRequest) {
         ...caseItem,
         farm: caseItem.farm_id ? farmsById.get(caseItem.farm_id) ?? null : null,
         latestHumanReview: reviewsByCaseId.get(caseItem.id) ?? null,
-        latestReport: reportsByCaseId.get(caseItem.id) ?? null
-      }))
+        latestReport: reportsByCaseId.get(caseItem.id) ?? null,
+        images_count: imageCounts.get(caseItem.id) ?? 0
+      })),
+      pagination: { page, limit, hasMore: cases.length === limit },
+      plan: planCheck ? {
+        slug: planCheck.planSlug === "ia-revisao-humana" ? "premium" : planCheck.planSlug,
+        label: planCheck.planSlug === "ia-revisao-humana" ? "Premium" : planCheck.planLabel.replace("Plano ", ""),
+        remaining: planCheck.remaining,
+        subscriptionStatus: planCheck.planSlug === "gratuito" ? "Sem assinatura ativa" : "Assinatura ativa"
+      } : undefined
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível carregar seus casos agronômicos.";
