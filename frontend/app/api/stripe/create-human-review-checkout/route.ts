@@ -13,10 +13,6 @@ type CreatedOrder = {
 };
 
 function getUsageEventForServiceType(serviceType: string): UsageEventType | null {
-  if (serviceType === "human_case_review") {
-    return "human_review";
-  }
-
   if (serviceType === "technical_report") {
     return "pdf_report";
   }
@@ -52,6 +48,14 @@ export async function POST(request: NextRequest) {
 
     if (caseData.user_id !== user.id) {
       return NextResponse.json({ error: "Este caseId não pertence ao usuário autenticado." }, { status: 403 });
+    }
+
+    if (caseData.status === "deleted" || caseData.deleted_at) {
+      return NextResponse.json({ error: "Não é possível pagar revisão de um caso excluído." }, { status: 400 });
+    }
+
+    if (serviceType === "human_case_review" && caseData.human_review_status !== "pending_payment") {
+      return NextResponse.json({ error: "Solicite a revisão humana antes de iniciar o pagamento." }, { status: 400 });
     }
 
     const usageEventType = getUsageEventForServiceType(serviceType);

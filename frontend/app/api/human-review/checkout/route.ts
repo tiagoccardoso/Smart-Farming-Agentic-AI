@@ -14,7 +14,7 @@ type StripeCheckoutSession = {
   };
 };
 
-const HUMAN_REVIEW_SERVICE_TYPE = "human_review_simple_case";
+const HUMAN_REVIEW_SERVICE_TYPE = "human_case_review";
 const DEFAULT_HUMAN_REVIEW_PRICE_CENTS = 19700;
 
 function getHumanReviewPriceCents() {
@@ -129,7 +129,8 @@ export async function POST(request: NextRequest) {
         headers: { Prefer: "return=minimal" },
         body: JSON.stringify({
           human_review_requested: true,
-          human_review_status: "pending_payment"
+          human_review_status: "pending_payment",
+          status: "waiting_payment_human_review"
         })
       },
       token,

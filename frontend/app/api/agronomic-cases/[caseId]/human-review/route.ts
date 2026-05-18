@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../../lib/agronomic/case";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordUsageEvent } from "../../../../../lib/billing/check-plan-limits";
+import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError } from "../../../../../lib/billing/check-plan-limits";
 import { supabaseAdminRequest } from "../../../../../lib/stripe/humanReview";
 
 type UpdatedCase = {
@@ -64,33 +64,71 @@ export async function POST(request: NextRequest, { params }: { params: { caseId:
     }
 
     const hasPaidOrder = await hasPaidHumanReviewOrder(user.id, params.caseId);
-    let shouldRecordUsage = false;
-    if (!hasPaidOrder) {
-      await assertPlanLimit(user.id, "human_review");
-      shouldRecordUsage = true;
-    }
 
     const now = new Date().toISOString();
-    const updatedCase = (await supabaseRequest<UpdatedCase[]>(
-      `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}&select=id,status,human_review_requested,human_review_status,updated_at`,
-      { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ human_review_requested: true, human_review_status: "waiting_review", status: "waiting_human_review", updated_at: now }) },
-      token,
-      getSupabaseConfig(),
-    ))[0];
+    const casePatch = {
+      human_review_requested: true,
+      human_review_status: hasPaidOrder ? "waiting_review" : "pending_payment",
+      status: hasPaidOrder ? "waiting_human_review" : "waiting_payment_human_review",
+      updated_at: now,
+    };
+    const casePath = `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}&select=id,status,human_review_requested,human_review_status,updated_at`;
+    const updatedCase = (hasPaidOrder
+      ? await supabaseAdminRequest<UpdatedCase[]>(casePath, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(casePatch) })
+      : await supabaseRequest<UpdatedCase[]>(casePath, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(casePatch) }, token, getSupabaseConfig())
+    )[0];
 
     if (!updatedCase) throw new FriendlyRequestError("Caso não encontrado ou sem permissão para atualização.", 404);
     await createHumanReviewQueueRow(params.caseId);
-    if (shouldRecordUsage) {
-      await recordUsageEvent(user.id, "human_review").catch((error) => {
-        if (process.env.NODE_ENV !== "production") console.error("Não foi possível registrar uso de revisão humana.", error);
-      });
-    }
     await logActivity(params.caseId, user.id, token);
-    return NextResponse.json({ success: true, case: updatedCase });
+    return NextResponse.json({ success: true, redirectTo: `/revisao-humana?caseId=${encodeURIComponent(params.caseId)}`, case: updatedCase });
   } catch (error) {
     if (error instanceof PlanLimitExceededError) return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE, offers: [{ label: "Revisão avulsa", price: 19700 }, { label: "Premium mensal", price: 39700 }] }, { status: error.status });
     if (process.env.NODE_ENV !== "production") console.error("Erro ao solicitar revisão humana.", error);
     const message = error instanceof Error ? error.message : "Não foi possível solicitar revisão humana.";
+    const status = error instanceof FriendlyRequestError ? error.status : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { caseId: string } }) {
+  try {
+    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    if (!token) return NextResponse.json({ error: "Faça login para cancelar a revisão humana." }, { status: 401 });
+
+    const user = await getAuthenticatedUser(token);
+    const caseData = await fetchAgronomicCase(params.caseId, token);
+    if (!caseData) return NextResponse.json({ error: "Caso não encontrado." }, { status: 404 });
+    if (caseData.user_id !== user.id) return NextResponse.json({ error: "Você só pode cancelar solicitações dos seus próprios casos." }, { status: 403 });
+    if (caseData.human_review_status && !["pending_payment", "not_requested", "pending"].includes(caseData.human_review_status)) {
+      throw new FriendlyRequestError("A revisão já foi enviada para a especialista e não pode ser cancelada por aqui.", 400);
+    }
+
+    const nextStatus = caseData.ai_summary ? "ai_analyzed" : "submitted";
+    const now = new Date().toISOString();
+    const updatedCase = (await supabaseRequest<UpdatedCase[]>(
+      `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}&select=id,status,human_review_requested,human_review_status,updated_at`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ human_review_requested: false, human_review_status: "not_requested", status: nextStatus, updated_at: now }),
+      },
+      token,
+      getSupabaseConfig(),
+    ))[0];
+
+    await supabaseAdminRequest(`/rest/v1/human_reviews?case_id=eq.${encodeURIComponent(params.caseId)}&status=eq.pending`, { method: "DELETE" }).catch(() => null);
+    await supabaseAdminRequest(`/rest/v1/one_time_orders?case_id=eq.${encodeURIComponent(params.caseId)}&payment_status=eq.pending`, { method: "DELETE" }).catch(() => null);
+    await supabaseRequest(
+      "/rest/v1/case_activity_logs",
+      { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ case_id: params.caseId, user_id: user.id, action: "Solicitação de revisão humana cancelada", metadata: { source: "revisao-humana" } }) },
+      token,
+    ).catch(() => null);
+
+    return NextResponse.json({ success: true, case: updatedCase });
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") console.error("Erro ao cancelar revisão humana.", error);
+    const message = error instanceof Error ? error.message : "Não foi possível cancelar a revisão humana.";
     const status = error instanceof FriendlyRequestError ? error.status : 500;
     return NextResponse.json({ error: message }, { status });
   }

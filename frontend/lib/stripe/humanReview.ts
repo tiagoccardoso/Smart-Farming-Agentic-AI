@@ -115,7 +115,7 @@ export async function createStripeCheckoutSession(
   const service = HUMAN_REVIEW_SERVICES[serviceType];
   const params = new URLSearchParams({
     mode: "payment",
-    success_url: `${origin}/meus-relatorios?payment=success`,
+    success_url: `${origin}/revisao-humana?caseId=${encodeURIComponent(caseId)}&payment=success`,
     cancel_url: `${origin}/revisao-humana?caseId=${encodeURIComponent(caseId)}&payment=cancelled`,
     client_reference_id: orderId,
     "line_items[0][price_data][currency]": "brl",

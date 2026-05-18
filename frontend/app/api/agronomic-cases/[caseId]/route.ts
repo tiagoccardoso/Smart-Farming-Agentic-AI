@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature } from "../../../../lib/billing/check-plan-limits";
+import { getSupabaseAdminConfig, supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -71,6 +72,37 @@ async function logActivity(caseId: string, userId: string, action: string, metad
     { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ case_id: caseId, user_id: userId, action, metadata }) },
     token,
   ).catch(() => null);
+}
+
+function extractStoragePath(url: string | null | undefined) {
+  if (!url) return null;
+  const marker = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
+  const markerIndex = url.indexOf(marker);
+  if (markerIndex >= 0) return decodeURIComponent(url.slice(markerIndex + marker.length));
+  const privateMarker = `/storage/v1/object/${STORAGE_BUCKET}/`;
+  const privateIndex = url.indexOf(privateMarker);
+  if (privateIndex >= 0) return decodeURIComponent(url.slice(privateIndex + privateMarker.length));
+  return null;
+}
+
+async function deleteStorageObjects(paths: string[]) {
+  const uniquePaths = Array.from(new Set(paths.filter(Boolean)));
+  if (!uniquePaths.length) return;
+  const config = getSupabaseAdminConfig();
+  const response = await fetch(`${config.supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}`, {
+    method: "DELETE",
+    headers: {
+      apikey: config.serviceRoleKey,
+      Authorization: `Bearer ${config.serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prefixes: uniquePaths }),
+    cache: "no-store",
+  });
+  if (!response.ok && process.env.NODE_ENV !== "production") {
+    const payload = await response.json().catch(() => null);
+    console.error("Não foi possível remover todos os arquivos do storage.", payload);
+  }
 }
 
 async function assertCaseOwner(caseId: string, token: string) {
@@ -152,10 +184,27 @@ export async function DELETE(request: NextRequest, { params }: { params: { caseI
     if (!token) return NextResponse.json({ error: "Faça login para excluir o caso agronômico." }, { status: 401 });
     const { user, caseData } = await assertCaseOwner(params.caseId, token);
     if (caseData.status === "deleted" || caseData.deleted_at) return NextResponse.json({ error: "Este caso já foi excluído." }, { status: 400 });
-    const now = new Date().toISOString();
-    await supabaseRequest(`/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ deleted_at: now, status: "deleted", updated_at: now }) }, token);
-    await logActivity(params.caseId, user.id, "Caso excluído", { softDelete: true }, token);
-    return NextResponse.json({ success: true, softDeleted: true });
+
+    const encodedCaseId = encodeURIComponent(params.caseId);
+    const [chatFiles, diseaseAnalyses, reports] = await Promise.all([
+      supabaseAdminRequest<Array<{ file_url: string | null }>>(`/rest/v1/case_chat_messages?case_id=eq.${encodedCaseId}&select=file_url`, { method: "GET" }).catch(() => []),
+      supabaseAdminRequest<Array<{ image_url: string | null }>>(`/rest/v1/disease_image_analyses?case_id=eq.${encodedCaseId}&select=image_url`, { method: "GET" }).catch(() => []),
+      supabaseAdminRequest<Array<{ report_url: string | null }>>(`/rest/v1/reports?case_id=eq.${encodedCaseId}&select=report_url`, { method: "GET" }).catch(() => []),
+    ]);
+
+    const storagePaths = [
+      caseData.soil_analysis_url,
+      ...caseData.images.map((image) => image.image_url),
+      ...chatFiles.map((message) => message.file_url),
+      ...diseaseAnalyses.map((analysis) => analysis.image_url),
+      ...reports.map((report) => report.report_url),
+    ].map(extractStoragePath).filter((path): path is string => Boolean(path));
+
+    await deleteStorageObjects(storagePaths);
+    await supabaseAdminRequest(`/rest/v1/one_time_orders?case_id=eq.${encodedCaseId}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "DELETE" }).catch(() => null);
+    await supabaseAdminRequest(`/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+
+    return NextResponse.json({ success: true, deleted: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível excluir o caso.";
     const status = error instanceof FriendlyRequestError ? error.status : 500;
