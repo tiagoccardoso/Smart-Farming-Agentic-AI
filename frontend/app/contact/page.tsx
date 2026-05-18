@@ -1,33 +1,6 @@
-import SectionTitle from "../../components/SectionTitle";
-
-export default function ContactPage() {
-  return (
-    <div className="mx-auto max-w-4xl px-6 py-14">
-      <SectionTitle title="Contato e feedback" subtitle="Compartilhe sugestões ou peça novos recursos." />
-
-      <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-        <form className="grid gap-4">
-          <label className="text-sm text-slate-700">
-            Nome
-            <input className="mt-2 w-full rounded-xl border border-leaf-100 px-4 py-2 shadow-soft" placeholder="Seu nome" />
-          </label>
-          <label className="text-sm text-slate-700">
-            E-mail
-            <input className="mt-2 w-full rounded-xl border border-leaf-100 px-4 py-2 shadow-soft" placeholder="voce@email.com" />
-          </label>
-          <label className="text-sm text-slate-700">
-            Mensagem
-            <textarea
-              className="mt-2 w-full rounded-xl border border-leaf-100 px-4 py-2 shadow-soft"
-              rows={5}
-              placeholder="Conte como foi sua experiência..."
-            />
-          </label>
-          <button className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft">
-            Enviar feedback
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
+"use client";
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+const visitTypes=["visita_agricultura_organica","conversao_propriedade_organica"];
+export default function ContactPage(){const search=useSearchParams(); const [ok,setOk]=useState(""); const [form,setForm]=useState({name:"",email:"",phone:"",city:"",state:"",preferredDate:"",preferredTime:"",requestType:search.get("requestType")||"consultoria_geral",message:""}); const isVisit=visitTypes.includes(form.requestType); async function submit(e:any){e.preventDefault(); if(isVisit&&(!form.phone||!form.city||!form.state||!form.preferredDate||!form.preferredTime)){alert("Preencha telefone, cidade, estado, dia e horário."); return;} const r=await fetch('/api/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)}); const d=await r.json(); if(r.ok) setOk(d.message); else alert(d.error||'Erro');}
+return <div className='mx-auto max-w-4xl px-6 py-14'><h1 className='text-3xl font-bold'>Contato e agendamento</h1>{ok&&<p className='mt-3 rounded bg-green-50 p-3 text-green-700'>{ok}</p>}<form onSubmit={submit} className='mt-6 grid gap-4 rounded-3xl border bg-white p-6'>{['name','email','phone','city','state'].map((k)=><input key={k} required={k==='name'||(isVisit&&['phone','city','state'].includes(k))} placeholder={k} value={(form as any)[k]} onChange={(e)=>setForm({...form,[k]:e.target.value})} className='rounded-xl border px-3 py-2'/>)}<input type='date' required={isVisit} value={form.preferredDate} onChange={(e)=>setForm({...form,preferredDate:e.target.value})} className='rounded-xl border px-3 py-2'/><input placeholder='Horário desejado para visita' required={isVisit} value={form.preferredTime} onChange={(e)=>setForm({...form,preferredTime:e.target.value})} className='rounded-xl border px-3 py-2'/><select value={form.requestType} onChange={(e)=>setForm({...form,requestType:e.target.value})} className='rounded-xl border px-3 py-2'><option value='consultoria_geral'>Consultoria geral</option><option value='revisao_caso_agricola'>Revisão de caso agrícola</option><option value='visita_agricultura_organica'>Visita para agricultura orgânica</option><option value='conversao_propriedade_organica'>Conversão de propriedade para orgânica</option></select><textarea value={form.message} onChange={(e)=>setForm({...form,message:e.target.value})} className='rounded-xl border px-3 py-2' rows={5} placeholder='Mensagem / descrição da necessidade'/><button className='rounded-full bg-leaf-600 px-6 py-3 text-white'>Enviar solicitação</button></form></div>}

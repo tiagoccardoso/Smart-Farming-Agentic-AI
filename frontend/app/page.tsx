@@ -153,6 +153,19 @@ export default function HomePage() {
         </div>
       </section>
 
+
+      <section className="mx-auto max-w-6xl px-6 pb-16">
+        <div className="grid gap-8 rounded-3xl border border-[#2E7D32]/20 bg-white p-8 md:grid-cols-2 md:items-center">
+          <div>
+            <h2 className="text-3xl font-bold text-[#123F2A]">Pensando em converter sua propriedade para produção orgânica?</h2>
+            <p className="mt-3 text-[#1F2933]/80">Conte com orientação especializada para avaliar sua realidade, planejar o manejo e iniciar a transição com mais segurança.</p>
+            <p className="mt-3 text-sm text-[#1F2933]/75">A agricultura orgânica pode abrir novas oportunidades de mercado, melhorar a sustentabilidade da produção e valorizar a propriedade.</p>
+            <div className="mt-5 flex flex-wrap gap-3"><Link href="/agricultura-organica" className="rounded-full bg-[#2E7D32] px-6 py-3 text-sm font-bold text-white">Conhecer consultoria orgânica</Link><Link href="/contact?requestType=visita_agricultura_organica" className="rounded-full border border-[#2E7D32]/30 px-6 py-3 text-sm font-bold text-[#123F2A]">Agendar visita técnica</Link></div>
+          </div>
+          <Image src="/images/organic-consulting-premium.svg" alt="Consultoria orgânica premium" width={800} height={500} className="w-full rounded-2xl" />
+        </div>
+      </section>
+
       <section className="mx-auto max-w-6xl px-6 pb-20">
         <div className="rounded-3xl border border-[#2E7D32]/15 bg-[#123F2A] p-8 text-white shadow-soft md:p-10">
           <div className="grid gap-8 md:grid-cols-[1.5fr_1fr] md:items-center">

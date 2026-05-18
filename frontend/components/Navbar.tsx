@@ -32,6 +32,12 @@ const links: NavigationLink[] = [
     allowedRoles: ["admin", "specialist"],
   },
   {
+    href: "/admin/agendamentos",
+    label: "Agendamentos",
+    requiresAuth: true,
+    allowedRoles: ["admin", "specialist"],
+  },
+  {
     href: "/admin/oportunidades",
     label: "Oportunidades",
     requiresAuth: true,
@@ -44,6 +50,9 @@ const links: NavigationLink[] = [
   { href: "/dashboard", label: "Painel", requiresAuth: true },
   { href: "/models", label: "Modelos" },
   { href: "/about", label: "Sobre" },
+  { href: "/especialista", label: "Especialista" },
+  { href: "/agricultura-organica", label: "Agricultura Orgânica" },
+  { href: "/contact?requestType=visita_agricultura_organica", label: "Agendar Visita" },
   { href: "/contact", label: "Contato" },
 ];
 
