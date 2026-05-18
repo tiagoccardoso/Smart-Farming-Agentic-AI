@@ -24,7 +24,7 @@ export default function HomePage() {
               <Link href="/crop" className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft">
                 Recomendar cultura
               </Link>
-              <Link href="/disease" className="rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-semibold text-leaf-700 shadow-soft">
+              <Link href="/doencas" className="rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-semibold text-leaf-700 shadow-soft">
                 Fazer triagem de folha
               </Link>
               <Link href="/qa" className="rounded-full border border-sun-200 bg-white px-6 py-3 text-sm font-semibold text-sun-700 shadow-soft">
@@ -90,7 +90,7 @@ export default function HomePage() {
             <Link href="/crop" className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft">
               Testar culturas
             </Link>
-            <Link href="/disease" className="rounded-full bg-sun-500 px-6 py-3 text-sm font-semibold text-white shadow-soft">
+            <Link href="/doencas" className="rounded-full bg-sun-500 px-6 py-3 text-sm font-semibold text-white shadow-soft">
               Testar folhas
             </Link>
           </div>

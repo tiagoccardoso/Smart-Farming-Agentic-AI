@@ -36,9 +36,27 @@ export async function recommendCrop(payload: CropPayload) {
   return parseResponse(response);
 }
 
-export async function detectDisease(file: File) {
+export type DiseaseTriagePayload = {
+  file: File;
+  crop: string;
+  symptoms: string;
+  state: string;
+  city?: string;
+  growthStage?: string;
+  soilType?: string;
+  history?: string;
+};
+
+export async function detectDisease(payload: DiseaseTriagePayload) {
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", payload.file);
+  formData.append("crop", payload.crop);
+  formData.append("symptoms", payload.symptoms);
+  formData.append("state", payload.state);
+  if (payload.city) formData.append("city", payload.city);
+  if (payload.growthStage) formData.append("growthStage", payload.growthStage);
+  if (payload.soilType) formData.append("soilType", payload.soilType);
+  if (payload.history) formData.append("history", payload.history);
 
   const response = await fetch("/api/disease/predict", {
     method: "POST",
