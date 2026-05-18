@@ -17,6 +17,11 @@ type AgronomicPromptCase = {
   images?: Array<{ image_url?: string | null; image_type?: string | null }>;
   crop_context?: {
     name?: string | null;
+    slug?: string | null;
+    aliases?: string[] | null;
+    model_label?: string | null;
+    display_name_pt?: string | null;
+    display_name_en?: string | null;
     scientific_name?: string | null;
     recommended_soil?: string | null;
     ideal_climate?: string | null;
@@ -67,7 +72,11 @@ export function buildAgronomicAnalysisPrompt(
   const crop = caseData.crop_context;
   const cropContext = crop
     ? [
-        `Nome cadastrado: ${crop.name || caseData.crop || "não informado"}`,
+        `Nome cadastrado: ${crop.display_name_pt || crop.name || caseData.crop || "não informado"}`,
+        crop.model_label ? `Label do modelo ML: ${crop.model_label}` : "Label do modelo ML: não suportada pelo recomendador",
+        crop.slug ? `Slug: ${crop.slug}` : null,
+        crop.aliases?.length ? `Aliases: ${crop.aliases.join(", ")}` : null,
+        crop.display_name_en ? `Nome em inglês: ${crop.display_name_en}` : null,
         crop.scientific_name
           ? `Nome científico: ${crop.scientific_name}`
           : null,

@@ -40,6 +40,11 @@ type AgronomicCaseForAI = {
   images: Array<{ image_url: string; image_type?: string | null }>;
   crop_context?: {
     name?: string | null;
+    slug?: string | null;
+    aliases?: string[] | null;
+    model_label?: string | null;
+    display_name_pt?: string | null;
+    display_name_en?: string | null;
     scientific_name?: string | null;
     recommended_soil?: string | null;
     ideal_climate?: string | null;

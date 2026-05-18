@@ -7,18 +7,11 @@ import ConfidenceBar from "../../components/ConfidenceBar";
 import TopKList from "../../components/TopKList";
 import { recommendCrop } from "../../lib/api";
 import { toNumber } from "../../lib/validators";
-
-type CropCatalogItem = {
-  id: string;
-  name: string;
-  scientific_name: string | null;
-  recommended_soil: string | null;
-  ideal_climate: string | null;
-  common_diseases: string | null;
-  common_pests: string | null;
-  growth_cycle: string | null;
-  management_notes: string | null;
-};
+import {
+  normalizeRecommendationResult,
+  type CropRecord,
+  type CropRecommendationLike,
+} from "../../lib/crop/normalization";
 
 export default function CropPage() {
   const [form, setForm] = useState({
@@ -31,9 +24,9 @@ export default function CropPage() {
     rainfall: "202",
   });
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<CropRecommendationLike & { confidence?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<CropCatalogItem[]>([]);
+  const [catalog, setCatalog] = useState<CropRecord[]>([]);
 
   useEffect(() => {
     fetch("/api/crops")
@@ -61,9 +54,9 @@ export default function CropPage() {
         rainfall: toNumber(form.rainfall),
       };
       const response = await recommendCrop(payload);
-      setResult(response?.data ?? response);
-    } catch (err: any) {
-      setError(err?.message ?? "Não foi possível gerar a recomendação.");
+      setResult(normalizeRecommendationResult(response?.data ?? response, catalog));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível gerar a recomendação.");
     } finally {
       setLoading(false);
     }
@@ -144,7 +137,7 @@ export default function CropPage() {
                     key={crop.id}
                     className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-leaf-100"
                   >
-                    {crop.name}
+                    {crop.display_name_pt || crop.name}
                   </span>
                 ))}
               </div>
@@ -170,7 +163,7 @@ export default function CropPage() {
                 </p>
                 <TopKList
                   items={(result?.top_3_recommendations ?? []).map(
-                    (item: any) => ({
+                    (item) => ({
                       label: item.crop,
                       value: item.probability,
                     }),

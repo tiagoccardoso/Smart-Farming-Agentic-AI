@@ -24,42 +24,42 @@ type CropRule = {
 
 const cropRules: CropRule[] = [
   {
-    crop: "Arroz",
+    crop: "rice",
     ideal: { N: [70, 120], P: [30, 60], K: [30, 60], temperature: [20, 32], humidity: [75, 95], ph: [5.5, 7], rainfall: [150, 300] },
     description: "boa adaptação a alta umidade e maior disponibilidade de água"
   },
   {
-    crop: "Milho",
+    crop: "maize",
     ideal: { N: [60, 120], P: [35, 70], K: [30, 70], temperature: [18, 30], humidity: [50, 80], ph: [5.8, 7.2], rainfall: [60, 160] },
     description: "equilíbrio entre temperatura amena, fertilidade e chuva moderada"
   },
   {
-    crop: "Algodão",
+    crop: "cotton",
     ideal: { N: [80, 140], P: [35, 70], K: [40, 90], temperature: [24, 36], humidity: [40, 70], ph: [6, 8], rainfall: [50, 120] },
     description: "clima quente, pH próximo do neutro e menor excesso de umidade"
   },
   {
-    crop: "Tomate",
+    crop: "mango",
     ideal: { N: [50, 100], P: [40, 90], K: [50, 100], temperature: [18, 29], humidity: [55, 80], ph: [5.8, 7], rainfall: [50, 140] },
     description: "bom balanço de potássio, pH levemente ácido e umidade controlada"
   },
   {
-    crop: "Trigo",
+    crop: "lentil",
     ideal: { N: [40, 90], P: [25, 60], K: [20, 55], temperature: [10, 24], humidity: [40, 70], ph: [6, 7.8], rainfall: [40, 110] },
     description: "temperaturas mais baixas e umidade moderada"
   },
   {
-    crop: "Feijão",
+    crop: "kidneybeans",
     ideal: { N: [20, 70], P: [30, 70], K: [25, 70], temperature: [18, 30], humidity: [50, 75], ph: [5.8, 7.2], rainfall: [60, 160] },
     description: "condições equilibradas de solo, pH e chuva"
   },
   {
-    crop: "Batata",
+    crop: "chickpea",
     ideal: { N: [60, 120], P: [40, 90], K: [70, 140], temperature: [12, 24], humidity: [60, 85], ph: [5, 6.5], rainfall: [50, 140] },
     description: "temperatura mais amena, boa umidade e maior demanda por potássio"
   },
   {
-    crop: "Cana-de-açúcar",
+    crop: "coffee",
     ideal: { N: [80, 160], P: [30, 70], K: [80, 180], temperature: [22, 34], humidity: [60, 85], ph: [5.5, 7.5], rainfall: [120, 260] },
     description: "clima quente, boa chuva e alta disponibilidade de nutrientes"
   }

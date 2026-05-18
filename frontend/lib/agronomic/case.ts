@@ -3,6 +3,7 @@ import {
   areEmbeddingsConfigured,
   generateEmbeddingIfConfigured,
 } from "../ai/embeddings";
+import { normalizeCropInput } from "../crop/normalization";
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -31,6 +32,11 @@ export type AgronomicQuestionHistory = {
 export type CropKnowledge = {
   id: string;
   name: string;
+  slug: string | null;
+  aliases: string[] | null;
+  model_label: string | null;
+  display_name_pt: string | null;
+  display_name_en: string | null;
   scientific_name: string | null;
   recommended_soil: string | null;
   ideal_climate: string | null;
@@ -598,13 +604,14 @@ async function fetchCropContext(
 
   const serverCredentials = getSupabaseServerCredentials(token, config);
   const rows = await supabaseRequest<CropKnowledge[]>(
-    `/rest/v1/crops?name=ilike.*${encodeURIComponent(crop)}*&select=id,name,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,active&limit=1`,
+    "/rest/v1/crops?active=eq.true&select=id,name,slug,aliases,model_label,display_name_pt,display_name_en,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,active&limit=200",
     { method: "GET" },
     serverCredentials.token,
     serverCredentials.config,
   ).catch(() => []);
 
-  return rows[0] ?? null;
+  const normalized = normalizeCropInput(crop, rows);
+  return (normalized?.record as CropKnowledge | undefined) ?? null;
 }
 
 function summarizeCropContext(crop: CropKnowledge | null | undefined) {
@@ -613,7 +620,11 @@ function summarizeCropContext(crop: CropKnowledge | null | undefined) {
   }
 
   return [
-    `Nome cadastrado: ${crop.name}`,
+    `Nome cadastrado: ${crop.display_name_pt || crop.name}`,
+    crop.model_label ? `Label do modelo ML: ${crop.model_label}` : `Label do modelo ML: não suportada pelo recomendador`,
+    crop.slug ? `Slug: ${crop.slug}` : null,
+    crop.aliases?.length ? `Aliases: ${crop.aliases.join(", ")}` : null,
+    crop.display_name_en ? `Nome em inglês: ${crop.display_name_en}` : null,
     crop.scientific_name ? `Nome científico: ${crop.scientific_name}` : null,
     crop.ideal_climate ? `Clima ideal: ${crop.ideal_climate}` : null,
     crop.recommended_soil ? `Solo recomendado: ${crop.recommended_soil}` : null,

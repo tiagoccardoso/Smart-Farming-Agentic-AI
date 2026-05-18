@@ -9,6 +9,11 @@ import { getStoredSupabaseAccessToken } from "../../../lib/supabaseAuth";
 type CropRecord = {
   id: string;
   name: string;
+  slug: string;
+  aliases: string[];
+  model_label: string | null;
+  display_name_pt: string;
+  display_name_en: string | null;
   scientific_name: string | null;
   recommended_soil: string | null;
   ideal_climate: string | null;
@@ -27,6 +32,11 @@ type CropForm = Omit<CropRecord, "id"> & { id?: string };
 
 const emptyForm: CropForm = {
   name: "",
+  slug: "",
+  aliases: [],
+  model_label: "",
+  display_name_pt: "",
+  display_name_en: "",
   scientific_name: "",
   recommended_soil: "",
   ideal_climate: "",
@@ -86,12 +96,12 @@ export default function CulturasPainelDoutoraPage() {
     loadCrops();
   }, []);
 
-  function updateForm(field: keyof CropForm, value: string | boolean) {
+  function updateForm(field: keyof CropForm, value: string | boolean | string[]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
   function editCrop(crop: CropRecord) {
-    setForm({ ...crop });
+    setForm({ ...crop, aliases: crop.aliases ?? [] });
     setSuccess(null);
     setError(null);
   }
@@ -100,8 +110,8 @@ export default function CulturasPainelDoutoraPage() {
     event.preventDefault();
     const token = getStoredSupabaseAccessToken();
     if (!token) return;
-    if (!form.name.trim()) {
-      setError("Nome da cultura é obrigatório.");
+    if (!form.name.trim() || !form.display_name_pt?.trim()) {
+      setError("Nome e nome em português da cultura são obrigatórios.");
       return;
     }
     setSaving(true);
@@ -115,7 +125,10 @@ export default function CulturasPainelDoutoraPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(form),
+          body: JSON.stringify({
+            ...form,
+            aliases: Array.isArray(form.aliases) ? form.aliases : [],
+          }),
         }),
       );
       setSuccess(
@@ -137,7 +150,11 @@ export default function CulturasPainelDoutoraPage() {
   }
 
   const fields: Array<[keyof CropForm, string, boolean?]> = [
-    ["name", "Nome da cultura", true],
+    ["name", "Nome administrativo", true],
+    ["display_name_pt", "Nome em português", true],
+    ["display_name_en", "Nome em inglês"],
+    ["slug", "Slug"],
+    ["model_label", "Label do modelo ML"],
     ["scientific_name", "Nome científico"],
     ["recommended_soil", "Solo recomendado"],
     ["ideal_climate", "Clima ideal"],
@@ -215,6 +232,23 @@ export default function CulturasPainelDoutoraPage() {
                 />
               </label>
             ))}
+            <label className="md:col-span-2">
+              <span className="text-sm font-semibold text-slate-700">Aliases (um por linha ou separados por vírgula)</span>
+              <textarea
+                rows={3}
+                value={(form.aliases ?? []).join("\n")}
+                onChange={(event) =>
+                  updateForm(
+                    "aliases",
+                    event.target.value
+                      .split(/[\n,;]/)
+                      .map((alias) => alias.trim())
+                      .filter(Boolean),
+                  )
+                }
+                className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+              />
+            </label>
           </div>
           <label className="mt-5 flex items-center gap-3 rounded-2xl bg-leaf-50 p-4 text-sm font-semibold text-leaf-800">
             <input
@@ -261,17 +295,23 @@ export default function CulturasPainelDoutoraPage() {
                   className="w-full rounded-2xl border border-slate-100 p-4 text-left hover:border-leaf-200 hover:bg-leaf-50"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <strong>{crop.name}</strong>
+                    <div>
+                      <strong>{crop.display_name_pt || crop.name}</strong>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Label ML: {crop.model_label || "não suportada pelo modelo"} · Slug: {crop.slug}
+                      </p>
+                    </div>
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-bold ${crop.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
                     >
                       {crop.active ? "Ativa" : "Inativa"}
                     </span>
                   </div>
+                  <p className="mt-2 text-xs text-slate-600 line-clamp-2">
+                    Aliases: {(crop.aliases ?? []).join(", ") || "sem aliases"}
+                  </p>
                   <p className="mt-2 text-sm text-slate-600 line-clamp-2">
-                    {crop.ideal_climate ||
-                      crop.management_notes ||
-                      "Sem detalhes"}
+                    {crop.ideal_climate || crop.management_notes || "Sem detalhes"}
                   </p>
                 </button>
               ))}
