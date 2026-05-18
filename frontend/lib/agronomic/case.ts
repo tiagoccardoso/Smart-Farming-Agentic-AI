@@ -951,6 +951,10 @@ Regras obrigatórias:
 - Use "low" para sintomas leves, informação suficiente e baixo impacto imediato.
 - Use "medium" para incerteza relevante ou possibilidade de perda.
 - Use "high" para risco de perda econômica, praga/doença agressiva, sintomas severos ou falta de dados críticos.
+- A IA apenas sugere perguntas; o backend e a tabela case_pending_questions controlam oficialmente a fila, quais perguntas existem, quais foram respondidas e quais ainda estão pendentes.
+- Se o contexto complementar informar que pendingQuestions.length === 0 ou que não existem perguntas pendentes oficiais restantes, retorne missingQuestions como [] e não gere novas perguntas genéricas, repetidas ou artificiais.
+- Se ainda houver incerteza após o fim da fila oficial, trate como limitação natural da triagem remota, explique essa limitação na recomendação, sugira revisão humana somente quando necessário e não reinicie a investigação automaticamente.
+- Na análise inicial, missingQuestions são apenas sugestões para o backend criar a fila progressiva; depois disso, não use missingQuestions para controlar o estado oficial da consulta.
 
 Formato obrigatório:
 {
@@ -1303,6 +1307,50 @@ export async function replaceCasePendingQuestions(
     },
     token,
   );
+}
+
+
+export function getPendingQuestionTexts(questions: CasePendingQuestion[]) {
+  return questions
+    .filter((question) => question.status === "pending")
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((question) => question.question);
+}
+
+export function syncAnalysisMissingQuestionsWithPendingQueue(
+  analysis: AgronomicPreAnalysis,
+  questions: CasePendingQuestion[],
+): AgronomicPreAnalysis {
+  return {
+    ...analysis,
+    missingQuestions: getPendingQuestionTexts(questions),
+  };
+}
+
+export function logPendingQuestionSync(input: {
+  scope: string;
+  aiMissingQuestions?: string[];
+  questions: CasePendingQuestion[];
+}) {
+  const pending = getPendingQuestionTexts(input.questions);
+  const answered = input.questions
+    .filter((question) => question.status === "answered")
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((question) => ({
+      id: question.id,
+      question: question.question,
+      hasAnswer: Boolean(question.answer?.trim()),
+    }));
+
+  console.info("[agronomic-pending-questions-sync]", {
+    scope: input.scope,
+    pendingCount: pending.length,
+    answeredCount: answered.length,
+    pendingQuestions: pending,
+    answeredQuestions: answered,
+    aiMissingQuestions: input.aiMissingQuestions ?? [],
+    dbMissingQuestions: pending,
+  });
 }
 
 export function getCurrentPendingQuestion(questions: CasePendingQuestion[]) {

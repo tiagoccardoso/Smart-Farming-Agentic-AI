@@ -133,7 +133,10 @@ Regras específicas:
 - Use a base specialist_knowledge somente quando relevante.
 - Não invente fontes; knowledgeUsed só pode conter títulos e categorias listados acima.
 - Se houver risco médio ou alto, recomende revisão humana.
-- Se faltarem informações, liste missingQuestions em ordem de prioridade para uma conversa progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
+- A IA apenas sugere perguntas; o backend e a tabela case_pending_questions controlam oficialmente a fila, quais perguntas existem, quais foram respondidas e quais ainda estão pendentes.
+- Se o contexto complementar informar que pendingQuestions.length === 0 ou que não existem perguntas pendentes oficiais restantes, retorne missingQuestions como [] e não gere novas perguntas genéricas, repetidas ou artificiais.
+- Se ainda houver incerteza após o fim da fila oficial, trate como limitação natural da triagem remota, informe o nível de confiança/risco na recomendação, sugira revisão humana somente quando necessário e não reinicie a investigação automaticamente.
+- Se faltarem informações na análise inicial, liste missingQuestions apenas como sugestões para o backend criar a fila progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
 - Faça perguntas específicas para a cultura: por exemplo soja (chuva, umidade, ferrugem, manchas), tomate (folhas inferiores, irrigação, manchas), milho (lagarta, cigarrinha, coloração, solo).
 - Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições e dados do caso.

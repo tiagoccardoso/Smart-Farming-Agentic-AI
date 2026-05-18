@@ -254,12 +254,14 @@ export default function DiseasePage() {
             : current,
         );
       }
-      if (payload.answeredQuestion) {
+      if (Array.isArray(payload.pendingQuestions)) {
+        setPendingQuestions(payload.pendingQuestions);
+      } else if (payload.answeredQuestion) {
         setPendingQuestions((current) =>
           current.map((item) => (item.id === payload.answeredQuestion.id ? payload.answeredQuestion : item)),
         );
       }
-      if (payload.currentQuestion) {
+      if (!Array.isArray(payload.pendingQuestions) && payload.currentQuestion) {
         setPendingQuestions((current) =>
           current.map((item) => (item.id === payload.currentQuestion.id ? payload.currentQuestion : item)),
         );
@@ -540,7 +542,7 @@ export default function DiseasePage() {
                 </div>
                 <CardList title="Possíveis causas" items={analysis.possibleCauses} />
                 <CardList title="Recomendações iniciais" items={analysis.initialRecommendations} />
-                <CardList title="Perguntas pendentes" items={currentPendingQuestion ? [`Pergunta atual: ${currentPendingQuestion.question}`, "As próximas perguntas serão feitas uma por vez no chat."] : analysis.missingQuestions} />
+                <CardList title="Perguntas pendentes" items={currentPendingQuestion ? [`Pergunta atual: ${currentPendingQuestion.question}`, "As próximas perguntas serão feitas uma por vez no chat."] : ["Triagem inicial concluída.", `Nível de confiança: ${confidenceLabels[analysis.confidenceLevel] ?? analysis.confidenceLevel}.`, "Não há perguntas pendentes obrigatórias na fila oficial do banco."]} />
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">

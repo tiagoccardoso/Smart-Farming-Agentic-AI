@@ -40,6 +40,12 @@ type PendingQuestion = {
   order_index: number;
 };
 
+const riskLabels: Record<string, string> = {
+  low: "risco baixo",
+  medium: "risco médio",
+  high: "risco alto",
+};
+
 const statusLabels: Record<string, string> = {
   submitted: "Caso enviado",
   ai_analyzed: "Pré-análise gerada",
@@ -308,7 +314,9 @@ function ConsultoriaIAContent() {
       if (payload.analysis) {
         setAnalysis(payload.analysis);
       }
-      if (payload.currentQuestion) {
+      if (Array.isArray(payload.pendingQuestions)) {
+        setPendingQuestions(payload.pendingQuestions);
+      } else if (payload.currentQuestion) {
         setPendingQuestions((current) =>
           current.map((item) =>
             item.id === payload.currentQuestion.id
@@ -317,7 +325,7 @@ function ConsultoriaIAContent() {
           ),
         );
       }
-      if (payload.answeredQuestion) {
+      if (!Array.isArray(payload.pendingQuestions) && payload.answeredQuestion) {
         setPendingQuestions((current) =>
           current.map((item) =>
             item.id === payload.answeredQuestion.id
@@ -745,11 +753,11 @@ function ConsultoriaIAContent() {
                           `Pergunta atual: ${currentPendingQuestion.question}`,
                           `${answeredQuestionsCount} de ${pendingQuestions.length} perguntas já respondidas. As demais serão liberadas uma por vez no chat.`,
                         ]
-                      : analysis.missingQuestions.length
-                        ? [
-                            "Todas as perguntas iniciais foram registradas na fila. Gere ou recarregue o chat para continuar.",
-                          ]
-                        : ["Nenhuma pergunta pendente no momento."]
+                      : [
+                          "Triagem inicial concluída.",
+                          `Nível de risco/confiança operacional: ${riskLabels[analysis.riskLevel] ?? analysis.riskLevel}.`,
+                          "Não há perguntas pendentes obrigatórias na fila oficial do banco.",
+                        ]
                   }
                 />
               </div>
@@ -801,7 +809,7 @@ function ConsultoriaIAContent() {
                 <span>
                   {currentPendingQuestion
                     ? `Pergunta atual ${answeredQuestionsCount + 1}/${pendingQuestions.length}: ${currentPendingQuestion.question}`
-                    : "Todas as perguntas pendentes foram respondidas ou não há fila ativa."}
+                    : "Triagem inicial concluída. Não há pergunta pending real na fila oficial."}
                 </span>
               </div>
 
