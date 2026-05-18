@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recommendCrop, validateCropInput, type CropInput } from "../../../../lib/crop/recommend";
+import { normalizeRecommendationResult } from "../../../../lib/crop/normalization";
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, errors }, { status: 400 });
     }
 
-    const result = recommendCrop(payload);
+    const result = normalizeRecommendationResult(recommendCrop(payload));
 
     return NextResponse.json({
       success: true,

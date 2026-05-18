@@ -13,14 +13,14 @@ export async function GET(request: NextRequest) {
       .replace(/[(),*]/g, " ")
       .replace(/\s+/g, " ");
     const filters = [
-      "select=id,name,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,active,created_at,updated_at",
+      "select=id,name,slug,aliases,model_label,display_name_pt,display_name_en,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,active,created_at,updated_at",
       "active=eq.true",
-      "order=name.asc",
+      "order=display_name_pt.asc",
     ];
 
     if (search) {
       filters.push(
-        `or=${encodeURIComponent(`(name.ilike.*${search}*,scientific_name.ilike.*${search}*)`)}`,
+        `or=${encodeURIComponent(`(name.ilike.*${search}*,display_name_pt.ilike.*${search}*,display_name_en.ilike.*${search}*,model_label.ilike.*${search}*,slug.ilike.*${search}*,scientific_name.ilike.*${search}*)`)}`,
       );
     }
 
