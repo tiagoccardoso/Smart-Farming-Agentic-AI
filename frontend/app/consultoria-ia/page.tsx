@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
@@ -47,6 +47,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const riskLabels: Record<string, string> = { low: "Baixo", medium: "Médio", high: "Alto" };
+const confidenceLabels: Record<string, string> = { low: "Baixa", medium: "Média", high: "Alta" };
 const planLabels: Record<PlanSlug, string> = { gratuito: "Gratuito", "ia-basica": "IA Básica", "ia-profissional": "IA Profissional", premium: "Premium" };
 
 function formatDate(value?: string | null) {
@@ -113,8 +114,30 @@ function DetailBlock({ label, value }: { label: string; value?: string | number 
   return <div className="rounded-2xl border border-slate-100 bg-white p-4"><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p><p className="mt-2 text-sm font-semibold leading-6 text-slate-900">{text(value)}</p></div>;
 }
 
-function ListSection({ title, items }: { title: string; items: string[] }) {
-  return <div className="rounded-[1.25rem] bg-leaf-50 p-5"><h4 className="font-bold text-slate-950">{title}</h4><ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">{items.length ? items.map((item) => <li key={item} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />{item}</li>) : <li className="text-slate-500">Aguardando geração de análise.</li>}</ul></div>;
+function ListSection({ title, items, tone = "leaf" }: { title: string; items: string[]; tone?: "leaf" | "amber" | "red" | "slate" }) {
+  const tones = { leaf: "bg-leaf-50 text-leaf-700", amber: "bg-amber-50 text-amber-800", red: "bg-red-50 text-red-800", slate: "bg-slate-50 text-slate-700" };
+  return <div className={`rounded-[1.25rem] p-5 ${tones[tone]}`}><h4 className="font-bold text-slate-950">{title}</h4><ul className="mt-3 space-y-2 text-sm leading-6">{items.length ? items.map((item) => <li key={item} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />{item}</li>) : <li className="text-slate-500">Aguardando geração de análise.</li>}</ul></div>;
+}
+
+function levelTone(level?: string | null) {
+  if (level === "high") return "red";
+  if (level === "medium") return "amber";
+  return "leaf";
+}
+
+function levelBadgeClass(level?: string | null) {
+  if (level === "high") return "border-red-200 bg-red-50 text-red-700";
+  if (level === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-leaf-200 bg-leaf-50 text-leaf-700";
+}
+
+function ConfidenceBar({ level }: { level?: string | null }) {
+  const percent = level === "high" ? 88 : level === "medium" ? 58 : 28;
+  return <div><div className="flex items-center justify-between text-xs font-black uppercase tracking-[0.16em] text-slate-400"><span>Confiança</span><span>{confidenceLabels[level ?? ""] ?? "Não informada"}</span></div><div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${level === "high" ? "bg-leaf-600" : level === "medium" ? "bg-amber-500" : "bg-red-400"}`} style={{ width: `${percent}%` }} /></div></div>;
+}
+
+function AnalysisCard({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-400">{title}</h4><div className="mt-3 text-sm leading-7 text-slate-700">{children}</div></section>;
 }
 
 function ConsultoriaIAContent() {
@@ -189,13 +212,25 @@ function ConsultoriaIAContent() {
     try {
       const response = await getAgronomicCase(caseId, accessToken) as { case: AgronomicCase; activityLogs?: ActivityLog[] };
       setSelectedCase(response.case);
-      setAnalysis(response.case.ai_summary ? {
+      const storedAnalysis = response.case.ai_analysis_json;
+      setAnalysis(storedAnalysis ? {
+        ...storedAnalysis,
+        missingQuestions: (response.case.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question),
+      } : response.case.ai_summary ? {
         initialDiagnosis: response.case.ai_summary,
         probableHypotheses: [],
+        detailedHypotheses: [],
+        visualFindings: ["Análise gerada antes da nova estrutura detalhada; gere uma nova análise para obter leitura visual completa."],
+        possibleCauses: [],
         missingQuestions: (response.case.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question),
         riskLevel: response.case.risk_level ?? "medium",
+        confidenceLevel: "medium",
+        productionImpact: "Gere uma nova análise para estimar impacto produtivo com mais profundidade.",
+        attentionPoints: [],
         initialRecommendation: response.case.ai_recommendation ?? "Aguardando recomendações da IA.",
-        whenToCallHumanSpecialist: "Solicite revisão humana para decisões de alto impacto agronômico.",
+        safeInitialRecommendations: response.case.ai_recommendation ? [response.case.ai_recommendation] : [],
+        whenToCallHumanSpecialist: "Solicite revisão humana como continuidade especializada para decisões de alto impacto agronômico.",
+        humanReviewReason: "A revisão humana complementa a triagem da IA quando há risco, incerteza ou necessidade de decisão técnica com responsabilidade profissional.",
         disclaimer: "As orientações geradas por IA são informativas e não substituem avaliação profissional.",
         knowledgeUsed: [],
       } : null);
@@ -485,9 +520,13 @@ function ConsultoriaIAContent() {
                 <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_420px]">
                   <div className="space-y-6">
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
-                      <div className="flex items-center justify-between"><h3 className="text-xl font-black">Área principal de análise IA</h3><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Contexto do caso ativo</span></div>
-                      <div className="mt-5 rounded-[1.5rem] bg-slate-950 p-5 text-white"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Resumo da IA</p><p className="mt-3 leading-7 text-slate-100">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses e recomendações iniciais."}</p></div>
-                      <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Hipóteses prováveis" items={analysis?.probableHypotheses ?? []} /><ListSection title="Perguntas pendentes" items={analysis?.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} /><ListSection title="Recomendações iniciais" items={[analysis?.initialRecommendation || selectedCase.ai_recommendation || "Aguardando análise."]} /></div>
+                      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Área principal de análise IA</h3><div className="flex flex-wrap gap-2"><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Pré-consultoria estruturada</span>{analysis?.riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(analysis.riskLevel)}`}>Risco {riskLabels[analysis.riskLevel]}</span>}</div></div>
+                      <div className="mt-5 rounded-[1.5rem] bg-slate-950 p-5 text-white"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Visão geral do caso</p><p className="mt-3 leading-7 text-slate-100">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses detalhadas, causas prováveis, riscos e recomendações iniciais seguras."}</p></div>
+                      {analysis ? <div className="mt-5 grid gap-4 lg:grid-cols-3"><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Nível de risco</p><p className={`mt-3 inline-flex rounded-full border px-4 py-2 text-sm font-black ${levelBadgeClass(analysis.riskLevel)}`}>{riskLabels[analysis.riskLevel]}</p><p className="mt-3 text-sm leading-6 text-slate-600">{analysis.productionImpact}</p></div><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><ConfidenceBar level={analysis.confidenceLevel} /><p className="mt-4 text-sm leading-6 text-slate-600">A confiança considera qualidade das imagens, dados de manejo, estágio, histórico, solo, clima e necessidade de confirmação em campo.</p></div><div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Revisão humana</p><p className="mt-3 text-sm leading-6 text-amber-900">{analysis.humanReviewReason || analysis.whenToCallHumanSpecialist}</p></div></div> : null}
+                      {analysis ? <div className="mt-5 grid gap-4 xl:grid-cols-2"><AnalysisCard title="O que foi identificado visualmente"><ul className="space-y-2">{analysis.visualFindings.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />{item}</li>)}</ul></AnalysisCard><AnalysisCard title="Pontos que chamaram atenção"><ul className="space-y-2">{analysis.attentionPoints.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{item}</li>)}</ul></AnalysisCard></div> : null}
+                      {analysis?.detailedHypotheses?.length ? <div className="mt-5 space-y-4"><div><h4 className="text-lg font-black text-slate-950">Hipóteses prováveis detalhadas</h4><p className="mt-1 text-sm text-slate-500">Cada hipótese mostra o raciocínio técnico, fatores que favorecem, dúvidas e impacto potencial.</p></div>{analysis.detailedHypotheses.map((hypothesis) => <article key={`${hypothesis.name}-${hypothesis.probability}`} className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h5 className="text-lg font-black text-slate-950">{hypothesis.name}</h5><p className="mt-2 text-sm leading-7 text-slate-700">{hypothesis.justification}</p></div><span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(hypothesis.probability)}`}>Probabilidade {confidenceLabels[hypothesis.probability]}</span></div><div className="mt-4 grid gap-4 md:grid-cols-3"><ListSection title="O que favorece" items={hypothesis.favorableFactors} tone="leaf" /><ListSection title="O que reduz confiança" items={hypothesis.uncertaintyFactors} tone="amber" /><div className="rounded-[1.25rem] bg-red-50 p-5 text-red-800"><h6 className="font-bold text-slate-950">Impacto potencial</h6><p className="mt-3 text-sm leading-6">{hypothesis.potentialImpact}</p></div></div></article>)}</div> : <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Hipóteses prováveis" items={analysis?.probableHypotheses ?? []} /><ListSection title="Perguntas pendentes" items={analysis?.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} /><ListSection title="Recomendações iniciais" items={[analysis?.initialRecommendation || selectedCase.ai_recommendation || "Aguardando análise."]} /></div>}
+                      {analysis ? <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Possíveis causas" items={analysis.possibleCauses} tone="slate" /><ListSection title="Recomendações seguras" items={analysis.safeInitialRecommendations.length ? analysis.safeInitialRecommendations : [analysis.initialRecommendation]} tone="leaf" /><ListSection title="Perguntas pendentes" items={analysis.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} tone="amber" /></div> : null}
+                      {analysis ? <div className="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Quando acionar especialista</p><p className="mt-3 text-sm leading-7 text-amber-950">{analysis.whenToCallHumanSpecialist}</p></div> : null}
                     </div>
 
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
