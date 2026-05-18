@@ -5,6 +5,10 @@ import {
   getAuthenticatedUser,
   updateAgronomicCaseWithAnalysis,
   insertCaseChatMessage,
+  replaceCasePendingQuestions,
+  answerCurrentPendingQuestion,
+  fetchCasePendingQuestions,
+  getCurrentPendingQuestion,
 } from "../../../../lib/agronomic/case";
 import {
   PLAN_LIMIT_REACHED_MESSAGE,
@@ -66,6 +70,11 @@ export async function POST(request: NextRequest) {
 
     await assertPlanLimit(user.id, usageEventType);
 
+    let answeredPendingQuestion = null;
+    let nextPendingQuestion = null;
+    let remainingPendingQuestions: string[] | null = null;
+    let questionForAnalysis = question;
+
     if (question) {
       await insertCaseChatMessage(
         { caseId, userId: user.id, role: "user", message: question },
@@ -76,20 +85,106 @@ export async function POST(request: NextRequest) {
           error,
         ),
       );
+
+      const pendingState = await answerCurrentPendingQuestion(
+        caseId,
+        question,
+        token,
+      ).catch((error) => {
+        console.warn(
+          "Não foi possível atualizar a pergunta pendente do caso.",
+          error,
+        );
+        return { answered: null, next: null, questions: [] };
+      });
+      answeredPendingQuestion = pendingState.answered;
+      nextPendingQuestion = pendingState.next;
+      remainingPendingQuestions = pendingState.questions
+        .filter((pendingQuestion) => pendingQuestion.status === "pending")
+        .sort((a, b) => a.order_index - b.order_index)
+        .map((pendingQuestion) => pendingQuestion.question);
+      questionForAnalysis = [
+        question,
+        "",
+        answeredPendingQuestion
+          ? `A resposta acima concluiu a pergunta pendente: ${answeredPendingQuestion.question}`
+          : "A mensagem acima é uma pergunta complementar do usuário.",
+        remainingPendingQuestions.length > 0
+          ? `Ainda existe pergunta pendente na fila: ${remainingPendingQuestions[0]}`
+          : "Todas as perguntas pendentes registradas para este caso foram respondidas. Não informe que ainda faltam esses dados da fila; trate incertezas remanescentes como limitação da triagem e recomende revisão humana quando houver risco.",
+      ].join("\n");
     }
 
     const analysis = await generateAgronomicPreAnalysis(
       caseData,
-      question,
+      questionForAnalysis,
       token,
     );
-    await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
+    const analysisForResponse = question
+      ? { ...analysis, missingQuestions: remainingPendingQuestions ?? [] }
+      : analysis;
+    await updateAgronomicCaseWithAnalysis(caseId, token, analysisForResponse);
     await recordUsageEvent(user.id, usageEventType);
 
+    if (!question) {
+      const pendingQuestions = await replaceCasePendingQuestions(
+        caseId,
+        analysisForResponse.missingQuestions,
+        token,
+      ).catch((error) => {
+        console.warn(
+          "Não foi possível salvar a fila de perguntas pendentes do caso.",
+          error,
+        );
+        return [];
+      });
+      const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
+      const intro =
+        "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.";
+
+      await insertCaseChatMessage(
+        { caseId, userId: user.id, role: "assistant", message: intro },
+        token,
+      ).catch(() => null);
+
+      if (firstQuestion) {
+        await insertCaseChatMessage(
+          {
+            caseId,
+            userId: user.id,
+            role: "assistant",
+            message: firstQuestion.question,
+          },
+          token,
+        ).catch(() => null);
+      }
+
+      return NextResponse.json({
+        analysis,
+        pendingQuestions,
+        currentQuestion: firstQuestion,
+      });
+    }
+
     if (question) {
-      const assistantMessage =
-        analysis.conversationalAnswer ??
-        "Não consegui responder com os dados atuais. Reúna mais informações e solicite revisão técnica se houver risco.";
+      if (!nextPendingQuestion) {
+        const pendingQuestions = await fetchCasePendingQuestions(
+          caseId,
+          token,
+        ).catch(() => []);
+        nextPendingQuestion = getCurrentPendingQuestion(pendingQuestions);
+      }
+
+      const assistantMessage = nextPendingQuestion
+        ? `${
+            analysisForResponse.conversationalAnswer?.trim() ||
+            "Entendi. Vou avançar para a próxima pergunta para completar a triagem."
+          }
+
+${nextPendingQuestion.question}`
+        : (analysisForResponse.conversationalAnswer ??
+          "Obrigado. Com as respostas registradas, mantenha o monitoramento e solicite revisão humana se houver risco, perdas ou decisão de manejo relevante.");
+
       await insertCaseChatMessage(
         {
           caseId,
@@ -109,12 +204,21 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         caseId,
         question,
-        answer: analysis.conversationalAnswer ?? null,
+        answer: assistantMessage,
         source: "agronomic_case",
+      });
+
+      return NextResponse.json({
+        analysis: {
+          ...analysisForResponse,
+          conversationalAnswer: assistantMessage,
+        },
+        answeredPendingQuestion,
+        currentQuestion: nextPendingQuestion,
       });
     }
 
-    return NextResponse.json(analysis);
+    return NextResponse.json({ analysis: analysisForResponse });
   } catch (error) {
     if (error instanceof PlanLimitExceededError) {
       return NextResponse.json(

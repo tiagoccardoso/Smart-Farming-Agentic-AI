@@ -51,13 +51,28 @@ export type CropKnowledge = {
   active: boolean | null;
 };
 
+export type CaseChatMessageType = "text" | "image" | "audio" | "transcription";
+
 export type AgronomicCaseChatMessage = {
   id: string;
   case_id: string;
   user_id: string;
   role: "user" | "assistant";
   message: string;
+  message_type: CaseChatMessageType;
+  file_url: string | null;
   created_at: string | null;
+};
+
+export type CasePendingQuestion = {
+  id: string;
+  case_id: string;
+  question: string;
+  answer: string | null;
+  status: "pending" | "answered" | "skipped";
+  order_index: number;
+  created_at: string | null;
+  answered_at: string | null;
 };
 
 export type AgronomicCase = {
@@ -80,6 +95,7 @@ export type AgronomicCase = {
   images: AgronomicCaseImage[];
   question_history?: AgronomicQuestionHistory[];
   chat_messages?: AgronomicCaseChatMessage[];
+  pending_questions?: CasePendingQuestion[];
   crop_context?: CropKnowledge | null;
 };
 
@@ -109,7 +125,12 @@ type SupabaseConfig = {
 
 type CaseRow = Omit<
   AgronomicCase,
-  "farm" | "images" | "question_history" | "chat_messages" | "crop_context"
+  | "farm"
+  | "images"
+  | "question_history"
+  | "chat_messages"
+  | "pending_questions"
+  | "crop_context"
 >;
 
 type AuthenticatedUser = {
@@ -543,36 +564,43 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
     return null;
   }
 
-  const [farms, images, questionHistory, chatMessages, cropContext] =
-    await Promise.all([
-      agronomicCase.farm_id
-        ? supabaseRequest<AgronomicFarm[]>(
-            `/rest/v1/farms?id=eq.${encodeURIComponent(agronomicCase.farm_id)}&select=id,name,city,state,area_hectares,soil_type&limit=1`,
-            { method: "GET" },
-            token,
-            config,
-          )
-        : Promise.resolve([]),
-      supabaseRequest<AgronomicCaseImage[]>(
-        `/rest/v1/case_images?case_id=eq.${encodedCaseId}&select=id,image_url,image_type,created_at&order=created_at.asc`,
-        { method: "GET" },
-        token,
-        config,
-      ),
-      supabaseRequest<AgronomicQuestionHistory[]>(
-        `/rest/v1/ai_question_history?case_id=eq.${encodedCaseId}&select=id,case_id,question,answer,created_at&order=created_at.asc`,
-        { method: "GET" },
-        token,
-        config,
-      ),
-      supabaseRequest<AgronomicCaseChatMessage[]>(
-        `/rest/v1/case_chat_messages?case_id=eq.${encodedCaseId}&select=id,case_id,user_id,role,message,created_at&order=created_at.asc`,
-        { method: "GET" },
-        token,
-        config,
-      ).catch(() => []),
-      fetchCropContext(agronomicCase.crop, token, config),
-    ]);
+  const [
+    farms,
+    images,
+    questionHistory,
+    chatMessages,
+    pendingQuestions,
+    cropContext,
+  ] = await Promise.all([
+    agronomicCase.farm_id
+      ? supabaseRequest<AgronomicFarm[]>(
+          `/rest/v1/farms?id=eq.${encodeURIComponent(agronomicCase.farm_id)}&select=id,name,city,state,area_hectares,soil_type&limit=1`,
+          { method: "GET" },
+          token,
+          config,
+        )
+      : Promise.resolve([]),
+    supabaseRequest<AgronomicCaseImage[]>(
+      `/rest/v1/case_images?case_id=eq.${encodedCaseId}&select=id,image_url,image_type,created_at&order=created_at.asc`,
+      { method: "GET" },
+      token,
+      config,
+    ),
+    supabaseRequest<AgronomicQuestionHistory[]>(
+      `/rest/v1/ai_question_history?case_id=eq.${encodedCaseId}&select=id,case_id,question,answer,created_at&order=created_at.asc`,
+      { method: "GET" },
+      token,
+      config,
+    ),
+    supabaseRequest<AgronomicCaseChatMessage[]>(
+      `/rest/v1/case_chat_messages?case_id=eq.${encodedCaseId}&select=id,case_id,user_id,role,message,message_type,file_url,created_at&order=created_at.asc`,
+      { method: "GET" },
+      token,
+      config,
+    ).catch(() => []),
+    fetchCasePendingQuestions(agronomicCase.id, token).catch(() => []),
+    fetchCropContext(agronomicCase.crop, token, config),
+  ]);
 
   return {
     ...agronomicCase,
@@ -580,6 +608,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
     images,
     question_history: questionHistory,
     chat_messages: chatMessages,
+    pending_questions: pendingQuestions,
     crop_context: cropContext,
   } satisfies AgronomicCase;
 }
@@ -621,7 +650,9 @@ function summarizeCropContext(crop: CropKnowledge | null | undefined) {
 
   return [
     `Nome cadastrado: ${crop.display_name_pt || crop.name}`,
-    crop.model_label ? `Label do modelo ML: ${crop.model_label}` : `Label do modelo ML: não suportada pelo recomendador`,
+    crop.model_label
+      ? `Label do modelo ML: ${crop.model_label}`
+      : `Label do modelo ML: não suportada pelo recomendador`,
     crop.slug ? `Slug: ${crop.slug}` : null,
     crop.aliases?.length ? `Aliases: ${crop.aliases.join(", ")}` : null,
     crop.display_name_en ? `Nome em inglês: ${crop.display_name_en}` : null,
@@ -1198,11 +1229,13 @@ export async function insertCaseChatMessage(
     userId: string;
     role: "user" | "assistant";
     message: string;
+    messageType?: CaseChatMessageType;
+    fileUrl?: string | null;
   },
   token: string,
 ) {
   const rows = await supabaseRequest<AgronomicCaseChatMessage[]>(
-    "/rest/v1/case_chat_messages?select=id,case_id,user_id,role,message,created_at",
+    "/rest/v1/case_chat_messages?select=id,case_id,user_id,role,message,message_type,file_url,created_at",
     {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -1211,6 +1244,8 @@ export async function insertCaseChatMessage(
         user_id: input.userId,
         role: input.role,
         message: input.message,
+        message_type: input.messageType ?? "text",
+        file_url: input.fileUrl ?? null,
       }),
     },
     token,
@@ -1221,10 +1256,99 @@ export async function insertCaseChatMessage(
 
 export async function fetchCaseChatMessages(caseId: string, token: string) {
   return supabaseRequest<AgronomicCaseChatMessage[]>(
-    `/rest/v1/case_chat_messages?case_id=eq.${encodeURIComponent(caseId)}&select=id,case_id,user_id,role,message,created_at&order=created_at.asc`,
+    `/rest/v1/case_chat_messages?case_id=eq.${encodeURIComponent(caseId)}&select=id,case_id,user_id,role,message,message_type,file_url,created_at&order=created_at.asc`,
     { method: "GET" },
     token,
   );
+}
+
+export async function fetchCasePendingQuestions(caseId: string, token: string) {
+  return supabaseRequest<CasePendingQuestion[]>(
+    `/rest/v1/case_pending_questions?case_id=eq.${encodeURIComponent(caseId)}&select=id,case_id,question,answer,status,order_index,created_at,answered_at&order=order_index.asc`,
+    { method: "GET" },
+    token,
+  );
+}
+
+export async function replaceCasePendingQuestions(
+  caseId: string,
+  questions: string[],
+  token: string,
+) {
+  await supabaseRequest(
+    `/rest/v1/case_pending_questions?case_id=eq.${encodeURIComponent(caseId)}`,
+    { method: "DELETE", headers: { Prefer: "return=minimal" } },
+    token,
+  );
+
+  const rows = questions
+    .map((question, index) => ({
+      case_id: caseId,
+      question: question.trim(),
+      status: "pending",
+      order_index: index,
+    }))
+    .filter((row) => row.question.length > 0);
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  return supabaseRequest<CasePendingQuestion[]>(
+    "/rest/v1/case_pending_questions?select=id,case_id,question,answer,status,order_index,created_at,answered_at",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(rows),
+    },
+    token,
+  );
+}
+
+export function getCurrentPendingQuestion(questions: CasePendingQuestion[]) {
+  return (
+    questions
+      .filter((question) => question.status === "pending")
+      .sort((a, b) => a.order_index - b.order_index)[0] ?? null
+  );
+}
+
+export async function answerCurrentPendingQuestion(
+  caseId: string,
+  answer: string,
+  token: string,
+) {
+  const questions = await fetchCasePendingQuestions(caseId, token);
+  const currentQuestion = getCurrentPendingQuestion(questions);
+
+  if (!currentQuestion) {
+    return { answered: null, next: null, questions };
+  }
+
+  const rows = await supabaseRequest<CasePendingQuestion[]>(
+    `/rest/v1/case_pending_questions?id=eq.${encodeURIComponent(currentQuestion.id)}&select=id,case_id,question,answer,status,order_index,created_at,answered_at`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        answer,
+        status: "answered",
+        answered_at: new Date().toISOString(),
+      }),
+    },
+    token,
+  );
+
+  const updatedQuestions = questions.map((question) =>
+    question.id === currentQuestion.id ? (rows[0] ?? question) : question,
+  );
+  const next = getCurrentPendingQuestion(updatedQuestions);
+
+  return {
+    answered: rows[0] ?? currentQuestion,
+    next,
+    questions: updatedQuestions,
+  };
 }
 
 export { fetchCropContext, summarizeCropContext };

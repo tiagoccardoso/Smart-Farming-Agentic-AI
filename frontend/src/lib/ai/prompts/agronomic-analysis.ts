@@ -73,7 +73,9 @@ export function buildAgronomicAnalysisPrompt(
   const cropContext = crop
     ? [
         `Nome cadastrado: ${crop.display_name_pt || crop.name || caseData.crop || "não informado"}`,
-        crop.model_label ? `Label do modelo ML: ${crop.model_label}` : "Label do modelo ML: não suportada pelo recomendador",
+        crop.model_label
+          ? `Label do modelo ML: ${crop.model_label}`
+          : "Label do modelo ML: não suportada pelo recomendador",
         crop.slug ? `Slug: ${crop.slug}` : null,
         crop.aliases?.length ? `Aliases: ${crop.aliases.join(", ")}` : null,
         crop.display_name_en ? `Nome em inglês: ${crop.display_name_en}` : null,
@@ -131,8 +133,11 @@ Regras específicas:
 - Use a base specialist_knowledge somente quando relevante.
 - Não invente fontes; knowledgeUsed só pode conter títulos e categorias listados acima.
 - Se houver risco médio ou alto, recomende revisão humana.
-- Se faltarem informações, deixe claro quais perguntas devem ser respondidas.
-- Quando houver pergunta complementar, responda em conversationalAnswer com continuidade de conversa, considerando histórico enviado, respostas anteriores e dados do caso.
+- Se faltarem informações, liste missingQuestions em ordem de prioridade para uma conversa progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
+- Faça perguntas específicas para a cultura: por exemplo soja (chuva, umidade, ferrugem, manchas), tomate (folhas inferiores, irrigação, manchas), milho (lagarta, cigarrinha, coloração, solo).
+- Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
+- Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições e dados do caso.
+- Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
 
 Formato obrigatório:
