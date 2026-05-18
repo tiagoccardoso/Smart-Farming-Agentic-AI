@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  ChangeEvent,
   FormEvent,
   Suspense,
   useEffect,
@@ -26,7 +27,17 @@ type ChatMessage = {
   id?: string;
   role: "user" | "assistant";
   content: string;
+  messageType?: "text" | "image" | "audio" | "transcription";
+  fileUrl?: string | null;
   created_at?: string | null;
+};
+
+type PendingQuestion = {
+  id: string;
+  question: string;
+  answer: string | null;
+  status: "pending" | "answered" | "skipped";
+  order_index: number;
 };
 
 const statusLabels: Record<string, string> = {
@@ -93,9 +104,21 @@ function ConsultoriaIAContent() {
   const [loadingCase, setLoadingCase] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatStatus, setChatStatus] = useState("IA analisando...");
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<BlobPart[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const reviewUrl = useMemo(
     () => `/revisao-humana?caseId=${encodeURIComponent(caseId)}`,
@@ -103,6 +126,12 @@ function ConsultoriaIAContent() {
   );
   const requiresHumanReview =
     analysis?.riskLevel === "medium" || analysis?.riskLevel === "high";
+  const currentPendingQuestion = pendingQuestions
+    .filter((item) => item.status === "pending")
+    .sort((a, b) => a.order_index - b.order_index)[0];
+  const answeredQuestionsCount = pendingQuestions.filter(
+    (item) => item.status === "answered",
+  ).length;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -122,6 +151,7 @@ function ConsultoriaIAContent() {
       setCaseData(null);
       setAnalysis(null);
       setChatMessages([]);
+      setPendingQuestions([]);
 
       if (!caseId) {
         return;
@@ -146,6 +176,8 @@ function ConsultoriaIAContent() {
             id: message.id,
             role: message.role,
             content: message.message,
+            messageType: message.message_type ?? "text",
+            fileUrl: message.file_url,
             created_at: message.created_at,
           }),
         );
@@ -163,6 +195,7 @@ function ConsultoriaIAContent() {
                 },
               ]),
         );
+        setPendingQuestions(response.case.pending_questions ?? []);
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -196,35 +229,27 @@ function ConsultoriaIAContent() {
     try {
       const response = (await analyzeAgronomicCase(caseId, accessToken)) as {
         analysis: AgronomicPreAnalysis;
+        pendingQuestions?: PendingQuestion[];
+        currentQuestion?: PendingQuestion | null;
       };
       setAnalysis(response.analysis);
+      setPendingQuestions(response.pendingQuestions ?? []);
       const introMessages: ChatMessage[] = [
         {
           role: "assistant",
           content:
-            "Pré-análise gerada. Vou conduzir algumas perguntas pendentes para entender melhor este caso agrícola. Responda diretamente aqui no chat.",
+            "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.",
         },
-        ...response.analysis.missingQuestions.map((missingQuestion) => ({
-          role: "assistant" as const,
-          content: missingQuestion,
-        })),
       ];
+
+      if (response.currentQuestion) {
+        introMessages.push({
+          role: "assistant",
+          content: response.currentQuestion.question,
+        });
+      }
+
       setChatMessages(introMessages);
-      await Promise.all(
-        introMessages.map((message) =>
-          fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              role: message.role,
-              message: message.content,
-            }),
-          }).catch(() => null),
-        ),
-      );
     } catch (generateError) {
       setError(
         generateError instanceof Error
@@ -236,11 +261,12 @@ function ConsultoriaIAContent() {
     }
   }
 
-  async function handleAskQuestion(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedQuestion = question.trim();
-
-    if (!trimmedQuestion || !caseId) {
+  async function sendChatPayload(
+    formData: FormData | null,
+    optimisticMessage: ChatMessage,
+    status: string,
+  ) {
+    if (!caseId) {
       return;
     }
 
@@ -251,44 +277,207 @@ function ConsultoriaIAContent() {
       return;
     }
 
-    setQuestion("");
+    setChatStatus(status);
     setChatLoading(true);
     setError(null);
-    setChatMessages((current) => [
-      ...current,
-      { role: "user", content: trimmedQuestion },
-    ]);
+    setChatMessages((current) => [...current, optimisticMessage]);
 
     try {
-      const response = (await analyzeAgronomicCase(
-        caseId,
-        accessToken,
-        `${chatMessages
-          .map(
-            (message) =>
-              `${message.role === "assistant" ? "IA" : "Usuário"}: ${message.content}`,
-          )
-          .join("\n")}\nUsuário: ${trimmedQuestion}`,
-      )) as { analysis: AgronomicPreAnalysis };
-      setAnalysis(response.analysis);
-      setChatMessages((current) => [
-        ...current,
+      const response = await fetch(
+        `/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`,
         {
-          role: "assistant",
-          content:
-            response.analysis.conversationalAnswer ??
-            "Não consegui responder com os dados atuais. Reúna mais informações e solicite revisão técnica se houver risco.",
+          method: "POST",
+          headers: formData
+            ? { Authorization: `Bearer ${accessToken}` }
+            : {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+              },
+          body:
+            formData ?? JSON.stringify({ message: optimisticMessage.content }),
         },
-      ]);
+      );
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          payload?.error || "Não foi possível enviar a mensagem.",
+        );
+      }
+
+      if (payload.analysis) {
+        setAnalysis(payload.analysis);
+      }
+      if (payload.currentQuestion) {
+        setPendingQuestions((current) =>
+          current.map((item) =>
+            item.id === payload.currentQuestion.id
+              ? payload.currentQuestion
+              : item,
+          ),
+        );
+      }
+      if (payload.answeredQuestion) {
+        setPendingQuestions((current) =>
+          current.map((item) =>
+            item.id === payload.answeredQuestion.id
+              ? payload.answeredQuestion
+              : item,
+          ),
+        );
+      }
+      if (payload.assistantMessage) {
+        setChatMessages((current) => [
+          ...current,
+          {
+            id: payload.assistantMessage.id,
+            role: "assistant",
+            content: payload.assistantMessage.message,
+            messageType: payload.assistantMessage.message_type ?? "text",
+            fileUrl: payload.assistantMessage.file_url,
+            created_at: payload.assistantMessage.created_at,
+          },
+        ]);
+      }
     } catch (chatError) {
       setError(
         chatError instanceof Error
           ? chatError.message
-          : "Não foi possível enviar a pergunta.",
+          : "Não foi possível enviar a mensagem.",
       );
     } finally {
       setChatLoading(false);
     }
+  }
+
+  async function handleAskQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedQuestion = question.trim();
+
+    if (!trimmedQuestion || !caseId) {
+      return;
+    }
+
+    setQuestion("");
+    await sendChatPayload(
+      null,
+      { role: "user", content: trimmedQuestion, messageType: "text" },
+      currentPendingQuestion
+        ? "IA gerando próxima pergunta..."
+        : "IA analisando...",
+    );
+  }
+
+  async function handleImageSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+      setError("Envie imagens jpg, jpeg, png ou webp.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("messageType", "image");
+    formData.append("message", question.trim());
+    formData.append("file", file);
+    setQuestion("");
+
+    await sendChatPayload(
+      formData,
+      {
+        role: "user",
+        content: question.trim() || "Nova imagem enviada durante a conversa.",
+        messageType: "image",
+        fileUrl: URL.createObjectURL(file),
+      },
+      "IA processando imagem...",
+    );
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recordingChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, {
+          type: "audio/webm",
+        });
+        setAudioBlob(blob);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(
+        () => setRecordingSeconds((seconds) => seconds + 1),
+        1000,
+      );
+    } catch {
+      setError("Não foi possível acessar o microfone neste navegador.");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+  }
+
+  function cancelRecording() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+    }
+    setRecording(false);
+    setAudioBlob(null);
+    if (audioPreviewUrl) {
+      URL.revokeObjectURL(audioPreviewUrl);
+    }
+    setAudioPreviewUrl(null);
+    setRecordingSeconds(0);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+  }
+
+  async function sendRecordedAudio() {
+    if (!audioBlob) {
+      return;
+    }
+
+    const file = new File([audioBlob], `resposta-${Date.now()}.webm`, {
+      type: "audio/webm",
+    });
+    const formData = new FormData();
+    formData.append("messageType", "audio");
+    formData.append("file", file);
+
+    await sendChatPayload(
+      formData,
+      {
+        role: "user",
+        content:
+          "Áudio enviado. A IA está transcrevendo e analisando a resposta.",
+        messageType: "audio",
+        fileUrl: audioPreviewUrl,
+      },
+      "IA transcrevendo áudio...",
+    );
+    cancelRecording();
   }
 
   return (
@@ -549,8 +738,19 @@ function ConsultoriaIAContent() {
                   items={analysis.probableHypotheses}
                 />
                 <AnalysisList
-                  title="Perguntas pendentes"
-                  items={analysis.missingQuestions}
+                  title="Fila de perguntas pendentes"
+                  items={
+                    currentPendingQuestion
+                      ? [
+                          `Pergunta atual: ${currentPendingQuestion.question}`,
+                          `${answeredQuestionsCount} de ${pendingQuestions.length} perguntas já respondidas. As demais serão liberadas uma por vez no chat.`,
+                        ]
+                      : analysis.missingQuestions.length
+                        ? [
+                            "Todas as perguntas iniciais foram registradas na fila. Gere ou recarregue o chat para continuar.",
+                          ]
+                        : ["Nenhuma pergunta pendente no momento."]
+                  }
                 />
               </div>
               <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -596,12 +796,21 @@ function ConsultoriaIAContent() {
                 </span>
               </div>
 
-              <div className="mt-6 min-h-[520px] max-h-[70vh] space-y-5 overflow-y-auto rounded-[1.75rem] border border-slate-100 bg-slate-50/70 p-4 md:p-6">
+              <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-leaf-100 bg-leaf-50/70 px-4 py-3 text-sm text-leaf-900">
+                <span className="font-semibold">Fluxo progressivo:</span>
+                <span>
+                  {currentPendingQuestion
+                    ? `Pergunta atual ${answeredQuestionsCount + 1}/${pendingQuestions.length}: ${currentPendingQuestion.question}`
+                    : "Todas as perguntas pendentes foram respondidas ou não há fila ativa."}
+                </span>
+              </div>
+
+              <div className="mt-5 min-h-[620px] max-h-[78vh] space-y-6 overflow-y-auto rounded-[1.75rem] border border-slate-100 bg-slate-50/70 p-4 md:p-6">
                 {chatMessages.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-leaf-200 bg-white p-6 text-base leading-7 text-slate-600">
                     Gere a pré-análise para iniciar uma conversa
-                    contextualizada. As perguntas pendentes da IA aparecerão
-                    automaticamente aqui.
+                    contextualizada. A IA liberará apenas uma pergunta pendente
+                    por vez.
                   </div>
                 ) : (
                   chatMessages.map((message, index) => (
@@ -610,17 +819,45 @@ function ConsultoriaIAContent() {
                       className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
                     >
                       {message.role === "assistant" && (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-leaf-600 text-sm font-bold text-white shadow-soft">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-leaf-600 text-sm font-bold text-white shadow-soft">
                           IA
                         </div>
                       )}
                       <div
-                        className={`max-w-[86%] rounded-[1.5rem] px-5 py-4 text-base leading-7 shadow-sm ${message.role === "user" ? "rounded-br-sm bg-slate-900 text-white" : "rounded-bl-sm border border-leaf-100 bg-white text-slate-700"}`}
+                        className={`max-w-[88%] rounded-[1.5rem] px-5 py-4 text-base leading-7 shadow-sm md:max-w-[76%] ${message.role === "user" ? "rounded-br-sm bg-slate-900 text-white" : "rounded-bl-sm border border-leaf-100 bg-white text-slate-700"}`}
                       >
+                        {message.fileUrl && message.messageType === "image" && (
+                          <a
+                            href={message.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={message.fileUrl}
+                              alt="Imagem enviada no chat"
+                              className="mb-3 max-h-72 w-full rounded-2xl object-cover"
+                            />
+                          </a>
+                        )}
+                        {message.fileUrl && message.messageType === "audio" && (
+                          <audio
+                            controls
+                            src={message.fileUrl}
+                            className="mb-3 w-full min-w-56"
+                          >
+                            <track kind="captions" />
+                          </audio>
+                        )}
                         <p className="whitespace-pre-wrap">{message.content}</p>
+                        {message.messageType === "audio" && (
+                          <p className="mt-2 text-xs opacity-80">
+                            Transcrição do áudio
+                          </p>
+                        )}
                       </div>
                       {message.role === "user" && (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white shadow-soft">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-soft">
                           Você
                         </div>
                       )}
@@ -629,11 +866,12 @@ function ConsultoriaIAContent() {
                 )}
                 {chatLoading && (
                   <div className="flex items-center gap-3 text-sm font-semibold text-leaf-700">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-leaf-600 text-white">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-leaf-600 text-white">
                       IA
                     </div>
-                    <div className="rounded-full bg-white px-4 py-3 shadow-sm">
-                      IA analisando... Gerando recomendação contextualizada...
+                    <div className="flex items-center gap-3 rounded-full bg-white px-4 py-3 shadow-sm">
+                      <span className="h-2.5 w-2.5 animate-ping rounded-full bg-leaf-500" />
+                      {chatStatus}
                     </div>
                   </div>
                 )}
@@ -642,8 +880,31 @@ function ConsultoriaIAContent() {
 
               <form
                 onSubmit={handleAskQuestion}
-                className="mt-5 grid gap-3 rounded-[1.75rem] border border-leaf-100 bg-leaf-50/50 p-3 md:grid-cols-[1fr_auto] md:items-end"
+                className="mt-5 grid gap-3 rounded-[1.75rem] border border-leaf-100 bg-leaf-50/50 p-3 md:grid-cols-[auto_auto_1fr_auto] md:items-end"
               >
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageSelected}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={!analysis || chatLoading}
+                  className="rounded-full border border-leaf-200 bg-white px-5 py-4 text-sm font-bold text-leaf-700 shadow-soft hover:border-leaf-300 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  📷 Foto
+                </button>
+                <button
+                  type="button"
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={!analysis || chatLoading}
+                  className={`rounded-full px-5 py-4 text-sm font-bold shadow-soft disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}
+                >
+                  {recording ? `Parar ${recordingSeconds}s` : "🎙️ Áudio"}
+                </button>
                 <textarea
                   ref={textareaRef}
                   value={question}
@@ -657,10 +918,10 @@ function ConsultoriaIAContent() {
                       event.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  placeholder="Descreva sua resposta ou dúvida com detalhes. Enter cria nova linha; Ctrl/⌘+Enter envia."
+                  placeholder="Responda com detalhes. Enter cria nova linha; Ctrl/⌘+Enter envia."
                   disabled={!analysis || chatLoading}
                   rows={3}
-                  className="min-h-28 resize-none rounded-[1.25rem] border border-leaf-100 bg-white px-5 py-4 text-base leading-7 text-slate-900 shadow-soft outline-none transition focus:border-leaf-400 focus:ring-2 focus:ring-leaf-100 disabled:bg-slate-100"
+                  className="min-h-32 resize-none rounded-[1.25rem] border border-leaf-100 bg-white px-5 py-4 text-base leading-7 text-slate-900 shadow-soft outline-none transition focus:border-leaf-400 focus:ring-2 focus:ring-leaf-100 disabled:bg-slate-100"
                 />
                 <button
                   type="submit"
@@ -670,6 +931,45 @@ function ConsultoriaIAContent() {
                   {chatLoading ? "Enviando..." : "Enviar"}
                 </button>
               </form>
+
+              {(recording || audioPreviewUrl) && (
+                <div className="mt-3 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  {recording ? (
+                    <div className="flex flex-wrap items-center gap-3 font-semibold">
+                      <span className="h-3 w-3 animate-pulse rounded-full bg-red-600" />
+                      Gravando áudio: {recordingSeconds}s
+                      <button
+                        type="button"
+                        onClick={cancelRecording}
+                        className="underline"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : audioPreviewUrl ? (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <audio controls src={audioPreviewUrl}>
+                        <track kind="captions" />
+                      </audio>
+                      <button
+                        type="button"
+                        onClick={sendRecordedAudio}
+                        disabled={chatLoading}
+                        className="rounded-full bg-leaf-600 px-5 py-2 font-bold text-white disabled:bg-slate-300"
+                      >
+                        Enviar áudio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelRecording}
+                        className="font-semibold underline"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           </>
         )}

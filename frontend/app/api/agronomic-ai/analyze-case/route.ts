@@ -5,6 +5,10 @@ import {
   getAuthenticatedUser,
   updateAgronomicCaseWithAnalysis,
   insertCaseChatMessage,
+  replaceCasePendingQuestions,
+  answerCurrentPendingQuestion,
+  fetchCasePendingQuestions,
+  getCurrentPendingQuestion,
 } from "../../../../lib/agronomic/case";
 import {
   PLAN_LIMIT_REACHED_MESSAGE,
@@ -66,6 +70,9 @@ export async function POST(request: NextRequest) {
 
     await assertPlanLimit(user.id, usageEventType);
 
+    let answeredPendingQuestion = null;
+    let nextPendingQuestion = null;
+
     if (question) {
       await insertCaseChatMessage(
         { caseId, userId: user.id, role: "user", message: question },
@@ -76,6 +83,20 @@ export async function POST(request: NextRequest) {
           error,
         ),
       );
+
+      const pendingState = await answerCurrentPendingQuestion(
+        caseId,
+        question,
+        token,
+      ).catch((error) => {
+        console.warn(
+          "Não foi possível atualizar a pergunta pendente do caso.",
+          error,
+        );
+        return { answered: null, next: null };
+      });
+      answeredPendingQuestion = pendingState.answered;
+      nextPendingQuestion = pendingState.next;
     }
 
     const analysis = await generateAgronomicPreAnalysis(
@@ -86,10 +107,65 @@ export async function POST(request: NextRequest) {
     await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
     await recordUsageEvent(user.id, usageEventType);
 
+    if (!question) {
+      const pendingQuestions = await replaceCasePendingQuestions(
+        caseId,
+        analysis.missingQuestions,
+        token,
+      ).catch((error) => {
+        console.warn(
+          "Não foi possível salvar a fila de perguntas pendentes do caso.",
+          error,
+        );
+        return [];
+      });
+      const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
+      const intro =
+        "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.";
+
+      await insertCaseChatMessage(
+        { caseId, userId: user.id, role: "assistant", message: intro },
+        token,
+      ).catch(() => null);
+
+      if (firstQuestion) {
+        await insertCaseChatMessage(
+          {
+            caseId,
+            userId: user.id,
+            role: "assistant",
+            message: firstQuestion.question,
+          },
+          token,
+        ).catch(() => null);
+      }
+
+      return NextResponse.json({
+        analysis,
+        pendingQuestions,
+        currentQuestion: firstQuestion,
+      });
+    }
+
     if (question) {
-      const assistantMessage =
-        analysis.conversationalAnswer ??
-        "Não consegui responder com os dados atuais. Reúna mais informações e solicite revisão técnica se houver risco.";
+      if (!nextPendingQuestion) {
+        const pendingQuestions = await fetchCasePendingQuestions(
+          caseId,
+          token,
+        ).catch(() => []);
+        nextPendingQuestion = getCurrentPendingQuestion(pendingQuestions);
+      }
+
+      const assistantMessage = nextPendingQuestion
+        ? `${
+            analysis.conversationalAnswer?.trim() ||
+            "Entendi. Vou avançar para a próxima pergunta para completar a triagem."
+          }
+
+${nextPendingQuestion.question}`
+        : (analysis.conversationalAnswer ??
+          "Obrigado. Com as respostas registradas, mantenha o monitoramento e solicite revisão humana se houver risco, perdas ou decisão de manejo relevante.");
+
       await insertCaseChatMessage(
         {
           caseId,
@@ -109,12 +185,18 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         caseId,
         question,
-        answer: analysis.conversationalAnswer ?? null,
+        answer: assistantMessage,
         source: "agronomic_case",
+      });
+
+      return NextResponse.json({
+        analysis: { ...analysis, conversationalAnswer: assistantMessage },
+        answeredPendingQuestion,
+        currentQuestion: nextPendingQuestion,
       });
     }
 
-    return NextResponse.json(analysis);
+    return NextResponse.json({ analysis });
   } catch (error) {
     if (error instanceof PlanLimitExceededError) {
       return NextResponse.json(
