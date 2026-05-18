@@ -150,10 +150,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { caseI
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) return NextResponse.json({ error: "Faça login para excluir o caso agronômico." }, { status: 401 });
-    const { user } = await assertCaseOwner(params.caseId, token);
+    const { user, caseData } = await assertCaseOwner(params.caseId, token);
+    if (caseData.status === "deleted" || caseData.deleted_at) return NextResponse.json({ error: "Este caso já foi excluído." }, { status: 400 });
+    const now = new Date().toISOString();
+    await supabaseRequest(`/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ deleted_at: now, status: "deleted", updated_at: now }) }, token);
     await logActivity(params.caseId, user.id, "Caso excluído", { softDelete: true }, token);
-    await supabaseRequest(`/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(params.caseId)}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ deleted_at: new Date().toISOString(), status: "completed" }) }, token);
-    return NextResponse.json({ ok: true, softDeleted: true });
+    return NextResponse.json({ success: true, softDeleted: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível excluir o caso.";
     const status = error instanceof FriendlyRequestError ? error.status : 500;

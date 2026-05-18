@@ -10,7 +10,7 @@ import { analyzeAgronomicCase, getAgronomicCase, getAgronomicCases } from "../..
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase, AgronomicPreAnalysis, AgronomicRiskLevel } from "../../lib/agronomic/case";
 
-type CaseStatus = "draft" | "submitted" | "ai_analyzed" | "waiting_human_review" | "human_reviewed" | "completed";
+type CaseStatus = "draft" | "submitted" | "ai_analyzed" | "waiting_human_review" | "human_reviewed" | "completed" | "deleted";
 type PlanSlug = "gratuito" | "ia-basica" | "ia-profissional" | "premium";
 type ActivityLog = { id: string; action: string; metadata?: Record<string, unknown> | null; created_at: string | null };
 type ListCase = AgronomicCase & {
@@ -21,6 +21,7 @@ type ListCase = AgronomicCase & {
 };
 type ChatMessage = { id?: string; role: "user" | "assistant"; content: string; created_at?: string | null };
 type Filters = { q: string; crop: string; status: string; risk: string; farm: string; period: string; humanOnly: boolean };
+type ToastState = { type: "success" | "error"; message: string } | null;
 
 type EditForm = {
   crop: string;
@@ -41,6 +42,7 @@ const statusLabels: Record<string, string> = {
   waiting_human_review: "Aguardando revisão humana",
   human_reviewed: "Revisado por especialista",
   completed: "Concluído",
+  deleted: "Excluído",
 };
 
 const riskLabels: Record<string, string> = { low: "Baixo", medium: "Médio", high: "Alto" };
@@ -137,6 +139,11 @@ function ConsultoriaIAContent() {
   const [showDelete, setShowDelete] = useState(false);
   const [showUpsell, setShowUpsell] = useState(false);
   const [showActions, setShowActions] = useState<ListCase | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
+  const [humanReviewingId, setHumanReviewingId] = useState<string | null>(null);
+  const [deletingCase, setDeletingCase] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({ crop: "", farmName: "", city: "", state: "", areaHectares: "", soilType: "", growthStage: "", symptoms: "", managementHistory: "" });
   const [newImages, setNewImages] = useState<File[]>([]);
@@ -145,20 +152,33 @@ function ConsultoriaIAContent() {
 
   const token = typeof window === "undefined" ? null : getStoredSupabaseAccessToken();
   const selectedListItem = useMemo(() => cases.find((item) => item.id === selectedId) ?? null, [cases, selectedId]);
+  const isDeletingEnabled = deleteConfirmation.trim().toUpperCase() === "EXCLUIR";
 
-  const loadCases = useCallback(async (preferredId?: string) => {
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    window.setTimeout(() => setToast((current) => (current?.message === message ? null : current)), 5000);
+  }, []);
+
+  const logDevError = useCallback((context: string, err: unknown) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.error(context, err);
+    }
+  }, []);
+
+  const loadCases = useCallback(async (preferredId?: string | null) => {
     const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken) { setError("Faça login para acessar sua central de consultoria agronômica."); setLoadingList(false); return; }
+    if (!accessToken) { const message = "Faça login para acessar sua central de consultoria agronômica."; setError(message); showToast("error", message); setLoadingList(false); return; }
     setLoadingList(true);
     try {
       const response = await getAgronomicCases(accessToken) as { cases: ListCase[]; plan?: typeof plan };
       setCases(response.cases ?? []);
       if (response.plan) setPlan(response.plan);
-      const nextId = preferredId || selectedId || response.cases?.[0]?.id || "";
+      const candidateId = preferredId === null ? "" : preferredId || selectedId;
+      const nextId = candidateId && response.cases?.some((caseItem) => caseItem.id === candidateId) ? candidateId : (preferredId === null ? "" : response.cases?.[0]?.id || "");
       setSelectedId(nextId);
-    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível carregar os casos."); }
+    } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível carregar os casos."; setError(message); showToast("error", message); logDevError("Erro ao carregar casos", err); }
     finally { setLoadingList(false); }
-  }, [selectedId]);
+  }, [selectedId, showToast, logDevError]);
 
   const loadSelectedCase = useCallback(async (caseId: string) => {
     const accessToken = getStoredSupabaseAccessToken();
@@ -182,9 +202,9 @@ function ConsultoriaIAContent() {
       setActivityLogs(response.activityLogs ?? []);
       setEditForm({ crop: response.case.crop ?? "", farmName: response.case.farm?.name ?? "", city: response.case.farm?.city ?? "", state: response.case.farm?.state ?? "", areaHectares: response.case.farm?.area_hectares ? String(response.case.farm.area_hectares) : "", soilType: response.case.farm?.soil_type ?? "", growthStage: response.case.growth_stage ?? "", symptoms: response.case.symptoms ?? "", managementHistory: response.case.history ?? "" });
       router.replace(`/consultoria-ia?caseId=${encodeURIComponent(caseId)}`, { scroll: false });
-    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível abrir o caso."); }
+    } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível abrir o caso."; setError(message); showToast("error", message); logDevError("Erro ao abrir caso", err); }
     finally { setLoadingCase(false); }
-  }, [router]);
+  }, [router, showToast, logDevError]);
 
   useEffect(() => { loadCases(initialCaseId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (selectedId) loadSelectedCase(selectedId); }, [selectedId, loadSelectedCase]);
@@ -265,23 +285,108 @@ function ConsultoriaIAContent() {
 
   async function handleDelete() {
     const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken || !selectedId) return;
-    const confirmation = window.prompt("Digite EXCLUIR para confirmar a exclusão segura deste caso.");
-    if (confirmation !== "EXCLUIR") return;
-    const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) { setError(payload?.error || "Não foi possível excluir."); return; }
-    setShowDelete(false); setSelectedCase(null); setSelectedId(""); await loadCases();
+    const caseIdToDelete = selectedId;
+    setDeleteFeedback(null);
+    setError(null);
+
+    if (!accessToken) {
+      const message = "Faça login para excluir o caso.";
+      setDeleteFeedback(message);
+      showToast("error", message);
+      return;
+    }
+
+    if (!caseIdToDelete) {
+      const message = "Selecione um caso para excluir.";
+      setDeleteFeedback(message);
+      showToast("error", message);
+      return;
+    }
+
+    if (!isDeletingEnabled) {
+      setDeleteFeedback("Digite EXCLUIR exatamente para habilitar a exclusão.");
+      return;
+    }
+
+    setDeletingCase(true);
+    try {
+      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseIdToDelete)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível excluir o caso. Tente novamente.");
+
+      setCases((current) => current.filter((item) => item.id !== caseIdToDelete));
+      setShowDelete(false);
+      setDeleteConfirmation("");
+      setDeleteFeedback(null);
+      if (selectedId === caseIdToDelete) {
+        setSelectedCase(null);
+        setSelectedId("");
+        router.replace("/consultoria-ia", { scroll: false });
+      }
+      showToast("success", "Caso excluído com sucesso.");
+      await loadCases(null);
+    } catch (err) {
+      const message = "Não foi possível excluir o caso. Tente novamente.";
+      setDeleteFeedback(message);
+      setError(err instanceof Error ? err.message : message);
+      showToast("error", message);
+      logDevError("Erro ao excluir caso", err);
+    } finally {
+      setDeletingCase(false);
+    }
   }
 
   async function requestHumanReview(caseId = selectedId) {
     const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken || !caseId) return;
-    const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/human-review`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` } });
-    const payload = await response.json().catch(() => null);
-    if (response.status === 402) { setShowUpsell(true); return; }
-    if (!response.ok) { setError(payload?.error || "Não foi possível solicitar revisão humana."); return; }
-    await loadCases(caseId); await loadSelectedCase(caseId);
+    if (!accessToken) {
+      const message = "Faça login para solicitar revisão humana.";
+      setError(message);
+      showToast("error", message);
+      return;
+    }
+    if (!caseId) {
+      const message = "Selecione um caso para solicitar revisão humana.";
+      setError(message);
+      showToast("error", message);
+      return;
+    }
+    if (humanReviewingId) return;
+
+    setHumanReviewingId(caseId);
+    setError(null);
+    try {
+      const response = await fetch("/api/agronomic-cases/request-human-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ caseId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.status === 402) {
+        setSelectedId(caseId);
+        setShowUpsell(true);
+        showToast("error", payload?.error || "Contrate uma revisão avulsa ou o plano Premium para enviar este caso.");
+        return;
+      }
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível solicitar revisão humana.");
+
+      if (payload?.case) {
+        setCases((current) => current.map((item) => (item.id === caseId ? { ...item, ...payload.case } : item)));
+        setSelectedCase((current) => (current?.id === caseId ? { ...current, ...payload.case } : current));
+      }
+      showToast("success", "Caso enviado para revisão humana.");
+      await loadCases(caseId);
+      await loadSelectedCase(caseId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Não foi possível solicitar revisão humana.";
+      setError(message);
+      showToast("error", message);
+      logDevError("Erro ao solicitar revisão humana", err);
+    } finally {
+      setHumanReviewingId(null);
+    }
   }
 
   async function duplicateCase(item: ListCase) {
@@ -297,7 +402,7 @@ function ConsultoriaIAContent() {
     setShowActions(null);
     if (action === "open") setSelectedId(item.id);
     if (action === "edit") { setSelectedId(item.id); setShowEdit(true); }
-    if (action === "delete") { setSelectedId(item.id); setShowDelete(true); }
+    if (action === "delete") { setSelectedId(item.id); setDeleteConfirmation(""); setDeleteFeedback(null); setShowDelete(true); }
     if (action === "ai") handleGenerateAnalysis(item.id);
     if (action === "human") { setSelectedId(item.id); requestHumanReview(item.id); }
     if (action === "report") item.latestReport?.report_url ? window.open(item.latestReport.report_url, "_blank", "noopener") : setError("Este caso ainda não possui relatório PDF.");
@@ -330,6 +435,8 @@ function ConsultoriaIAContent() {
             <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-300">Risco alto</p><p className="mt-2 text-2xl font-black">{stats.high}</p></div>
           </div>
         </header>
+
+        {toast && <div role="status" className={`rounded-2xl border p-4 text-sm font-semibold ${toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>{toast.message}</div>}
 
         {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">{error}</div>}
 
@@ -367,9 +474,9 @@ function ConsultoriaIAContent() {
                   <div className="mt-4 grid gap-3 md:grid-cols-2"><DetailBlock label="Sintomas" value={selectedCase.symptoms} /><DetailBlock label="Histórico operacional" value={selectedCase.history} /></div>
                   <div className="mt-5 flex flex-wrap gap-3">
                     <button onClick={() => handleGenerateAnalysis()} disabled={generating} className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white shadow-soft disabled:bg-slate-300">{generating ? "Gerando análise..." : hasAnalysis ? "Gerar nova análise IA" : "Gerar análise IA"}</button>
-                    <button onClick={() => requestHumanReview()} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-soft">Enviar para revisão humana</button>
+                    <button onClick={() => requestHumanReview()} disabled={humanReviewingId === selectedId} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-soft disabled:bg-slate-300">{humanReviewingId === selectedId ? "Enviando..." : "Enviar para revisão humana"}</button>
                     <button onClick={() => setShowEdit(true)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700">Editar caso completo</button>
-                    <button onClick={() => setShowDelete(true)} className="rounded-full border border-red-200 bg-red-50 px-5 py-3 text-sm font-black text-red-700">Excluir</button>
+                    <button onClick={() => { setDeleteConfirmation(""); setDeleteFeedback(null); setShowDelete(true); }} className="rounded-full border border-red-200 bg-red-50 px-5 py-3 text-sm font-black text-red-700">Excluir</button>
                   </div>
                 </div>
 
@@ -394,7 +501,7 @@ function ConsultoriaIAContent() {
                   <aside className="space-y-6">
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Anexos e análise de solo</h3><div className="mt-4 grid grid-cols-2 gap-3">{selectedCase.images?.length ? selectedCase.images.map((image) => <Image key={image.id} src={image.image_url} alt="Anexo do caso" width={220} height={220} className="aspect-square rounded-2xl object-cover" />) : <p className="col-span-2 text-sm text-slate-500">Nenhuma imagem anexada.</p>}</div>{selectedCase.soil_analysis_url && <a href={selectedCase.soil_analysis_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-sm font-bold text-leaf-700">Abrir análise de solo</a>}</div>
                     <div id="case-timeline" className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Histórico de análises</h3><div className="mt-5 space-y-4">{(activityLogs.length ? activityLogs : [{ id: "created", action: "Caso criado", created_at: selectedCase.created_at }, ...(selectedCase.ai_summary ? [{ id: "ai", action: "IA analisou", created_at: selectedCase.created_at }] : []), ...(selectedCase.human_review_requested ? [{ id: "human", action: "Revisão humana solicitada", created_at: selectedCase.created_at }] : [])]).map((log) => <div key={log.id} className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-leaf-600 ring-4 ring-leaf-100" /><div><p className="font-bold text-slate-800">{log.action}</p><p className="text-xs text-slate-500">{formatDate(log.created_at)}</p></div></div>)}</div></div>
-                    <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 shadow-soft"><h3 className="text-xl font-black text-amber-950">Revisão humana rápida</h3><p className="mt-2 text-sm leading-6 text-amber-900">Encaminhe casos críticos para validação por especialista. Planos sem permissão veem a oferta comercial automaticamente.</p><button onClick={() => requestHumanReview()} className="mt-4 w-full rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white">Enviar para revisão humana</button></div>
+                    <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 shadow-soft"><h3 className="text-xl font-black text-amber-950">Revisão humana rápida</h3><p className="mt-2 text-sm leading-6 text-amber-900">Encaminhe casos críticos para validação por especialista. Planos sem permissão veem a oferta comercial automaticamente.</p><button onClick={() => requestHumanReview()} disabled={humanReviewingId === selectedId} className="mt-4 w-full rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">{humanReviewingId === selectedId ? "Enviando..." : "Enviar para revisão humana"}</button></div>
                   </aside>
                 </div>
                 <SafetyDisclaimer />
@@ -405,9 +512,9 @@ function ConsultoriaIAContent() {
       </div>
 
       {showEdit && selectedCase && <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 p-4 backdrop-blur"><div className="mx-auto my-8 max-w-4xl rounded-[2rem] bg-white p-6 shadow-soft"><div className="flex items-start justify-between gap-4"><div><h2 className="text-2xl font-black">Editar caso completo</h2><p className="mt-1 text-sm text-slate-500">Atualize cultura, propriedade, área, solo, estágio, sintomas, histórico, imagens e análise de solo.</p></div><button onClick={() => setShowEdit(false)} className="rounded-full bg-slate-100 px-4 py-2 font-bold">Fechar</button></div><div className="mt-6 grid gap-4 md:grid-cols-2">{([ ["crop","Cultura"], ["farmName","Propriedade"], ["city","Cidade"], ["state","Estado"], ["areaHectares","Área (ha)"], ["soilType","Tipo de solo"], ["growthStage","Estágio da cultura"] ] as [keyof EditForm,string][]).map(([key,label]) => <label key={key} className="text-sm font-bold text-slate-700">{label}<input value={editForm[key]} onChange={(e) => setEditForm((c) => ({ ...c, [key]: e.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label>)}<label className="md:col-span-2 text-sm font-bold text-slate-700">Sintomas<textarea value={editForm.symptoms} onChange={(e) => setEditForm((c) => ({ ...c, symptoms: e.target.value }))} rows={4} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label><label className="md:col-span-2 text-sm font-bold text-slate-700">Histórico<textarea value={editForm.managementHistory} onChange={(e) => setEditForm((c) => ({ ...c, managementHistory: e.target.value }))} rows={4} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label><label className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm font-bold text-slate-700">Adicionar novas imagens<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e: ChangeEvent<HTMLInputElement>) => setNewImages(Array.from(e.target.files ?? []))} className="mt-3 block w-full text-sm font-normal" /></label><label className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm font-bold text-slate-700">Substituir/adicionar análise de solo<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setSoilFile(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /></label></div><div className="mt-6 flex flex-wrap justify-end gap-3"><button onClick={() => handleSaveCase(false)} disabled={savingEdit} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Salvar rascunho</button><button onClick={() => hasAnalysis && !window.confirm("Deseja gerar uma nova análise com base nas alterações?") ? handleSaveCase(false) : handleSaveCase(true)} disabled={savingEdit} className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white">Salvar e reenviar para IA</button></div></div></div>}
-      {showDelete && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="max-w-lg rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-2xl font-black">Confirmar exclusão segura</h2><p className="mt-3 text-sm leading-6 text-slate-600">Usaremos soft delete preferencialmente para evitar perda acidental. Para confirmar, será solicitado digitar EXCLUIR.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDelete(false)} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Cancelar</button><button onClick={handleDelete} className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white">Excluir caso</button></div></div></div>}
+      {showDelete && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="max-w-lg rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-2xl font-black">Confirmar exclusão segura</h2><p className="mt-3 text-sm leading-6 text-slate-600">Usaremos soft delete para evitar perda acidental. Digite <strong>EXCLUIR</strong> para confirmar.</p><label className="mt-5 block text-sm font-bold text-slate-700">Palavra de confirmação<input value={deleteConfirmation} onChange={(event) => { setDeleteConfirmation(event.target.value); setDeleteFeedback(event.target.value && event.target.value.trim().toUpperCase() !== "EXCLUIR" ? "A palavra ainda não confere com EXCLUIR." : null); }} disabled={deletingCase} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-red-300" placeholder="EXCLUIR" /></label>{deleteFeedback && <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">{deleteFeedback}</p>}<div className="mt-6 flex justify-end gap-3"><button onClick={() => { if (!deletingCase) { setShowDelete(false); setDeleteConfirmation(""); setDeleteFeedback(null); } }} disabled={deletingCase} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black disabled:opacity-60">Cancelar</button><button onClick={handleDelete} disabled={!isDeletingEnabled || deletingCase} className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">{deletingCase ? "Excluindo..." : "Excluir caso"}</button></div></div></div>}
       {showUpsell && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="max-w-2xl rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-2xl font-black">Revisão humana disponível no Premium</h2><p className="mt-3 text-sm leading-6 text-slate-600">Seu plano atual não possui revisão humana inclusa. Escolha uma opção para encaminhar o caso a um especialista.</p><div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="font-black">Revisão avulsa</p><p className="mt-2 text-3xl font-black">R$ 197</p><Link href={`/revisao-humana?caseId=${selectedId}`} className="mt-4 inline-flex rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white">Contratar avulsa</Link></div><div className="rounded-2xl border border-leaf-200 bg-leaf-50 p-5"><p className="font-black">Premium mensal</p><p className="mt-2 text-3xl font-black">R$ 397</p><Link href="/planos" className="mt-4 inline-flex rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white">Ver Premium</Link></div></div><button onClick={() => setShowUpsell(false)} className="mt-5 rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Fechar</button></div></div>}
-      {showActions && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-xl font-black">Ações do caso</h2><div className="mt-4 grid gap-2">{[["open","Abrir caso"],["edit","Editar caso completo"],["delete","Excluir caso"],["ai","Gerar nova análise IA"],["human","Solicitar revisão humana"],["report","Abrir relatório PDF"],["duplicate","Duplicar caso"],["history","Ver histórico do caso"]].map(([action,label]) => <button key={action} onClick={() => handleAction(action, showActions)} className="rounded-2xl border border-slate-200 px-4 py-3 text-left text-sm font-bold hover:border-leaf-300">{label}</button>)}</div><button onClick={() => setShowActions(null)} className="mt-4 rounded-full bg-slate-100 px-5 py-3 text-sm font-black">Fechar</button></div></div>}
+      {showActions && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-xl font-black">Ações do caso</h2><div className="mt-4 grid gap-2">{[["open","Abrir caso"],["edit","Editar caso completo"],["delete","Excluir caso"],["ai","Gerar nova análise IA"],["human","Solicitar revisão humana"],["report","Abrir relatório PDF"],["duplicate","Duplicar caso"],["history","Ver histórico do caso"]].map(([action,label]) => <button key={action} onClick={() => handleAction(action, showActions)} disabled={action === "human" && humanReviewingId === showActions.id} className="rounded-2xl border border-slate-200 px-4 py-3 text-left text-sm font-bold hover:border-leaf-300 disabled:opacity-60">{action === "human" && humanReviewingId === showActions.id ? "Enviando para revisão..." : label}</button>)}</div><button onClick={() => setShowActions(null)} className="mt-4 rounded-full bg-slate-100 px-5 py-3 text-sm font-black">Fechar</button></div></div>}
     </main>
   );
 }
