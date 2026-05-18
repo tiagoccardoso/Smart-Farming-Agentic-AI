@@ -118,6 +118,7 @@ async function uploadToStorage(file: File, path: string, token: string) {
 
 async function attachImageToCase(
   caseId: string,
+  userId: string,
   imageUrl: string,
   imageType: string,
   token: string,
@@ -129,6 +130,7 @@ async function attachImageToCase(
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
         case_id: caseId,
+        user_id: userId,
         image_url: imageUrl,
         image_type: imageType,
       }),
@@ -354,6 +356,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           fileUrl = await uploadToStorage(file, path, token);
           await attachImageToCase(
             context.params.caseId,
+            user.id,
             fileUrl,
             "chat_image",
             token,

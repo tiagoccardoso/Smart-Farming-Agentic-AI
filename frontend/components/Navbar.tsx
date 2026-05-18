@@ -39,7 +39,7 @@ const links: NavigationLink[] = [
   },
   { href: "/planos", label: "Planos", requiresAuth: true },
   { href: "/crop", label: "Culturas" },
-  { href: "/disease", label: "Doenças" },
+  { href: "/doencas", label: "Doenças" },
   { href: "/qa", label: "Perguntas" },
   { href: "/dashboard", label: "Painel", requiresAuth: true },
   { href: "/models", label: "Modelos" },
