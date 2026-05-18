@@ -10,7 +10,36 @@ type CreateCheckoutPayload = {
 
 type CreatedOrder = {
   id: string;
+  stripe_checkout_session_id?: string | null;
+  payment_status?: string | null;
 };
+
+type StripeSessionLookup = {
+  id?: string;
+  url?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  error?: { message?: string };
+};
+
+async function retrieveOpenCheckoutUrl(sessionId: string | null | undefined) {
+  if (!sessionId || !process.env.STRIPE_SECRET_KEY) {
+    return null;
+  }
+
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+    cache: "no-store"
+  });
+  const session = (await response.json().catch(() => null)) as StripeSessionLookup | null;
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return session?.status === "open" && session.url ? session.url : null;
+}
 
 function getUsageEventForServiceType(serviceType: string): UsageEventType | null {
   if (serviceType === "technical_report") {
@@ -66,23 +95,45 @@ export async function POST(request: NextRequest) {
 
     const config = getSupabaseConfig();
     const service = HUMAN_REVIEW_SERVICES[serviceType];
-    const orders = await supabaseRequest<CreatedOrder[]>(
-      "/rest/v1/one_time_orders?select=id",
-      {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          user_id: user.id,
-          case_id: caseId,
-          service_type: serviceType,
-          price_cents: service.priceCents,
-          payment_status: "pending"
-        })
-      },
+    const existingOrders = await supabaseRequest<CreatedOrder[]>(
+      `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(user.id)}&case_id=eq.${encodeURIComponent(caseId)}&service_type=eq.${encodeURIComponent(serviceType)}&payment_status=eq.pending&select=id,stripe_checkout_session_id,payment_status&order=created_at.desc&limit=1`,
+      { method: "GET" },
       token,
       config
-    );
-    const order = orders[0];
+    ).catch(() => []);
+
+    let order = existingOrders[0];
+    const reusableCheckoutUrl = await retrieveOpenCheckoutUrl(order?.stripe_checkout_session_id);
+
+    if (order && reusableCheckoutUrl) {
+      return NextResponse.json({
+        checkoutUrl: reusableCheckoutUrl,
+        orderId: order.id,
+        serviceType,
+        priceCents: service.priceCents,
+        reusedCheckout: true
+      });
+    }
+
+    if (!order) {
+      const orders = await supabaseRequest<CreatedOrder[]>(
+        "/rest/v1/one_time_orders?select=id,stripe_checkout_session_id,payment_status",
+        {
+          method: "POST",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            user_id: user.id,
+            case_id: caseId,
+            service_type: serviceType,
+            price_cents: service.priceCents,
+            payment_status: "pending"
+          })
+        },
+        token,
+        config
+      );
+      order = orders[0];
+    }
 
     if (!order) {
       throw new Error("Não foi possível criar a ordem de revisão humana.");

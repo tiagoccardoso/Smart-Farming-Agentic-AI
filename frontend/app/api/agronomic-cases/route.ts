@@ -192,6 +192,17 @@ type ListedReport = {
   created_at: string | null;
 };
 
+type ListedOneTimeOrder = {
+  id: string;
+  case_id: string | null;
+  service_type: string | null;
+  price_cents: number | null;
+  payment_status: string | null;
+  stripe_checkout_session_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 function buildInFilter(values: string[]) {
   return `in.(${values.map(encodeURIComponent).join(",")})`;
 }
@@ -207,11 +218,17 @@ export async function GET(request: NextRequest) {
 
     const user = await getAuthenticatedUser(token, config);
     const { searchParams } = request.nextUrl;
-    const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") ?? "25") || 25));
+    const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") ?? "50") || 50));
     const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
     const offset = (page - 1) * limit;
+    const scope = searchParams.get("scope");
+    const statusFilter = scope === "human_review"
+      ? "&human_review_requested=eq.true"
+      : scope === "ai_analyzed"
+        ? "&or=(status.eq.ai_analyzed,ai_summary.not.is.null)"
+        : "";
     const cases = await supabaseRequest<ListedCaseRow[]>(
-      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=created_at.desc&limit=${limit}&offset=${offset}`,
+      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null${statusFilter}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=updated_at.desc&limit=${limit}&offset=${offset}`,
       { method: "GET" },
       token,
       config
@@ -234,7 +251,7 @@ export async function GET(request: NextRequest) {
     const farmIds = Array.from(new Set(cases.map((caseItem) => caseItem.farm_id).filter((id): id is string => Boolean(id))));
     const caseIds = cases.map((caseItem) => caseItem.id);
 
-    const [farms, humanReviews, reports] = await Promise.all([
+    const [farms, humanReviews, reports, orders] = await Promise.all([
       farmIds.length > 0
         ? supabaseRequest<ListedFarm[]>(
             `/rest/v1/farms?id=${buildInFilter(farmIds)}&select=id,name,city,state,area_hectares,soil_type`,
@@ -254,7 +271,13 @@ export async function GET(request: NextRequest) {
         { method: "GET" },
         token,
         config
-      )
+      ),
+      supabaseRequest<ListedOneTimeOrder[]>(
+        `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(user.id)}&case_id=${buildInFilter(caseIds)}&service_type=eq.human_case_review&select=id,case_id,service_type,price_cents,payment_status,stripe_checkout_session_id,created_at,updated_at&order=created_at.desc`,
+        { method: "GET" },
+        token,
+        config
+      ).catch(() => [])
     ]);
 
     const imageRows = await supabaseRequest<Array<{ case_id: string }>>(
@@ -269,6 +292,7 @@ export async function GET(request: NextRequest) {
     const farmsById = new Map(farms.map((farm) => [farm.id, farm]));
     const reviewsByCaseId = new Map<string, ListedHumanReview>();
     const reportsByCaseId = new Map<string, ListedReport>();
+    const ordersByCaseId = new Map<string, ListedOneTimeOrder>();
 
     humanReviews.forEach((review) => {
       if (!reviewsByCaseId.has(review.case_id)) {
@@ -282,12 +306,21 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    orders.forEach((order) => {
+      if (order.case_id && !ordersByCaseId.has(order.case_id)) {
+        ordersByCaseId.set(order.case_id, order);
+      }
+    });
+
     return NextResponse.json({
       cases: cases.map((caseItem) => ({
         ...caseItem,
         farm: caseItem.farm_id ? farmsById.get(caseItem.farm_id) ?? null : null,
         latestHumanReview: reviewsByCaseId.get(caseItem.id) ?? null,
         latestReport: reportsByCaseId.get(caseItem.id) ?? null,
+        latestOrder: ordersByCaseId.get(caseItem.id) ?? null,
+        payment_status: ordersByCaseId.get(caseItem.id)?.payment_status ?? null,
+        review_price_cents: ordersByCaseId.get(caseItem.id)?.price_cents ?? null,
         images_count: imageCounts.get(caseItem.id) ?? 0
       })),
       pagination: { page, limit, hasMore: cases.length === limit },
