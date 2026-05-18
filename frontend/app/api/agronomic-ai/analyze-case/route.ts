@@ -9,6 +9,8 @@ import {
   answerCurrentPendingQuestion,
   fetchCasePendingQuestions,
   getCurrentPendingQuestion,
+  logPendingQuestionSync,
+  syncAnalysisMissingQuestionsWithPendingQueue,
 } from "../../../../lib/agronomic/case";
 import {
   PLAN_LIMIT_REACHED_MESSAGE,
@@ -99,18 +101,31 @@ export async function POST(request: NextRequest) {
       nextPendingQuestion = pendingState.next;
     }
 
-    const analysis = await generateAgronomicPreAnalysis(
+    const officialQuestionsBeforeModel = question
+      ? await fetchCasePendingQuestions(caseId, token).catch(() => [])
+      : [];
+    const pendingCountBeforeModel = officialQuestionsBeforeModel.filter(
+      (item) => item.status === "pending",
+    ).length;
+    const modelQuestion = question
+      ? [
+          question,
+          `Estado oficial da fila no banco: pendingQuestions.length === ${pendingCountBeforeModel}. Perguntas pendentes oficiais restantes: ${pendingCountBeforeModel}.`,
+          "Se pendingQuestions.length === 0, não gere novas missingQuestions; conclua a triagem com limitação natural se necessário.",
+        ].join("\n")
+      : question;
+
+    const modelAnalysis = await generateAgronomicPreAnalysis(
       caseData,
-      question,
+      modelQuestion,
       token,
     );
-    await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
-    await recordUsageEvent(user.id, usageEventType);
+    let analysis = modelAnalysis;
 
     if (!question) {
       const pendingQuestions = await replaceCasePendingQuestions(
         caseId,
-        analysis.missingQuestions,
+        modelAnalysis.missingQuestions,
         token,
       ).catch((error) => {
         console.warn(
@@ -119,6 +134,17 @@ export async function POST(request: NextRequest) {
         );
         return [];
       });
+      logPendingQuestionSync({
+        scope: "agronomic-analyze-initial",
+        aiMissingQuestions: modelAnalysis.missingQuestions,
+        questions: pendingQuestions,
+      });
+      analysis = syncAnalysisMissingQuestionsWithPendingQueue(
+        modelAnalysis,
+        pendingQuestions,
+      );
+      await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
+      await recordUsageEvent(user.id, usageEventType);
       const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
       const intro =
         "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.";
@@ -148,13 +174,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (question) {
-      if (!nextPendingQuestion) {
-        const pendingQuestions = await fetchCasePendingQuestions(
-          caseId,
-          token,
-        ).catch(() => []);
-        nextPendingQuestion = getCurrentPendingQuestion(pendingQuestions);
-      }
+      const pendingQuestions = await fetchCasePendingQuestions(
+        caseId,
+        token,
+      ).catch(() => []);
+      logPendingQuestionSync({
+        scope: "agronomic-analyze-follow-up",
+        aiMissingQuestions: modelAnalysis.missingQuestions,
+        questions: pendingQuestions,
+      });
+      analysis = syncAnalysisMissingQuestionsWithPendingQueue(
+        modelAnalysis,
+        pendingQuestions,
+      );
+      await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
+      await recordUsageEvent(user.id, usageEventType);
+      nextPendingQuestion = getCurrentPendingQuestion(pendingQuestions);
 
       const assistantMessage = nextPendingQuestion
         ? `${
@@ -163,8 +198,10 @@ export async function POST(request: NextRequest) {
           }
 
 ${nextPendingQuestion.question}`
-        : (analysis.conversationalAnswer ??
-          "Obrigado. Com as respostas registradas, mantenha o monitoramento e solicite revisão humana se houver risco, perdas ou decisão de manejo relevante.");
+        : "Com as informações fornecidas, a triagem inicial foi concluída. Ainda pode existir alguma incerteza natural devido às limitações da análise remota, mas no momento não há perguntas pendentes obrigatórias. " +
+          (analysis.riskLevel === "medium" || analysis.riskLevel === "high"
+            ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
+            : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
 
       await insertCaseChatMessage(
         {
@@ -192,7 +229,9 @@ ${nextPendingQuestion.question}`
       return NextResponse.json({
         analysis: { ...analysis, conversationalAnswer: assistantMessage },
         answeredPendingQuestion,
+        answeredQuestion: answeredPendingQuestion,
         currentQuestion: nextPendingQuestion,
+        pendingQuestions,
       });
     }
 

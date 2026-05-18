@@ -8,6 +8,8 @@ import {
   getAuthenticatedUser,
   getCurrentPendingQuestion,
   getSupabaseConfig,
+  logPendingQuestionSync,
+  syncAnalysisMissingQuestionsWithPendingQueue,
   insertCaseChatMessage,
   supabaseRequest,
   updateAgronomicCaseWithAnalysis,
@@ -230,29 +232,39 @@ async function generateAssistantTurn(
     "Contexto acumulado da conversa deste caseId:",
     conversationContext || "Sem mensagens anteriores.",
     answeredContext || "Sem perguntas pendentes respondidas ainda.",
+    `Estado oficial da fila no banco: pendingQuestions.length === ${pendingQuestions.filter((question) => question.status === "pending").length}. Perguntas pendentes oficiais restantes: ${pendingQuestions.filter((question) => question.status === "pending").length}.`,
+    "Se pendingQuestions.length === 0, não gere novas missingQuestions; conclua a triagem com limitação natural se necessário.",
     "Nova entrada do usuário:",
     userContext,
   ].join("\n");
-  const analysis = await generateAgronomicPreAnalysis(
+  const modelAnalysis = await generateAgronomicPreAnalysis(
     refreshedCase!,
     analysisQuestion,
     token,
   );
+  const syncedPendingQuestions = await fetchCasePendingQuestions(
+    caseId,
+    token,
+  ).catch(() => pendingQuestions);
+  logPendingQuestionSync({
+    scope: "agronomic-case-chat-post",
+    aiMissingQuestions: modelAnalysis.missingQuestions,
+    questions: syncedPendingQuestions,
+  });
+  const analysis = syncAnalysisMissingQuestionsWithPendingQueue(
+    modelAnalysis,
+    syncedPendingQuestions,
+  );
   await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
 
-  let nextQuestion = pendingState.next;
-  if (!nextQuestion) {
-    const pendingQuestions = await fetchCasePendingQuestions(
-      caseId,
-      token,
-    ).catch(() => []);
-    nextQuestion = getCurrentPendingQuestion(pendingQuestions);
-  }
+  const nextQuestion = getCurrentPendingQuestion(syncedPendingQuestions);
 
   const assistantText = nextQuestion
     ? `${analysis.conversationalAnswer?.trim() || "Entendi. Vou atualizar o contexto e avançar para a próxima pergunta pendente."}\n\n${nextQuestion.question}`
-    : analysis.conversationalAnswer ||
-      "Informação registrada no caso. Continue enviando detalhes, fotos ou áudio se os sintomas evoluírem; para decisões de manejo com risco, solicite revisão humana.";
+    : "Com as informações fornecidas, a triagem inicial foi concluída. Ainda pode existir alguma incerteza natural devido às limitações da análise remota, mas no momento não há perguntas pendentes obrigatórias. " +
+      (analysis.riskLevel === "medium" || analysis.riskLevel === "high"
+        ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
+        : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
 
   const assistantMessage = await insertCaseChatMessage(
     { caseId, userId, role: "assistant", message: assistantText },
@@ -264,6 +276,7 @@ async function generateAssistantTurn(
     assistantMessage,
     currentQuestion: nextQuestion,
     answeredQuestion: pendingState.answered,
+    pendingQuestions: syncedPendingQuestions,
   };
 }
 

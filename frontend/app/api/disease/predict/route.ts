@@ -6,8 +6,10 @@ import {
   getSupabaseConfig,
   getCurrentPendingQuestion,
   insertCaseChatMessage,
+  logPendingQuestionSync,
   replaceCasePendingQuestions,
   supabaseRequest,
+  syncAnalysisMissingQuestionsWithPendingQueue,
   updateAgronomicCaseWithAnalysis,
   type AgronomicPreAnalysis,
 } from "../../../../lib/agronomic/case";
@@ -248,7 +250,17 @@ export async function POST(request: Request) {
       "Cruze imagem, cultura, sintomas, localização, estágio, solo, clima ideal da cultura, doenças comuns, pragas recorrentes e histórico.",
       "Faça perguntas pendentes em ordem de prioridade para a conversa continuar uma pergunta por vez.",
     ].join("\n");
-    const analysis = await generateAgronomicPreAnalysis(caseData, imagePrompt, token);
+    const modelAnalysis = await generateAgronomicPreAnalysis(caseData, imagePrompt, token);
+    const pendingQuestions = await replaceCasePendingQuestions(createdCase.id, modelAnalysis.missingQuestions, token).catch(() => []);
+    logPendingQuestionSync({
+      scope: "disease-predict-initial",
+      aiMissingQuestions: modelAnalysis.missingQuestions,
+      questions: pendingQuestions,
+    });
+    const analysis = syncAnalysisMissingQuestionsWithPendingQueue(
+      modelAnalysis,
+      pendingQuestions,
+    );
     await updateAgronomicCaseWithAnalysis(createdCase.id, token, analysis);
     const structuredAnalysis = buildStructuredDiseaseAnalysis(analysis);
 
@@ -268,7 +280,6 @@ export async function POST(request: Request) {
       token,
     ).catch((error) => console.warn("Não foi possível registrar disease_image_analyses.", error));
 
-    const pendingQuestions = await replaceCasePendingQuestions(createdCase.id, analysis.missingQuestions, token).catch(() => []);
     const currentQuestion = getCurrentPendingQuestion(pendingQuestions);
     const assistantIntro = "Triagem visual concluída. Vamos continuar como uma consulta agrícola: farei apenas uma pergunta pendente por vez.";
 
