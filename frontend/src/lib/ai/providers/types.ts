@@ -1,5 +1,15 @@
 export type AIProviderName = "openai" | "gemini";
 export type AIRiskLevel = "low" | "medium" | "high";
+export type AIConfidenceLevel = "low" | "medium" | "high";
+
+export type AgronomicDetailedHypothesis = {
+  name: string;
+  probability: AIConfidenceLevel;
+  justification: string;
+  favorableFactors: string[];
+  uncertaintyFactors: string[];
+  potentialImpact: string;
+};
 
 export type AIMessage = {
   role: "system" | "user" | "assistant";
@@ -57,10 +67,18 @@ export interface AIProvider {
 export type AgronomicAnalysisOutput = {
   initialDiagnosis: string;
   probableHypotheses: string[];
+  detailedHypotheses: AgronomicDetailedHypothesis[];
+  visualFindings: string[];
+  possibleCauses: string[];
   missingQuestions: string[];
   riskLevel: AIRiskLevel;
+  confidenceLevel: AIConfidenceLevel;
+  productionImpact: string;
+  attentionPoints: string[];
   initialRecommendation: string;
+  safeInitialRecommendations: string[];
   whenToCallHumanSpecialist: string;
+  humanReviewReason: string;
   knowledgeUsed: Array<{ title: string; category: string }>;
   disclaimer: string;
   conversationalAnswer?: string;

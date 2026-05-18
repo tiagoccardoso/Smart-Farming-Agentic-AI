@@ -87,6 +87,7 @@ export type AgronomicCase = {
   risk_level: AgronomicRiskLevel | null;
   ai_summary: string | null;
   ai_recommendation: string | null;
+  ai_analysis_json?: AgronomicPreAnalysis | null;
   human_review_requested: boolean;
   human_review_status: string | null;
   created_at: string | null;
@@ -102,6 +103,16 @@ export type AgronomicCase = {
 };
 
 export type AgronomicRiskLevel = "low" | "medium" | "high";
+export type AgronomicConfidenceLevel = "low" | "medium" | "high";
+
+export type AgronomicDetailedHypothesis = {
+  name: string;
+  probability: AgronomicConfidenceLevel;
+  justification: string;
+  favorableFactors: string[];
+  uncertaintyFactors: string[];
+  potentialImpact: string;
+};
 
 export type KnowledgeUsed = {
   title: string;
@@ -111,10 +122,18 @@ export type KnowledgeUsed = {
 export type AgronomicPreAnalysis = {
   initialDiagnosis: string;
   probableHypotheses: string[];
+  detailedHypotheses: AgronomicDetailedHypothesis[];
+  visualFindings: string[];
+  possibleCauses: string[];
   missingQuestions: string[];
   riskLevel: AgronomicRiskLevel;
+  confidenceLevel: AgronomicConfidenceLevel;
+  productionImpact: string;
+  attentionPoints: string[];
   initialRecommendation: string;
+  safeInitialRecommendations: string[];
   whenToCallHumanSpecialist: string;
+  humanReviewReason: string;
   disclaimer: string;
   knowledgeUsed: KnowledgeUsed[];
   conversationalAnswer?: string;
@@ -554,7 +573,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
   const config = getSupabaseConfig();
   const encodedCaseId = encodeURIComponent(caseId);
   const cases = await supabaseRequest<CaseRow[]>(
-    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,updated_at,deleted_at,farm_id&limit=1`,
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,ai_analysis_json,human_review_requested,human_review_status,created_at,updated_at,deleted_at,farm_id&limit=1`,
     { method: "GET" },
     token,
     config,
@@ -856,18 +875,42 @@ function buildFallbackPreAnalysis(
   return {
     initialDiagnosis: `Orientação inicial para ${caseData.crop} em ${location}: os sintomas relatados ainda precisam ser comparados com o padrão no talhão, histórico de manejo e condições recentes de clima antes de qualquer decisão.`,
     probableHypotheses: buildFallbackHypotheses(caseData),
+    detailedHypotheses: buildFallbackHypotheses(caseData).slice(0, 3).map((hypothesis) => ({
+      name: hypothesis.split(":")[0] || "Hipótese agronômica inicial",
+      probability: riskLevel === "high" ? "low" : "medium",
+      justification: hypothesis,
+      favorableFactors: ["Sintomas relatados pelo produtor justificam investigação técnica contextualizada.", "Cultura, solo, clima, estágio e histórico de manejo podem direcionar a triagem."],
+      uncertaintyFactors: ["Faltam confirmação presencial, distribuição no talhão e evolução temporal.", hasImages ? "Imagens precisam ser correlacionadas com inspeção de campo." : "Ausência de imagens limita a leitura visual."],
+      potentialImpact: riskLevel === "high" ? "Pode causar perda produtiva relevante se avançar rapidamente." : "Pode afetar vigor, uniformidade e produtividade se evoluir sem acompanhamento.",
+    })),
+    visualFindings: [
+      hasImages ? "Há imagens anexadas para apoiar a triagem visual." : "Sem imagens anexadas; leitura visual depende da descrição dos sintomas.",
+      `Sintomas relatados: ${caseData.symptoms || "não detalhados"}.`,
+    ],
+    possibleCauses: ["Doenças favorecidas por clima e umidade.", "Pragas ou vetores associados à cultura.", "Estresse nutricional, hídrico, fitotoxicidade ou compactação."],
     missingQuestions,
     riskLevel,
+    confidenceLevel: riskLevel === "high" ? "low" : "medium",
+    productionImpact: riskLevel === "high" ? "Impacto potencial alto se houver avanço rápido, fase sensível ou área afetada elevada." : "Impacto potencial moderado e dependente da evolução, severidade e percentual de plantas afetadas.",
+    attentionPoints: ["Distribuição dos sintomas no talhão.", "Velocidade de avanço nas próximas 24 a 72 horas.", "Relação com chuva, irrigação, pulverizações e adubação recentes."],
     initialRecommendation:
       riskLevel === "high"
         ? "Priorize vistoria presencial, registre a evolução diária, evite aplicações corretivas sem diagnóstico confirmado e não use produtos controlados sem avaliação profissional."
         : riskLevel === "medium"
           ? "Monitore a evolução por 24 a 48 horas, compare plantas sadias e afetadas, colete novas imagens e valide o histórico de irrigação, adubação e pulverizações."
           : "Mantenha observação sistemática, organize fotos e dados de manejo, e só avance para intervenção quando houver evidência técnica suficiente.",
+    safeInitialRecommendations: [
+      "Registrar fotos próximas e panorâmicas no mesmo ponto por 2 a 3 dias.",
+      "Estimar porcentagem de plantas afetadas e mapear reboleiras, bordaduras ou linhas.",
+      "Evitar aplicações ou misturas sem confirmação técnica e responsável habilitado.",
+    ],
     whenToCallHumanSpecialist:
       riskLevel === "low"
         ? "Chame um especialista se os sintomas aumentarem, surgirem perdas visíveis ou se houver decisão de manejo com custo ou risco relevante."
         : "Chame um especialista antes de tomar decisões de aplicação, uso de produto controlado, descarte de plantas ou mudanças importantes no manejo.",
+    humanReviewReason: riskLevel === "low"
+      ? "A revisão humana complementa a triagem quando houver evolução ou decisão técnica relevante."
+      : "A revisão humana ajuda a confirmar hipóteses parecidas em campo, estimar severidade e orientar manejo com responsabilidade técnica.",
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     knowledgeUsed: [],
     conversationalAnswer: questionText
@@ -962,10 +1005,18 @@ Formato obrigatório:
 {
   "initialDiagnosis": "",
   "probableHypotheses": [],
+  "detailedHypotheses": [{ "name": "", "probability": "low | medium | high", "justification": "", "favorableFactors": [], "uncertaintyFactors": [], "potentialImpact": "" }],
+  "visualFindings": [],
+  "possibleCauses": [],
   "missingQuestions": [],
   "riskLevel": "low | medium | high",
+  "confidenceLevel": "low | medium | high",
+  "productionImpact": "",
+  "attentionPoints": [],
   "initialRecommendation": "",
+  "safeInitialRecommendations": [],
   "whenToCallHumanSpecialist": "",
+  "humanReviewReason": "",
   "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}",
   "knowledgeUsed": [
     {
@@ -1158,21 +1209,32 @@ function normalizePreAnalysis(
       modelOutput.probableHypotheses,
       fallback.probableHypotheses,
     ),
+    detailedHypotheses: Array.isArray(modelOutput.detailedHypotheses) && modelOutput.detailedHypotheses.length ? modelOutput.detailedHypotheses : fallback.detailedHypotheses,
+    visualFindings: normalizeStringArray(modelOutput.visualFindings, fallback.visualFindings),
+    possibleCauses: normalizeStringArray(modelOutput.possibleCauses, fallback.possibleCauses),
     missingQuestions: normalizeStringArray(
       modelOutput.missingQuestions,
       fallback.missingQuestions,
     ),
     riskLevel,
+    confidenceLevel: normalizeRiskLevel(modelOutput.confidenceLevel, fallback.confidenceLevel),
+    productionImpact: normalizeSafeText(modelOutput.productionImpact, fallback.productionImpact),
+    attentionPoints: normalizeStringArray(modelOutput.attentionPoints, fallback.attentionPoints),
     initialRecommendation:
       typeof modelOutput.initialRecommendation === "string" &&
       modelOutput.initialRecommendation.trim()
         ? sanitizeAiSafetyText(modelOutput.initialRecommendation)
         : fallback.initialRecommendation,
+    safeInitialRecommendations: normalizeStringArray(
+      modelOutput.safeInitialRecommendations,
+      fallback.safeInitialRecommendations,
+    ),
     whenToCallHumanSpecialist:
       typeof modelOutput.whenToCallHumanSpecialist === "string" &&
       modelOutput.whenToCallHumanSpecialist.trim()
         ? sanitizeAiSafetyText(modelOutput.whenToCallHumanSpecialist)
         : fallback.whenToCallHumanSpecialist,
+    humanReviewReason: normalizeSafeText(modelOutput.humanReviewReason, fallback.humanReviewReason),
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     knowledgeUsed: normalizeKnowledgeUsed(
       modelOutput.knowledgeUsed,
@@ -1236,6 +1298,7 @@ export async function updateAgronomicCaseWithAnalysis(
       body: JSON.stringify({
         ai_summary: analysis.initialDiagnosis,
         ai_recommendation: analysis.initialRecommendation,
+        ai_analysis_json: analysis,
         risk_level: analysis.riskLevel,
         status: keepHumanReviewStatus ? currentCase?.status ?? "ai_analyzed" : "ai_analyzed",
       }),

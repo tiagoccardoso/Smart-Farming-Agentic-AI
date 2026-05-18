@@ -89,6 +89,19 @@ function containsAny(text: string, terms: string[]) {
   return terms.some((term) => text.includes(term));
 }
 
+function cropDisplayName(caseData: AgronomicCaseForAI) {
+  return (
+    caseData.crop_context?.display_name_pt ||
+    caseData.crop_context?.name ||
+    caseData.crop ||
+    "cultura informada"
+  );
+}
+
+function confidenceFromRisk(riskLevel: "low" | "medium" | "high") {
+  return riskLevel === "low" ? "medium" : riskLevel === "medium" ? "medium" : "low";
+}
+
 export function classifyCaseComplexity(
   caseData: AgronomicCaseForAI,
   question?: string,
@@ -152,8 +165,18 @@ function buildFallbackAnalysis(
   question?: string,
 ): AgronomicAnalysisOutput {
   const riskLevel = classifyAgronomicRisk(caseData);
+  const confidenceLevel = confidenceFromRisk(riskLevel);
+  const cropName = cropDisplayName(caseData);
+  const location =
+    [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") ||
+    "localidade não informada";
   const hasImages = caseData.images.length > 0;
   const hasSoilAnalysis = Boolean(caseData.soil_analysis_url);
+  const symptoms = caseData.symptoms?.trim() || "sintomas não detalhados";
+  const cropDiseases = caseData.crop_context?.common_diseases;
+  const cropPests = caseData.crop_context?.common_pests;
+  const climate = caseData.crop_context?.ideal_climate;
+  const soil = caseData.farm?.soil_type || caseData.crop_context?.recommended_soil;
   const missingQuestions = [
     "Qual porcentagem aproximada do talhão apresenta os sintomas?",
     "Os sintomas começaram em reboleiras, bordaduras ou estão distribuídos de forma uniforme?",
@@ -172,26 +195,117 @@ function buildFallbackAnalysis(
     );
   }
 
+  const detailedHypotheses = [
+    {
+      name: cropDiseases
+        ? "Doença compatível com problemas recorrentes da cultura"
+        : "Doença foliar ou radicular a confirmar",
+      probability: confidenceLevel,
+      justification: `Os sintomas relatados em ${cropName} (${symptoms}) podem estar associados a agentes bióticos, especialmente quando há evolução em manchas, lesões, murcha, amarelecimento ou distribuição progressiva no talhão. ${cropDiseases ? `Para esta cultura, o cadastro técnico cita como doenças comuns: ${cropDiseases}.` : "Sem confirmação visual/laboratorial, a hipótese permanece como triagem inicial."}`,
+      favorableFactors: [
+        "Sintomas descritos indicam alteração fisiológica ou sanitária que merece correlação com distribuição no talhão.",
+        climate ? `Condições climáticas favoráveis/fora do ideal podem influenciar: ${climate}.` : "Chuva, umidade, calor e baixa ventilação podem acelerar vários patógenos.",
+      ],
+      uncertaintyFactors: [
+        hasImages ? "As imagens precisam ser correlacionadas com inspeção de campo e evolução temporal." : "A ausência de imagens reduz a leitura de padrão visual, severidade e distribuição.",
+        "Não há confirmação por lupa, microscopia, teste rápido ou avaliação presencial.",
+      ],
+      potentialImpact:
+        riskLevel === "high"
+          ? "Pode causar perda produtiva relevante se houver avanço rápido ou atingir fase sensível da cultura."
+          : "Pode reduzir área fotossintética, vigor e uniformidade se evoluir sem monitoramento.",
+    },
+    {
+      name: "Estresse nutricional, hídrico ou fitotoxicidade",
+      probability: riskLevel === "high" ? "medium" : "medium",
+      justification: `Alterações visuais semelhantes às relatadas também podem ocorrer por desequilíbrio nutricional, compactação, excesso/falta de água, deriva ou resposta a aplicações recentes. ${soil ? `O contexto de solo informado/recomendado (${soil}) deve ser comparado com análise recente e manejo de irrigação/adubação.` : "Sem análise de solo e histórico completo, essa hipótese não deve ser descartada."}`,
+      favorableFactors: [
+        "Estresses abióticos frequentemente aparecem após mudanças de clima, irrigação, adubação ou pulverização.",
+        "Padrões uniformes, em linhas ou associados a manchas de solo favorecem causa de manejo/ambiente.",
+      ],
+      uncertaintyFactors: [
+        "Faltam dados sobre início dos sintomas, operações recentes e distribuição espacial.",
+        "Sintomas nutricionais podem se confundir com doenças e pragas em triagem remota.",
+      ],
+      potentialImpact:
+        "Pode comprometer crescimento, pegamento, enchimento ou qualidade comercial, mas costuma responder melhor quando a causa de manejo é identificada cedo.",
+    },
+  ] as AgronomicAnalysisOutput["detailedHypotheses"];
+
+  if (cropPests) {
+    detailedHypotheses.push({
+      name: "Pressão de pragas compatíveis com a cultura",
+      probability: "medium",
+      justification: `O cadastro técnico da cultura aponta pragas comuns (${cropPests}). Danos por pragas podem gerar manchas, raspagens, perfurações, deformações, murcha ou transmissão de viroses, dependendo do organismo envolvido.`,
+      favorableFactors: [
+        "Danos localizados, presença de insetos, exúvias, fezes ou sintomas em ponteiros favorecem essa hipótese.",
+        "Histórico regional e estágio da cultura podem elevar a pressão de pragas.",
+      ],
+      uncertaintyFactors: [
+        "Não há contagem de pragas, armadilhas, pano de batida ou inspeção detalhada enviada.",
+        "Alguns sintomas de pragas se sobrepõem a doenças e estresses ambientais.",
+      ],
+      potentialImpact:
+        "Pode reduzir estande, área foliar, sanidade e produtividade, além de aumentar risco de disseminação quando houver vetor.",
+    });
+  }
+
   return {
-    initialDiagnosis: `Triagem inicial para ${caseData.crop}: os sintomas precisam ser correlacionados com distribuição no talhão, histórico recente e condições de solo/clima antes de qualquer decisão técnica.`,
-    probableHypotheses: [
-      "Possível interação entre manejo, ambiente, nutrição, pragas ou doenças, ainda sem contexto suficiente para diagnóstico definitivo.",
-      "A evolução e a distribuição dos sintomas no talhão são decisivas para separar causa biótica de estresse fisiológico.",
+    initialDiagnosis: `Pré-consultoria para ${cropName} em ${location}: os sinais relatados (${symptoms}) indicam um caso que merece triagem técnica estruturada. Ainda não é um diagnóstico definitivo, mas já permite levantar hipóteses úteis, separar causas prováveis e orientar próximos passos seguros antes de qualquer intervenção de alto impacto.`,
+    probableHypotheses: detailedHypotheses.map(
+      (item) => `${item.name}: ${item.justification}`,
+    ),
+    detailedHypotheses,
+    visualFindings: [
+      hasImages
+        ? "Há imagens anexadas; a avaliação deve comparar lesões próximas com fotos gerais do talhão para entender severidade e distribuição."
+        : "Não há imagem anexada; a leitura visual fica limitada aos sintomas descritos pelo usuário.",
+      `Sintomas informados: ${symptoms}.`,
+      caseData.growth_stage
+        ? `Estádio informado: ${caseData.growth_stage}, fator importante para estimar risco produtivo.`
+        : "Estádio da cultura não informado, o que reduz precisão sobre impacto e urgência.",
+    ],
+    possibleCauses: [
+      "Doenças favorecidas por umidade, baixa ventilação, inóculo regional ou tecido suscetível.",
+      "Pragas ou vetores, especialmente quando há sintomas em reboleiras, bordaduras ou ponteiros.",
+      "Estresses abióticos ligados a água, solo, nutrição, compactação, deriva ou fitotoxicidade.",
     ],
     missingQuestions,
     riskLevel,
+    confidenceLevel,
+    productionImpact:
+      riskLevel === "high"
+        ? "O impacto potencial é alto se a causa estiver avançando rapidamente, atingir fase reprodutiva/enchimento ou reduzir área foliar e estande. A prioridade é confirmar severidade e conter evolução sem decisões precipitadas."
+        : riskLevel === "medium"
+          ? "O impacto potencial é moderado: pode haver perda de vigor, área fotossintética, uniformidade e qualidade caso os sintomas avancem ou coincidam com fase sensível."
+          : "O impacto potencial parece baixo a moderado no momento, mas depende da evolução dos sintomas e da porcentagem de plantas afetadas.",
+    attentionPoints: [
+      "Distribuição no talhão: reboleira, bordadura, linhas de plantio ou padrão uniforme mudam a interpretação.",
+      "Velocidade de avanço dos sintomas nas próximas 24 a 72 horas.",
+      "Relação com chuvas, irrigação, calor, geada, adubação ou pulverizações recentes.",
+    ],
     initialRecommendation:
       riskLevel === "high"
-        ? "Priorize revisão humana e vistoria técnica antes de intervenção. Registre fotos, evolução diária e histórico de aplicações."
-        : "Organize os dados faltantes, monitore a evolução e evite aplicações corretivas sem confirmação técnica.",
+        ? "Continue a triagem com registros objetivos, isole decisões de alto custo e priorize vistoria técnica antes de aplicações ou mudanças drásticas de manejo."
+        : "Monitore evolução, fotografe plantas sadias e afetadas, compare áreas do talhão e organize histórico recente antes de qualquer intervenção corretiva.",
+    safeInitialRecommendations: [
+      "Registrar fotos próximas e panorâmicas no mesmo ponto por 2 a 3 dias para medir evolução.",
+      "Marcar no talhão onde os sintomas começaram e estimar porcentagem de plantas afetadas.",
+      "Verificar histórico dos últimos 14 dias: chuva/irrigação, pulverizações, adubação, variação térmica e operações mecânicas.",
+      "Evitar mistura ou aplicação de defensivos controlados sem confirmação técnica e responsável habilitado.",
+    ],
     whenToCallHumanSpecialist:
       riskLevel === "low"
-        ? "Acione especialista se houver aumento dos sintomas, custo relevante ou decisão de manejo com risco."
-        : "Acione especialista antes de aplicação, descarte de plantas, mudança importante de manejo ou emissão de recomendação técnica.",
+        ? "A revisão humana é recomendada se houver aumento dos sintomas, decisão de manejo com custo relevante ou necessidade de confirmação para relatório técnico."
+        : "A revisão humana é recomendada como continuidade especializada antes de aplicações, descarte de plantas, mudanças importantes de manejo ou quando o risco produtivo for relevante.",
+    humanReviewReason:
+      riskLevel === "low"
+        ? "A IA consegue organizar a triagem inicial, mas a confirmação depende de observação de campo quando houver evolução ou decisão técnica."
+        : "Há incerteza agronômica e potencial de impacto produtivo; um especialista pode confirmar sinais em campo, diferenciar causas parecidas e orientar manejo dentro das normas técnicas.",
     knowledgeUsed: [],
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer: question?.trim()
-      ? `Sobre sua pergunta: ainda é necessário validar os dados faltantes e envolver especialista em caso de decisão técnica.`
+      ? `Sobre sua pergunta: a triagem deve combinar os sintomas relatados com distribuição no talhão, evolução recente e contexto de ${cropName}. Mesmo com incerteza, as hipóteses principais são sanitárias, pragas/vetores e estresse de manejo/ambiente; decisões de aplicação ou intervenção devem ser validadas por responsável técnico.`
       : undefined,
   };
 }
@@ -251,42 +365,104 @@ function normalizeKnowledgeUsed(value: unknown, allowed: KnowledgeDocument[]) {
     );
 }
 
+function normalizeConfidenceLevel(value: unknown, fallback: "low" | "medium" | "high") {
+  return value === "low" || value === "medium" || value === "high"
+    ? value
+    : fallback;
+}
+
+function normalizeDetailedHypotheses(
+  value: unknown,
+  fallback: AgronomicAnalysisOutput["detailedHypotheses"],
+) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const normalized = value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const hypothesis = item as Record<string, unknown>;
+      const name = typeof hypothesis.name === "string" ? sanitizeAiSafetyText(hypothesis.name) : "";
+      const probability = normalizeConfidenceLevel(hypothesis.probability, "medium");
+      const justification = typeof hypothesis.justification === "string" ? sanitizeAiSafetyText(hypothesis.justification) : "";
+      const favorableFactors = normalizeStringArray(hypothesis.favorableFactors, []);
+      const uncertaintyFactors = normalizeStringArray(hypothesis.uncertaintyFactors, []);
+      const potentialImpact = typeof hypothesis.potentialImpact === "string" ? sanitizeAiSafetyText(hypothesis.potentialImpact) : "";
+
+      if (!name || !justification) {
+        return null;
+      }
+
+      return {
+        name,
+        probability,
+        justification,
+        favorableFactors,
+        uncertaintyFactors,
+        potentialImpact,
+      };
+    })
+    .filter((item): item is AgronomicAnalysisOutput["detailedHypotheses"][number] => Boolean(item));
+
+  return normalized.length ? normalized : fallback;
+}
+
+function normalizeSafeText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim()
+    ? sanitizeAiSafetyText(value)
+    : fallback;
+}
+
 function normalizeAnalysis(
   output: Partial<AgronomicAnalysisOutput>,
   fallback: AgronomicAnalysisOutput,
   knowledge: KnowledgeDocument[],
 ): AgronomicAnalysisOutput {
-  const riskLevel =
-    output.riskLevel === "low" ||
-    output.riskLevel === "medium" ||
-    output.riskLevel === "high"
-      ? output.riskLevel
-      : fallback.riskLevel;
+  const riskLevel = normalizeConfidenceLevel(output.riskLevel, fallback.riskLevel);
+  const detailedHypotheses = normalizeDetailedHypotheses(
+    output.detailedHypotheses,
+    fallback.detailedHypotheses,
+  );
+
   return {
-    initialDiagnosis:
-      typeof output.initialDiagnosis === "string" &&
-      output.initialDiagnosis.trim()
-        ? sanitizeAiSafetyText(output.initialDiagnosis)
-        : fallback.initialDiagnosis,
+    initialDiagnosis: normalizeSafeText(output.initialDiagnosis, fallback.initialDiagnosis),
     probableHypotheses: normalizeStringArray(
       output.probableHypotheses,
-      fallback.probableHypotheses,
+      detailedHypotheses.map((item) => `${item.name}: ${item.justification}`),
     ),
+    detailedHypotheses,
+    visualFindings: normalizeStringArray(output.visualFindings, fallback.visualFindings),
+    possibleCauses: normalizeStringArray(output.possibleCauses, fallback.possibleCauses),
     missingQuestions: normalizeStringArray(
       output.missingQuestions,
       fallback.missingQuestions,
     ),
     riskLevel,
-    initialRecommendation:
-      typeof output.initialRecommendation === "string" &&
-      output.initialRecommendation.trim()
-        ? sanitizeAiSafetyText(output.initialRecommendation)
-        : fallback.initialRecommendation,
-    whenToCallHumanSpecialist:
-      typeof output.whenToCallHumanSpecialist === "string" &&
-      output.whenToCallHumanSpecialist.trim()
-        ? sanitizeAiSafetyText(output.whenToCallHumanSpecialist)
-        : fallback.whenToCallHumanSpecialist,
+    confidenceLevel: normalizeConfidenceLevel(
+      output.confidenceLevel,
+      fallback.confidenceLevel,
+    ),
+    productionImpact: normalizeSafeText(output.productionImpact, fallback.productionImpact),
+    attentionPoints: normalizeStringArray(output.attentionPoints, fallback.attentionPoints),
+    initialRecommendation: normalizeSafeText(
+      output.initialRecommendation,
+      fallback.initialRecommendation,
+    ),
+    safeInitialRecommendations: normalizeStringArray(
+      output.safeInitialRecommendations,
+      fallback.safeInitialRecommendations,
+    ),
+    whenToCallHumanSpecialist: normalizeSafeText(
+      output.whenToCallHumanSpecialist,
+      fallback.whenToCallHumanSpecialist,
+    ),
+    humanReviewReason: normalizeSafeText(
+      output.humanReviewReason,
+      fallback.humanReviewReason,
+    ),
     knowledgeUsed: normalizeKnowledgeUsed(output.knowledgeUsed, knowledge),
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer:
@@ -357,7 +533,7 @@ async function callProvider(
         {
           model,
           promptType: "agronomic_analysis",
-          maxOutputTokens: 1800,
+          maxOutputTokens: 3600,
           timeoutMs: 40000,
         },
       ),

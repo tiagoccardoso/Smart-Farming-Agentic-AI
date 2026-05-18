@@ -157,6 +157,7 @@ type ListedCaseRow = {
   risk_level: string | null;
   ai_summary: string | null;
   ai_recommendation: string | null;
+  ai_analysis_json?: unknown | null;
   human_review_requested: boolean;
   human_review_status: string | null;
   created_at: string | null;
@@ -228,7 +229,7 @@ export async function GET(request: NextRequest) {
         ? "&or=(status.eq.ai_analyzed,ai_summary.not.is.null)"
         : "";
     const cases = await supabaseRequest<ListedCaseRow[]>(
-      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null${statusFilter}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=updated_at.desc&limit=${limit}&offset=${offset}`,
+      `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null${statusFilter}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,ai_analysis_json,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=updated_at.desc&limit=${limit}&offset=${offset}`,
       { method: "GET" },
       token,
       config
