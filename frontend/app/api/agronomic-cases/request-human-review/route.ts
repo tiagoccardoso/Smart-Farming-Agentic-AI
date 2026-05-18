@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError } from "../../../../lib/billing/check-plan-limits";
-import { supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
+import { HUMAN_REVIEW_SERVICES, supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
 
 type UpdatedCase = {
   id: string;
@@ -17,6 +17,40 @@ class FriendlyRequestError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+
+async function ensurePendingHumanReviewOrder(userId: string, caseId: string, token: string) {
+  const config = getSupabaseConfig();
+  const existing = await supabaseRequest<Array<{ id: string }>>(
+    `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(userId)}&case_id=eq.${encodeURIComponent(caseId)}&service_type=eq.human_case_review&payment_status=eq.pending&select=id&limit=1`,
+    { method: "GET" },
+    token,
+    config,
+  ).catch(() => []);
+
+  if (existing[0]?.id) {
+    return existing[0].id;
+  }
+
+  const created = await supabaseRequest<Array<{ id: string }>>(
+    "/rest/v1/one_time_orders?select=id",
+    {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        user_id: userId,
+        case_id: caseId,
+        service_type: "human_case_review",
+        price_cents: HUMAN_REVIEW_SERVICES.human_case_review.priceCents,
+        payment_status: "pending",
+      }),
+    },
+    token,
+    config,
+  );
+
+  return created[0]?.id ?? null;
 }
 
 async function logActivity(caseId: string, userId: string, token: string) {
@@ -134,6 +168,7 @@ export async function POST(request: NextRequest) {
       throw new FriendlyRequestError("Caso não encontrado ou sem permissão para atualização.", 404);
     }
 
+    await ensurePendingHumanReviewOrder(user.id, caseId, token);
     await createHumanReviewQueueRow(caseId);
     await logActivity(caseId, user.id, token);
 

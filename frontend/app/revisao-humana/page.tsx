@@ -1,410 +1,80 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
-import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
 import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
 import { getAgronomicCase, requestHumanReviewCheckout } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase } from "../../lib/agronomic/case";
 
-const benefits = [
-  "Análise por Doutora em Agronomia",
-  "Revisão técnica personalizada",
-  "Parecer profissional",
-  "Relatório técnico",
-  "Análise aprofundada"
-];
-
-const statusLabels: Record<string, string> = {
-  waiting_payment_human_review: "Aguardando pagamento da revisão humana",
-  waiting_human_review: "Aguardando revisão humana pela especialista",
-  ai_analyzed: "Pré-análise da IA concluída",
-  submitted: "Caso enviado",
+type HumanReviewListCase = AgronomicCase & {
+  images_count?: number;
+  payment_status?: string | null;
+  review_price_cents?: number | null;
+  latestOrder?: { id: string; payment_status: string | null; price_cents: number | null; stripe_checkout_session_id?: string | null; updated_at?: string | null; created_at?: string | null } | null;
+  latestReport?: { id: string; report_url: string | null; report_type: string | null; created_at: string | null } | null;
 };
 
+type ActivityLog = { id: string; action: string; metadata: Record<string, unknown> | null; created_at: string | null };
+type DetailPayload = { case: AgronomicCase; activityLogs?: ActivityLog[] };
+type FilterKey = "all" | "pending_payment" | "waiting_review" | "in_review" | "reviewed" | "completed";
 
-function getHumanReviewPriceCents() {
-  const configuredPrice = Number(process.env.NEXT_PUBLIC_HUMAN_REVIEW_PRICE_CENTS);
-  return Number.isFinite(configuredPrice) && configuredPrice > 0 ? Math.round(configuredPrice) : 19700;
-}
+const filterLabels: Record<FilterKey, string> = { all: "Todos", pending_payment: "Pagamento pendente", waiting_review: "Aguardando revisão", in_review: "Em revisão", reviewed: "Revisados", completed: "Concluídos" };
+const caseStatusLabels: Record<string, string> = { waiting_payment_human_review: "Aguardando pagamento", pending_payment: "Aguardando pagamento", waiting_human_review: "Aguardando revisão", waiting_review: "Aguardando revisão", in_review: "Em revisão", reviewed: "Revisado", human_reviewed: "Revisado", completed: "Concluído", rejected: "Cancelado", cancelled: "Cancelado", ai_analyzed: "IA analisou", submitted: "Enviado" };
+const paymentStatusLabels: Record<string, string> = { pending: "Pendente", paid: "Pago", canceled: "Cancelado", cancelled: "Cancelado", expired: "Expirado" };
 
-function formatCurrency(priceCents: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(priceCents / 100);
-}
+function getHumanReviewPriceCents() { const configuredPrice = Number(process.env.NEXT_PUBLIC_HUMAN_REVIEW_PRICE_CENTS); return Number.isFinite(configuredPrice) && configuredPrice > 0 ? Math.round(configuredPrice) : 19700; }
+function formatCurrency(priceCents?: number | null) { return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format((priceCents ?? getHumanReviewPriceCents()) / 100); }
+function formatDate(value?: string | null) { if (!value) return "Não informado"; return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
+function summarize(value?: string | null, limit = 150) { const clean = value?.trim(); if (!clean) return "Sem resumo registrado."; return clean.length > limit ? `${clean.slice(0, limit).trim()}...` : clean; }
+function getVisualCaseStatus(caseItem: HumanReviewListCase | AgronomicCase) { return caseItem.human_review_status || caseItem.status || "submitted"; }
+function getPaymentStatus(caseItem: HumanReviewListCase) { return caseItem.payment_status || caseItem.latestOrder?.payment_status || (caseItem.human_review_status === "pending_payment" ? "pending" : "paid"); }
+function InfoTile({ label, value }: { label: string; value: string | number }) { return <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-soft"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-sm font-semibold text-slate-900">{value}</p></div>; }
 
-function displayValue(value?: string | number | null) {
-  if (value === null || value === undefined || value === "") {
-    return "Não informado";
-  }
-
-  return String(value);
-}
-
-function InfoItem({ label, value }: { label: string; value?: string | number | null }) {
-  return (
-    <div className="rounded-2xl border border-leaf-100 bg-white p-4 shadow-soft">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-sm font-medium text-slate-900">{displayValue(value)}</p>
-    </div>
-  );
+function Timeline({ caseData, paymentStatus, logs }: { caseData: AgronomicCase; paymentStatus?: string | null; logs: ActivityLog[] }) {
+  const hasAiAnalysis = Boolean(caseData.ai_summary);
+  const answered = caseData.pending_questions?.some((question) => question.status === "answered") || (caseData.question_history?.length ?? 0) > 0;
+  const waitingReview = ["waiting_review", "in_review", "reviewed", "completed"].includes(caseData.human_review_status ?? "");
+  const reviewed = ["reviewed", "completed"].includes(caseData.human_review_status ?? "") || caseData.status === "human_reviewed";
+  const reportAvailable = reviewed || caseData.status === "completed";
+  const steps = [
+    { label: "Caso criado", done: true, date: caseData.created_at }, { label: "IA analisou sintomas", done: hasAiAnalysis, date: caseData.updated_at }, { label: "Perguntas respondidas", done: answered },
+    { label: paymentStatus === "paid" ? "Pagamento confirmado" : "Aguardando pagamento", done: paymentStatus === "paid" }, { label: "Aguardando revisão da especialista", done: waitingReview }, { label: "Revisão concluída", done: reviewed }, { label: "Relatório disponível", done: reportAvailable }
+  ];
+  return <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft"><h3 className="text-lg font-black text-slate-950">Timeline do caso</h3><div className="mt-5 space-y-4">{steps.map((step) => <div key={step.label} className="flex gap-3"><span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm ${step.done ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{step.done ? "✓" : "⌛"}</span><div><p className="font-semibold text-slate-900">{step.label}</p>{step.date && <p className="text-xs text-slate-500">{formatDate(step.date)}</p>}</div></div>)}</div>{logs.length > 0 && <div className="mt-6 border-t border-slate-100 pt-4"><p className="text-sm font-bold text-slate-700">Histórico operacional</p><div className="mt-3 space-y-2 text-xs text-slate-600">{logs.slice(-6).map((log) => <p key={log.id}>• {formatDate(log.created_at)} — {log.action}</p>)}</div></div>}</div>;
 }
 
 function RevisaoHumanaContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId") ?? "";
-  const checkoutStatus = searchParams.get("payment");
-  const [caseData, setCaseData] = useState<AgronomicCase | null>(null);
-  const [loadingCase, setLoadingCase] = useState(false);
-  const [requesting, setRequesting] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const router = useRouter(); const searchParams = useSearchParams(); const selectedCaseId = searchParams.get("caseId") ?? ""; const checkoutStatus = searchParams.get("payment");
+  const [cases, setCases] = useState<HumanReviewListCase[]>([]); const [aiCases, setAiCases] = useState<HumanReviewListCase[]>([]); const [detail, setDetail] = useState<DetailPayload | null>(null);
+  const [filter, setFilter] = useState<FilterKey>("all"); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [loadingDetail, setLoadingDetail] = useState(false);
+  const [showLocator, setShowLocator] = useState(false); const [busyCaseId, setBusyCaseId] = useState<string | null>(null); const [toast, setToast] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
 
-  const priceCents = useMemo(() => getHumanReviewPriceCents(), []);
-  const formattedPrice = useMemo(() => formatCurrency(priceCents), [priceCents]);
-  const riskLevel = caseData?.risk_level ?? null;
-  const alreadyRequested = caseData?.human_review_requested;
-  const canDelete = deleteConfirmation.trim().toUpperCase() === "EXCLUIR";
-  const answeredQuestions = caseData?.pending_questions?.filter((question) => question.status === "answered") ?? [];
-  const pendingQuestions = caseData?.pending_questions?.filter((question) => question.status !== "answered") ?? [];
-
-  useEffect(() => {
-    if (checkoutStatus === "success") {
-      setSuccessMessage("Checkout iniciado/concluído com sucesso. A revisão ficará pendente até a confirmação do pagamento.");
-    }
-
-    if (checkoutStatus === "cancelled") {
-      setSuccessMessage("Checkout cancelado. Você pode solicitar a revisão novamente quando desejar.");
-    }
-  }, [checkoutStatus]);
-
-  useEffect(() => {
-    async function loadCase() {
-      setError(null);
-      setCaseData(null);
-
-      if (!caseId) {
-        return;
-      }
-
-      const accessToken = getStoredSupabaseAccessToken();
-
-      if (!accessToken) {
-        setError("Faça login para carregar os dados do caso enviado.");
-        return;
-      }
-
-      setLoadingCase(true);
-
-      try {
-        const response = (await getAgronomicCase(caseId, accessToken)) as { case: AgronomicCase };
-        setCaseData(response.case);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar o caso.");
-      } finally {
-        setLoadingCase(false);
-      }
-    }
-
-    loadCase();
-  }, [caseId]);
-
-  async function handleRequestReview() {
-    if (!caseId) {
-      setError("Abra esta página usando um caseId válido na URL.");
-      return;
-    }
-
-    const accessToken = getStoredSupabaseAccessToken();
-
-    if (!accessToken) {
-      setError("Faça login para solicitar a revisão humana.");
-      return;
-    }
-
-    setRequesting(true);
-    setError(null);
-    setSuccessMessage(null);
-
+  async function loadDashboard() {
+    const token = getStoredSupabaseAccessToken(); if (!token) { setError("Faça login para acompanhar revisões humanas."); setLoading(false); return; }
+    setLoading(true); setError(null);
     try {
-      const response = (await requestHumanReviewCheckout(caseId, accessToken)) as {
-        checkoutUrl: string;
-      };
-
-      window.location.href = response.checkoutUrl;
-      return;
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Não foi possível solicitar a revisão humana.");
-    } finally {
-      setRequesting(false);
-    }
+      const load = (scope: string) => fetch(`/api/agronomic-cases?scope=${scope}&limit=100`, { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json().then((payload) => response.ok ? payload : Promise.reject(new Error(payload?.error || "Falha ao carregar casos."))));
+      const [reviewPayload, analyzedPayload] = await Promise.all([load("human_review"), load("ai_analyzed")]); setCases(reviewPayload.cases ?? []); setAiCases(analyzedPayload.cases ?? []);
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar o painel."); } finally { setLoading(false); }
   }
+  useEffect(() => { loadDashboard(); }, []);
+  useEffect(() => { if (checkoutStatus === "success") setToast("Pagamento recebido/iniciado. O painel será atualizado assim que o Stripe confirmar o webhook."); if (checkoutStatus === "cancelled") setToast("Checkout cancelado. O caso continua salvo para você retomar o pagamento depois."); }, [checkoutStatus]);
+  useEffect(() => { async function loadDetail() { if (!selectedCaseId) { setDetail(null); return; } const token = getStoredSupabaseAccessToken(); if (!token) return; setLoadingDetail(true); try { setDetail(await getAgronomicCase(selectedCaseId, token) as DetailPayload); } catch (detailError) { setToast(detailError instanceof Error ? detailError.message : "Não foi possível abrir o detalhe."); } finally { setLoadingDetail(false); } } loadDetail(); }, [selectedCaseId]);
 
-  async function handleCancelReview() {
-    const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken || !caseId) return;
-    setCancelling(true);
-    setError(null);
-    setSuccessMessage(null);
-    try {
-      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/human-review`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Não foi possível cancelar a solicitação.");
-      setCaseData((current) => (current ? { ...current, ...payload.case } : current));
-      setSuccessMessage("Solicitação de revisão humana cancelada. O caso voltou para a consultoria IA.");
-    } catch (cancelError) {
-      setError(cancelError instanceof Error ? cancelError.message : "Não foi possível cancelar a solicitação.");
-    } finally {
-      setCancelling(false);
-    }
-  }
+  const filteredCases = useMemo(() => { const needle = search.trim().toLowerCase(); return cases.filter((caseItem) => { const visualStatus = getVisualCaseStatus(caseItem); const paymentStatus = getPaymentStatus(caseItem); const matchesFilter = filter === "all" || (filter === "pending_payment" && paymentStatus === "pending") || (filter === "waiting_review" && ["waiting_review", "waiting_human_review"].includes(visualStatus)) || (filter === "in_review" && visualStatus === "in_review") || (filter === "reviewed" && ["reviewed", "human_reviewed"].includes(visualStatus)) || (filter === "completed" && visualStatus === "completed"); const haystack = `${caseItem.id} ${caseItem.crop} ${caseItem.farm?.name ?? ""}`.toLowerCase(); return matchesFilter && (!needle || haystack.includes(needle)); }); }, [cases, filter, search]);
 
-  async function handleDeleteCase() {
-    const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken || !caseId || !canDelete) return;
-    setDeleting(true);
-    setError(null);
-    setSuccessMessage("Excluindo caso...");
-    try {
-      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Erro ao excluir caso.");
-      setSuccessMessage("Caso excluído com sucesso.");
-      router.replace("/consultoria-ia");
-    } catch (deleteError) {
-      setSuccessMessage(null);
-      setError(deleteError instanceof Error ? deleteError.message : "Erro ao excluir caso.");
-    } finally {
-      setDeleting(false);
-    }
-  }
+  async function continuePayment(caseId: string) { const token = getStoredSupabaseAccessToken(); if (!token) return setError("Faça login para continuar o pagamento."); setBusyCaseId(caseId); setError(null); try { const response = await requestHumanReviewCheckout(caseId, token) as { checkoutUrl?: string }; if (!response.checkoutUrl) throw new Error("Checkout Stripe indisponível para este caso."); window.location.href = response.checkoutUrl; } catch (paymentError) { setError(paymentError instanceof Error ? paymentError.message : "Não foi possível abrir o checkout."); } finally { setBusyCaseId(null); } }
+  async function requestReview(caseId: string) { const token = getStoredSupabaseAccessToken(); if (!token) return setError("Faça login para enviar um caso à revisão humana."); setBusyCaseId(caseId); setError(null); try { const response = await fetch("/api/agronomic-cases/request-human-review", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ caseId }) }); const payload = await response.json().catch(() => null); if (!response.ok) throw new Error(payload?.error || "Não foi possível enviar o caso."); setToast("Caso salvo no painel de revisão humana. Você pode pagar agora ou retornar depois."); setShowLocator(false); await loadDashboard(); router.push(`/revisao-humana?caseId=${encodeURIComponent(caseId)}`); } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Não foi possível enviar o caso."); } finally { setBusyCaseId(null); } }
+  async function cancelReview(caseId: string) { const token = getStoredSupabaseAccessToken(); if (!token) return; setBusyCaseId(caseId); try { const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/human-review`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); const payload = await response.json().catch(() => null); if (!response.ok) throw new Error(payload?.error || "Não foi possível cancelar."); setToast("Solicitação cancelada. O caso analisado pela IA continua disponível para novo envio."); await loadDashboard(); router.push("/revisao-humana"); } catch (cancelError) { setError(cancelError instanceof Error ? cancelError.message : "Não foi possível cancelar."); } finally { setBusyCaseId(null); } }
+  async function deleteCase(caseId: string) { if (!window.confirm("Excluir permanentemente este caso e seus anexos?")) return; const token = getStoredSupabaseAccessToken(); if (!token) return; setBusyCaseId(caseId); try { const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); const payload = await response.json().catch(() => null); if (!response.ok) throw new Error(payload?.error || "Não foi possível excluir."); setToast("Caso excluído permanentemente."); await loadDashboard(); router.push("/revisao-humana"); } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "Não foi possível excluir."); } finally { setBusyCaseId(null); } }
 
-  return (
-    <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-      <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
-        <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-          Validação especializada
-        </p>
-        <SectionTitle title="Revisão Humana" subtitle="Solicite revisão humana de um caso já analisado pela IA." />
-        <p className="max-w-3xl text-base leading-7 text-slate-700">
-          Informe um caso pela URL, revise o resumo da pré-análise e solicite a avaliação de uma Doutora em Agronomia antes de decisões de manejo sensíveis.
-        </p>
-        <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />
-      </div>
-
-      <WorkflowStepper
-        className="mt-8"
-        steps={[
-          { title: "Enviar caso", description: "Caso salvo com sintomas e anexos.", href: "/enviar-caso", status: caseData ? "done" : "next" },
-          { title: "Pré-análise IA", description: "Risco identificado antes do pagamento.", href: caseId ? `/consultoria-ia?caseId=${encodeURIComponent(caseId)}` : "/consultoria-ia", status: caseData?.ai_summary ? "done" : "next" },
-          { title: "Pagar revisão", description: "Confirme a revisão humana especializada.", status: alreadyRequested ? "done" : "current" },
-          { title: "Painel da Doutora", description: "Especialista finaliza o parecer.", status: alreadyRequested ? "current" : "next" },
-          { title: "Meus relatórios", description: "Relatório final aparece para o usuário.", href: "/meus-relatorios", status: "next" }
-        ]}
-      />
-
-      {!caseId && (
-        <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-900 shadow-soft">
-          <h3 className="font-semibold">caseId não informado</h3>
-          <p className="mt-2 text-sm leading-6">Abra esta página no formato /revisao-humana?caseId=ID_DO_CASO ou acesse pela pré-análise da consultoria IA.</p>
-          <Link href="/enviar-caso" className="mt-4 inline-flex rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700">
-            Enviar ou localizar caso
-          </Link>
-        </div>
-      )}
-
-      {error && <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-soft">{error}</div>}
-      {successMessage && <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800 shadow-soft">{successMessage}</div>}
-      {loadingCase && <div className="mt-8"><LoadingCard title="Carregando caso para revisão" description="Buscando status, risco e pré-análise antes de liberar o pagamento." rows={4} /></div>}
-
-      {caseData && (
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
-          <div className="space-y-6">
-            <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Caso agronômico</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-slate-900">{caseData.crop}</h3>
-                </div>
-                <StatusBadge status={caseData.status} label={statusLabels[caseData.status ?? ""] ?? caseData.status ?? "Sem status"} />
-              </div>
-
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <InfoItem label="Estádio" value={caseData.growth_stage} />
-                <InfoItem label="Fazenda" value={caseData.farm?.name} />
-                <InfoItem label="Localização" value={[caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/")} />
-                <InfoItem label="Fotos anexadas" value={caseData.images.length} />
-              </div>
-
-              <div className="mt-6 rounded-2xl bg-leaf-50 p-5">
-                <h4 className="font-semibold text-slate-900">Sintomas informados</h4>
-                <p className="mt-2 text-sm leading-6 text-slate-700">{caseData.symptoms}</p>
-              </div>
-
-              {caseData.images.length > 0 && (
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  {caseData.images.map((image) => (
-                    <div key={image.id} className="relative h-44 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
-                      <Image src={image.image_url} alt="Imagem anexada ao caso" fill sizes="(max-width: 768px) 100vw, 320px" className="object-cover" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </article>
-
-            <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Resumo da IA</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-slate-900">Pré-análise registrada</h3>
-                </div>
-                <RiskBadge riskLevel={riskLevel} />
-              </div>
-
-              {caseData.ai_summary || caseData.ai_recommendation ? (
-                <div className="mt-6 grid gap-5">
-                  <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-                    <h4 className="font-semibold text-slate-900">Diagnóstico inicial</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{caseData.ai_summary ?? "Não registrado."}</p>
-                  </div>
-                  <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-                    <h4 className="font-semibold text-slate-900">Recomendação inicial</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{caseData.ai_recommendation ?? "Não registrada."}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
-                  Ainda não há pré-análise salva para este caso. Gere a análise na consultoria IA antes de solicitar a revisão humana.
-                  <div>
-                    <Link href={`/consultoria-ia?caseId=${encodeURIComponent(caseId)}`} className="mt-4 inline-flex rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700">
-                      Gerar pré-análise com IA
-                    </Link>
-                  </div>
-                </div>
-              )}
-            </article>
-
-            <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-              <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Perguntas respondidas</p>
-              <h3 className="mt-2 text-2xl font-semibold text-slate-900">Contexto adicional para a especialista</h3>
-              <div className="mt-5 space-y-3">
-                {answeredQuestions.length === 0 && pendingQuestions.length === 0 && <p className="text-sm text-slate-500">Nenhuma pergunta complementar registrada para este caso.</p>}
-                {answeredQuestions.map((question) => (
-                  <div key={question.id} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm">
-                    <p className="font-semibold text-slate-900">{question.question}</p>
-                    <p className="mt-2 text-slate-700">{question.answer}</p>
-                  </div>
-                ))}
-                {pendingQuestions.map((question) => (
-                  <div key={question.id} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
-                    <p className="font-semibold">Pendente: {question.question}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </div>
-
-          <aside className="rounded-3xl border border-sun-200 bg-white p-6 shadow-soft md:p-8">
-            <p className="inline-flex rounded-full bg-sun-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-sun-700">Oferta de revisão</p>
-            <h3 className="mt-4 text-2xl font-bold text-slate-900">Revisão humana por Doutora em Agronomia</h3>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Ideal para complementar a triagem inicial da IA com avaliação técnica personalizada sobre fotos, sintomas, histórico e próximos passos.
-            </p>
-
-            <ul className="mt-6 space-y-3 text-sm text-slate-700">
-              {benefits.map((benefit) => (
-                <li key={benefit} className="flex items-center gap-3">
-                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-leaf-100 text-xs font-semibold text-leaf-700">✓</span>
-                  <span>{benefit}</span>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-8 rounded-2xl bg-slate-50 p-5">
-              <p className="text-sm font-medium text-slate-600">Preço para revisão de caso simples</p>
-              <p className="mt-2 text-4xl font-bold text-slate-900">{formattedPrice}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-500">Valor inicial do serviço human_case_review criado diretamente no checkout Stripe em BRL.</p>
-            </div>
-
-            {alreadyRequested && (
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <strong>Status atual:</strong> {caseData.human_review_status === "pending_payment" ? "Aguardando pagamento da revisão humana" : caseData.human_review_status ?? "não informado"}.
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleRequestReview}
-              disabled={requesting || !caseData.ai_summary}
-              className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {requesting ? "Abrindo pagamento..." : "Pagar e enviar para especialista"}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCancelReview}
-              disabled={cancelling || deleting || caseData.human_review_status === "waiting_review"}
-              className="mt-3 w-full rounded-full border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {cancelling ? "Cancelando..." : "Cancelar solicitação"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setDeleteConfirmation(""); setShowDelete(true); }}
-              disabled={deleting}
-              className="mt-3 w-full rounded-full border border-red-200 bg-red-50 px-6 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Excluir caso
-            </button>
-
-            <p className="mt-4 text-xs leading-5 text-slate-500">
-              Ao clicar, o sistema cria uma ordem em one_time_orders com pagamento pendente e redireciona para o checkout Stripe.
-            </p>
-          </aside>
-        </div>
-      )}
-      {showDelete && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur">
-          <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-soft">
-            <h2 className="text-2xl font-black text-slate-950">Excluir caso permanentemente</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">Esta ação não poderá ser desfeita. O caso, imagens, conversa, perguntas, pedidos de revisão, relatórios e arquivos serão removidos.</p>
-            <label className="mt-5 block text-sm font-bold text-slate-700">
-              Digite EXCLUIR para confirmar
-              <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} disabled={deleting} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-red-300" placeholder="EXCLUIR" />
-            </label>
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setShowDelete(false)} disabled={deleting} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black disabled:opacity-60">Cancelar</button>
-              <button type="button" onClick={handleDeleteCase} disabled={!canDelete || deleting} className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">{deleting ? "Excluindo..." : "Excluir caso"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </section>
-  );
+  const selectedListCase = cases.find((caseItem) => caseItem.id === selectedCaseId); const detailCase = detail?.case; const detailPaymentStatus = selectedListCase ? getPaymentStatus(selectedListCase) : undefined;
+  return <section className="mx-auto max-w-7xl px-6 py-10 md:py-14"><div className="rounded-[2rem] bg-gradient-to-br from-leaf-900 via-leaf-800 to-emerald-700 p-8 text-white shadow-soft md:p-10"><div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between"><div><p className="text-sm font-bold uppercase tracking-[0.3em] text-leaf-100">Revisão Humana</p><h1 className="mt-3 text-3xl font-black md:text-5xl">Painel persistente de consultorias agrícolas</h1><p className="mt-4 max-w-3xl text-sm leading-6 text-leaf-50 md:text-base">Acompanhe todos os casos enviados para revisão humana, retome pagamentos pendentes, consulte status técnicos e acesse relatórios sem perder estado após atualizar a página.</p></div><div className="flex flex-wrap gap-3"><button onClick={() => setShowLocator(true)} className="rounded-full bg-white px-5 py-3 text-sm font-black text-leaf-800 shadow-soft hover:bg-leaf-50">Localizar caso</button><button onClick={() => setShowLocator(true)} className="rounded-full border border-white/40 px-5 py-3 text-sm font-black text-white hover:bg-white/10">Enviar caso</button></div></div></div>{(toast || error) && <div className={`mt-6 rounded-2xl border p-4 text-sm font-semibold ${error ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{error || toast}</div>}<div className="mt-6"><SafetyDisclaimer /></div><div className="mt-8 grid gap-4 md:grid-cols-4"><InfoTile label="Casos no painel" value={cases.length} /><InfoTile label="Pagamentos pendentes" value={cases.filter((caseItem) => getPaymentStatus(caseItem) === "pending").length} /><InfoTile label="Aguardando especialista" value={cases.filter((caseItem) => ["waiting_review", "waiting_human_review"].includes(getVisualCaseStatus(caseItem))).length} /><InfoTile label="Relatórios disponíveis" value={cases.filter((caseItem) => Boolean(caseItem.latestReport?.report_url)).length} /></div><div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]"><div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft md:p-6"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><SectionTitle title="Casos enviados para revisão humana" subtitle="Todos os registros com human_review_requested=true permanecem aqui até exclusão manual." /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por cultura, propriedade ou ID" className="rounded-full border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-300" /></div><div className="mt-5 flex flex-wrap gap-2">{(Object.keys(filterLabels) as FilterKey[]).map((key) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-4 py-2 text-xs font-bold transition ${filter === key ? "bg-leaf-700 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{filterLabels[key]}</button>)}</div><div className="mt-6 space-y-4">{loading && <><LoadingCard title="Carregando casos" /><LoadingCard title="Carregando casos" /></>}{!loading && filteredCases.length === 0 && <div className="rounded-3xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-600">Nenhum caso encontrado neste filtro. Use “Localizar caso” para enviar uma análise de IA à revisão humana.</div>}{filteredCases.map((caseItem) => { const paymentStatus = getPaymentStatus(caseItem); const visualStatus = getVisualCaseStatus(caseItem); return <article key={caseItem.id} onClick={() => router.push(`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`)} className={`cursor-pointer rounded-3xl border p-5 shadow-soft transition hover:-translate-y-0.5 hover:border-leaf-200 ${selectedCaseId === caseItem.id ? "border-leaf-300 bg-leaf-50" : "border-slate-100 bg-white"}`}><div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-black text-slate-950">{caseItem.crop}</h3><RiskBadge riskLevel={caseItem.risk_level} /><StatusBadge status={visualStatus} label={caseStatusLabels[visualStatus] ?? visualStatus} /><StatusBadge status={paymentStatus} label={`Pagamento: ${paymentStatusLabels[paymentStatus] ?? paymentStatus}`} /></div><p className="mt-2 text-sm text-slate-600">Propriedade: <strong>{caseItem.farm?.name || "Não informada"}</strong> · ID: {caseItem.id}</p><p className="mt-2 text-sm leading-6 text-slate-600">{summarize(caseItem.ai_summary || caseItem.symptoms)}</p></div><div className="min-w-44 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700"><p><strong>Envio:</strong> {formatDate(caseItem.created_at)}</p><p><strong>Atualização:</strong> {formatDate(caseItem.updated_at)}</p><p><strong>Imagens:</strong> {caseItem.images_count ?? caseItem.images?.length ?? 0}</p><p><strong>Valor:</strong> {formatCurrency(caseItem.review_price_cents)}</p><p><strong>Relatório:</strong> {caseItem.latestReport?.report_url ? "Disponível" : "Ainda não"}</p></div></div><div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>{paymentStatus === "pending" && <button onClick={() => continuePayment(caseItem.id)} disabled={busyCaseId === caseItem.id} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{busyCaseId === caseItem.id ? "Abrindo..." : "Continuar pagamento"}</button>}<Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa com IA</Link><Link href={`/enviar-caso?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>{caseItem.latestReport?.report_url && <a href={caseItem.latestReport.report_url} className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">Baixar relatório</a>}</div></article>; })}</div></div><aside className="space-y-6">{loadingDetail && <LoadingCard title="Carregando casos" />}{!selectedCaseId && !loadingDetail && <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center shadow-soft"><h3 className="text-xl font-black text-slate-950">Selecione um caso</h3><p className="mt-2 text-sm text-slate-600">Clique em um card para visualizar análise, perguntas, imagens, conversa, pagamento e timeline.</p></div>}{detailCase && !loadingDetail && <><div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft"><div className="flex flex-wrap items-center gap-2"><RiskBadge riskLevel={detailCase.risk_level} /><StatusBadge status={getVisualCaseStatus(detailCase)} label={caseStatusLabels[getVisualCaseStatus(detailCase)] ?? getVisualCaseStatus(detailCase)} />{detailPaymentStatus && <StatusBadge status={detailPaymentStatus} label={`Pagamento: ${paymentStatusLabels[detailPaymentStatus] ?? detailPaymentStatus}`} />}</div><h2 className="mt-4 text-2xl font-black text-slate-950">{detailCase.crop}</h2><p className="mt-2 text-sm text-slate-600">{detailCase.farm?.name || "Propriedade não informada"} · atualizado em {formatDate(detailCase.updated_at)}</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><InfoTile label="Imagens" value={detailCase.images.length} /><InfoTile label="Perguntas respondidas" value={detailCase.pending_questions?.filter((q) => q.status === "answered").length ?? 0} /></div><h3 className="mt-6 text-sm font-black uppercase tracking-wide text-slate-500">Análise da IA</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{detailCase.ai_summary || "Análise da IA ainda não disponível."}</p>{detailCase.ai_recommendation && <p className="mt-3 rounded-2xl bg-leaf-50 p-4 text-sm leading-6 text-leaf-900">{detailCase.ai_recommendation}</p>}</div><Timeline caseData={detailCase} paymentStatus={detailPaymentStatus} logs={detail?.activityLogs ?? []} /><div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft"><h3 className="text-lg font-black text-slate-950">Perguntas, imagens e conversa</h3><div className="mt-4 space-y-3">{detailCase.pending_questions?.map((question) => <div key={question.id} className="rounded-2xl bg-slate-50 p-4 text-sm"><p className="font-bold text-slate-900">{question.question}</p><p className="mt-1 text-slate-600">{question.answer || "Pendente"}</p></div>)}{detailCase.images.map((image) => <a key={image.id} href={image.image_url} target="_blank" className="block rounded-2xl border border-slate-100 p-3 text-sm font-semibold text-leaf-700">Ver imagem anexada · {formatDate(image.created_at)}</a>)}{detailCase.chat_messages?.slice(-6).map((message) => <div key={message.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><strong>{message.role === "assistant" ? "IA" : "Você"}:</strong> {message.message_type === "audio" ? "Áudio anexado" : message.message}</div>)}</div><div className="mt-5 flex flex-wrap gap-2">{detailPaymentStatus === "pending" && <button onClick={() => continuePayment(detailCase.id)} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white">Continuar pagamento</button>}<Link href={`/consultoria-ia?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link><Link href={`/enviar-caso?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link><button onClick={() => cancelReview(detailCase.id)} disabled={busyCaseId === detailCase.id || !["pending_payment", "pending", "not_requested"].includes(detailCase.human_review_status ?? "")} className="rounded-full border border-amber-200 px-4 py-2 text-xs font-black text-amber-700 disabled:opacity-50">Cancelar solicitação</button><button onClick={() => deleteCase(detailCase.id)} disabled={busyCaseId === detailCase.id} className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50">Excluir caso</button></div></div></>}</aside></div>{showLocator && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="max-h-[86vh] w-full max-w-5xl overflow-auto rounded-[2rem] bg-white p-6 shadow-soft"><div className="flex items-start justify-between gap-4"><SectionTitle title="Casos analisados pela IA" subtitle="Escolha qualquer caso já analisado para enviar à revisão humana posteriormente." /><button onClick={() => setShowLocator(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-black">Fechar</button></div><div className="mt-5 grid gap-4 md:grid-cols-2">{aiCases.map((caseItem) => <article key={caseItem.id} className="rounded-3xl border border-slate-100 p-5 shadow-soft"><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{caseItem.crop}</h3><RiskBadge riskLevel={caseItem.risk_level} /></div><p className="mt-2 text-xs text-slate-500">Análise: {formatDate(caseItem.updated_at)} · Imagens: {caseItem.images_count ?? 0}</p><p className="mt-3 text-sm leading-6 text-slate-600">{summarize(caseItem.ai_summary, 180)}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => router.push(`/revisao-humana?caseId=${caseItem.id}`)} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Ver análise</button><Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link><button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{caseItem.human_review_requested ? "Já no painel" : "Enviar para revisão humana"}</button></div></article>)}</div></div></div>}</section>;
 }
 
-export default function RevisaoHumanaPage() {
-  return (
-    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando revisão humana...</section>}>
-      <RevisaoHumanaContent />
-    </Suspense>
-  );
-}
+export default function RevisaoHumanaPage() { return <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando revisão humana...</section>}><RevisaoHumanaContent /></Suspense>; }
