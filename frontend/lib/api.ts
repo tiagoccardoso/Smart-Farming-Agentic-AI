@@ -98,6 +98,25 @@ export async function submitAgronomicCase(formData: FormData, accessToken: strin
   return parseResponse(response);
 }
 
+export async function updateAgronomicCase(caseId: string, formData: FormData, accessToken: string) {
+  const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: formData
+  });
+
+  return parseResponse(response);
+}
+
+export async function deleteAgronomicCase(caseId: string, accessToken: string) {
+  const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  return parseResponse(response);
+}
+
 export async function getAgronomicCases(accessToken: string) {
   const response = await fetch("/api/agronomic-cases", {
     method: "GET",

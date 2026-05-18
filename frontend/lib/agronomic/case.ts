@@ -1210,7 +1210,23 @@ export async function updateAgronomicCaseWithAnalysis(
   analysis: AgronomicPreAnalysis,
 ) {
   const config = getSupabaseConfig();
+  const serverCredentials = getSupabaseServerCredentials(token, config);
   const encodedCaseId = encodeURIComponent(caseId);
+
+  const currentRows = await supabaseRequest<Array<{ status: string | null; human_review_requested: boolean | null; human_review_status: string | null }>>(
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=status,human_review_requested,human_review_status&limit=1`,
+    { method: "GET" },
+    serverCredentials.token,
+    serverCredentials.config,
+  ).catch(() => []);
+  const currentCase = currentRows[0];
+  const keepHumanReviewStatus = Boolean(currentCase?.human_review_requested) || [
+    "waiting_payment_human_review",
+    "waiting_human_review",
+    "human_reviewed",
+    "completed",
+    "cancelled",
+  ].includes(currentCase?.status ?? "");
 
   await supabaseRequest(
     `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}`,
@@ -1221,11 +1237,11 @@ export async function updateAgronomicCaseWithAnalysis(
         ai_summary: analysis.initialDiagnosis,
         ai_recommendation: analysis.initialRecommendation,
         risk_level: analysis.riskLevel,
-        status: "ai_analyzed",
+        status: keepHumanReviewStatus ? currentCase?.status ?? "ai_analyzed" : "ai_analyzed",
       }),
     },
-    token,
-    config,
+    serverCredentials.token,
+    serverCredentials.config,
   );
 }
 
