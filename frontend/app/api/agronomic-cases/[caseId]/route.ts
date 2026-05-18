@@ -155,7 +155,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { caseId
       await supabaseRequest(`/rest/v1/farms?id=eq.${encodeURIComponent(caseData.farm_id)}&user_id=eq.${encodeURIComponent(user.id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(farmPayload) }, token, config);
     }
 
-    const casePatch: Record<string, unknown> = { crop, growth_stage: optionalText(formData, "growthStage"), symptoms, history: optionalText(formData, "managementHistory"), status: caseData.status === "draft" ? "draft" : "submitted" };
+    const preservesHumanReviewFlow = caseData.human_review_requested || ["waiting_payment_human_review", "waiting_human_review", "human_reviewed", "completed", "cancelled"].includes(caseData.status ?? "");
+    const nextStatus = preservesHumanReviewFlow ? caseData.status : (caseData.status === "draft" ? "draft" : "submitted");
+    const casePatch: Record<string, unknown> = { crop, growth_stage: optionalText(formData, "growthStage"), symptoms, history: optionalText(formData, "managementHistory"), status: nextStatus };
     if (isFile(soilAnalysis)) {
       const soilPath = `${user.id}/${params.caseId}/${Date.now()}-${sanitizeFileName(soilAnalysis.name)}`;
       casePatch.soil_analysis_url = await uploadToStorage(soilAnalysis, soilPath, token);
@@ -169,7 +171,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { caseId
     }
     if (images.length) await supabaseRequest("/rest/v1/case_images", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(images) }, token, config);
     await logActivity(params.caseId, user.id, "Usuário editou", { fields: Object.keys(casePatch), newAttachments: images.length }, token);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, caseId: params.caseId, reanalysisQueued: photoFiles.length > 0 || Boolean(isFile(soilAnalysis)) });
   } catch (error) {
     if (error instanceof PlanFeatureUnavailableError) return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
     const message = error instanceof Error ? error.message : "Não foi possível editar o caso.";

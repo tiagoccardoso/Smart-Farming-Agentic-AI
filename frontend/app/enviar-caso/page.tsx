@@ -1,14 +1,14 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
-import { submitAgronomicCase } from "../../lib/api";
+import { analyzeAgronomicCase, getAgronomicCase, submitAgronomicCase, updateAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
 const STORAGE_BUCKET = "agronomic-cases";
@@ -49,8 +49,11 @@ const requiredLabels: Record<RequiredField, string> = {
   symptoms: "Descreva os sintomas observados."
 };
 
-export default function EnviarCasoPage() {
+function EnviarCasoContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const caseId = searchParams.get("caseId")?.trim() ?? "";
+  const isEditingExistingCase = Boolean(caseId);
   const [form, setForm] = useState<FormState>(initialForm);
   const [photos, setPhotos] = useState<File[]>([]);
   const [soilAnalysis, setSoilAnalysis] = useState<File | null>(null);
@@ -59,6 +62,9 @@ export default function EnviarCasoPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingExistingCase, setLoadingExistingCase] = useState(false);
+  const [existingImages, setExistingImages] = useState<Array<{ id: string; image_url: string; created_at: string | null }>>([]);
+  const [existingSoilAnalysisUrl, setExistingSoilAnalysisUrl] = useState<string | null>(null);
 
   const photoPreviews = useMemo<PhotoPreview[]>(
     () => photos.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
@@ -70,6 +76,43 @@ export default function EnviarCasoPage() {
       photoPreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
     };
   }, [photoPreviews]);
+
+  useEffect(() => {
+    async function loadExistingCase() {
+      if (!caseId) return;
+      const accessToken = getStoredSupabaseAccessToken();
+      if (!accessToken) {
+        setSubmitError("Faça login para editar este caso agronômico.");
+        return;
+      }
+
+      setLoadingExistingCase(true);
+      setSubmitError(null);
+      try {
+        const payload = await getAgronomicCase(caseId, accessToken);
+        const caseData = payload.case;
+        setForm({
+          crop: caseData.crop ?? "",
+          city: caseData.farm?.city ?? "",
+          state: caseData.farm?.state ?? "",
+          farmName: caseData.farm?.name ?? "",
+          areaHectares: caseData.farm?.area_hectares ? String(caseData.farm.area_hectares) : "",
+          soilType: caseData.farm?.soil_type ?? "",
+          growthStage: caseData.growth_stage ?? "",
+          symptoms: caseData.symptoms ?? "",
+          managementHistory: caseData.history ?? ""
+        });
+        setExistingImages(caseData.images ?? []);
+        setExistingSoilAnalysisUrl(caseData.soil_analysis_url ?? null);
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : "Não foi possível carregar o caso existente.");
+      } finally {
+        setLoadingExistingCase(false);
+      }
+    }
+
+    loadExistingCase();
+  }, [caseId]);
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -176,9 +219,16 @@ export default function EnviarCasoPage() {
     setLoading(true);
 
     try {
-      const response = await submitAgronomicCase(formData, accessToken);
-      setSuccessMessage("Caso salvo com sucesso. Redirecionando para a Consultoria IA...");
-      window.setTimeout(() => router.push(`/consultoria-ia?caseId=${response.caseId}`), 650);
+      if (isEditingExistingCase) {
+        await updateAgronomicCase(caseId, formData, accessToken);
+        setSuccessMessage("Caso atualizado. A IA está reprocessando os dados e novas imagens...");
+        await analyzeAgronomicCase(caseId, accessToken).catch(() => null);
+        window.setTimeout(() => router.push(`/revisao-humana?caseId=${caseId}`), 650);
+      } else {
+        const response = await submitAgronomicCase(formData, accessToken);
+        setSuccessMessage("Caso salvo com sucesso. Redirecionando para a Consultoria IA...");
+        window.setTimeout(() => router.push(`/consultoria-ia?caseId=${response.caseId}`), 650);
+      }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Não foi possível enviar o caso.");
     } finally {
@@ -194,11 +244,11 @@ export default function EnviarCasoPage() {
             Preparação do atendimento
           </p>
           <SectionTitle
-            title="Enviar Caso"
-            subtitle="Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."
+            title={isEditingExistingCase ? "Atualizar caso existente" : "Enviar Caso"}
+            subtitle={isEditingExistingCase ? "Edite informações, complemente histórico e anexe novas imagens sem criar outro caso." : "Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."}
           />
           <p className="text-base leading-7 text-slate-700">
-            O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela.
+            {isEditingExistingCase ? "Você está atualizando o mesmo caseId. As imagens e conversas anteriores serão preservadas e a IA fará nova análise após salvar." : "O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela."}
           </p>
           <SafetyDisclaimer className="mt-5 bg-white/90" />
         </div>
@@ -215,9 +265,9 @@ export default function EnviarCasoPage() {
         ]}
       />
 
-      {loading && (
+      {(loading || loadingExistingCase) && (
         <div className="mt-8">
-          <LoadingCard title="Salvando o caso agronômico" description="Estamos validando os dados e enviando anexos com segurança. Não feche esta página." rows={4} />
+          <LoadingCard title={loadingExistingCase ? "Carregando caso existente" : "Salvando o caso agronômico"} description={loadingExistingCase ? "Estamos preenchendo a tela com os dados já salvos, imagens anteriores e anexos." : "Estamos validando os dados, enviando anexos e preparando a reanálise com segurança. Não feche esta página."} rows={4} />
         </div>
       )}
 
@@ -226,7 +276,7 @@ export default function EnviarCasoPage() {
           <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">Dados da propriedade e cultura</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Campos marcados com * são obrigatórios para criar o caso nas tabelas farms e agronomic_cases.
+              Campos marcados com * são obrigatórios. Em modo de edição, o registro existente é atualizado sem gerar novo caseId.
             </p>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -296,6 +346,19 @@ export default function EnviarCasoPage() {
                 />
                 <span className="text-xs text-slate-500">Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de {MAX_FILE_SIZE_LABEL} por arquivo.</span>
                 {attachmentErrors.photos && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.photos}</span>}
+                {existingImages.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Imagens já anexadas</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {existingImages.map((image) => (
+                        <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                          <Image src={image.image_url} alt="Imagem anterior do caso" width={240} height={112} unoptimized className="h-28 w-full object-cover" />
+                          <span className="block truncate px-3 py-2 text-xs text-slate-700">Imagem anterior</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {photoPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-3">
                     {photoPreviews.map((preview) => (
@@ -317,6 +380,7 @@ export default function EnviarCasoPage() {
                 />
                 <span className="text-xs text-slate-500">Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de {MAX_FILE_SIZE_LABEL}.</span>
                 {attachmentErrors.soilAnalysis && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.soilAnalysis}</span>}
+                {existingSoilAnalysisUrl && <a href={existingSoilAnalysisUrl} target="_blank" className="rounded-xl bg-slate-50 p-3 text-leaf-700">Ver análise de solo anterior</a>}
                 {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Arquivo selecionado: {soilAnalysis.name}</span>}
               </label>
             </div>
@@ -325,7 +389,7 @@ export default function EnviarCasoPage() {
           <div className="rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">Próxima etapa</h3>
             <p className="mt-2 text-sm leading-6 text-slate-700">
-              Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL. A análise técnica fica para a próxima etapa.
+              {isEditingExistingCase ? "Depois de salvar, a IA reprocessa o mesmo caso usando dados antigos e novos, e você volta para a revisão humana." : "Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL. A análise técnica fica para a próxima etapa."}
             </p>
           </div>
 
@@ -337,10 +401,19 @@ export default function EnviarCasoPage() {
             disabled={loading}
             className="w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading ? "Salvando caso..." : "Salvar caso e continuar"}
+            {loading ? "Salvando caso..." : isEditingExistingCase ? "Atualizar mesmo caso e reanalisar" : "Salvar caso e continuar"}
           </button>
         </aside>
       </form>
     </section>
+  );
+}
+
+
+export default function EnviarCasoPage() {
+  return (
+    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando envio de caso...</section>}>
+      <EnviarCasoContent />
+    </Suspense>
   );
 }
