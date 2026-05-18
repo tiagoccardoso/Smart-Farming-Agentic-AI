@@ -1,1001 +1,417 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import {
-  ChangeEvent,
-  FormEvent,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useSearchParams } from "next/navigation";
-import SectionTitle from "../../components/SectionTitle";
-import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
-import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
-import LoadingCard from "../../components/agronomic/LoadingCard";
+import { ChangeEvent, FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
-import { analyzeAgronomicCase, getAgronomicCase } from "../../lib/api";
+import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
+import { analyzeAgronomicCase, getAgronomicCase, getAgronomicCases } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
-import type {
-  AgronomicCase,
-  AgronomicPreAnalysis,
-} from "../../lib/agronomic/case";
+import type { AgronomicCase, AgronomicPreAnalysis, AgronomicRiskLevel } from "../../lib/agronomic/case";
 
-type ChatMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  messageType?: "text" | "image" | "audio" | "transcription";
-  fileUrl?: string | null;
-  created_at?: string | null;
+type CaseStatus = "draft" | "submitted" | "ai_analyzed" | "waiting_human_review" | "human_reviewed" | "completed";
+type PlanSlug = "gratuito" | "ia-basica" | "ia-profissional" | "premium";
+type ActivityLog = { id: string; action: string; metadata?: Record<string, unknown> | null; created_at: string | null };
+type ListCase = AgronomicCase & {
+  latestHumanReview?: { id: string; status: string | null; reviewed_at: string | null; created_at: string | null } | null;
+  latestReport?: { id: string; report_url: string | null; report_type: string | null; created_at: string | null } | null;
+  images_count?: number;
+  updated_at?: string | null;
 };
+type ChatMessage = { id?: string; role: "user" | "assistant"; content: string; created_at?: string | null };
+type Filters = { q: string; crop: string; status: string; risk: string; farm: string; period: string; humanOnly: boolean };
 
-type PendingQuestion = {
-  id: string;
-  question: string;
-  answer: string | null;
-  status: "pending" | "answered" | "skipped";
-  order_index: number;
-};
-
-const riskLabels: Record<string, string> = {
-  low: "risco baixo",
-  medium: "risco médio",
-  high: "risco alto",
+type EditForm = {
+  crop: string;
+  farmName: string;
+  city: string;
+  state: string;
+  areaHectares: string;
+  soilType: string;
+  growthStage: string;
+  symptoms: string;
+  managementHistory: string;
 };
 
 const statusLabels: Record<string, string> = {
-  submitted: "Caso enviado",
-  ai_analyzed: "Pré-análise gerada",
+  draft: "Rascunho",
+  submitted: "Enviado",
+  ai_analyzed: "IA analisou",
   waiting_human_review: "Aguardando revisão humana",
-  human_reviewed: "Revisão humana concluída",
+  human_reviewed: "Revisado por especialista",
   completed: "Concluído",
 };
 
-function displayValue(value?: string | number | null) {
-  if (value === null || value === undefined || value === "") {
-    return "Não informado";
-  }
+const riskLabels: Record<string, string> = { low: "Baixo", medium: "Médio", high: "Alto" };
+const planLabels: Record<PlanSlug, string> = { gratuito: "Gratuito", "ia-basica": "IA Básica", "ia-profissional": "IA Profissional", premium: "Premium" };
 
-  return String(value);
+function formatDate(value?: string | null) {
+  if (!value) return "Sem data";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
-function InfoItem({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | number | null;
-}) {
+function text(value?: string | number | null) {
+  return value === null || value === undefined || value === "" ? "Não informado" : String(value);
+}
+
+function initials(value?: string | null) {
+  return (value || "Caso").slice(0, 2).toUpperCase();
+}
+
+function Skeleton() {
+  return <div className="animate-pulse rounded-[1.5rem] border border-slate-100 bg-white p-4 shadow-soft"><div className="h-4 w-2/3 rounded bg-slate-100" /><div className="mt-4 h-20 rounded bg-slate-100" /></div>;
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return <div className="rounded-[2rem] border border-dashed border-slate-200 bg-white/80 p-8 text-center"><p className="text-lg font-bold text-slate-900">{title}</p><p className="mt-2 text-sm text-slate-500">{description}</p></div>;
+}
+
+function MetricCard({ label, value, tone = "leaf" }: { label: string; value: string | number; tone?: "leaf" | "amber" | "red" | "slate" }) {
+  const tones = { leaf: "from-leaf-600 to-emerald-500", amber: "from-amber-500 to-orange-500", red: "from-red-500 to-rose-500", slate: "from-slate-800 to-slate-600" };
+  return <div className="rounded-[1.5rem] border border-white/70 bg-white p-4 shadow-soft"><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p><p className={`mt-3 bg-gradient-to-r ${tones[tone]} bg-clip-text text-3xl font-black text-transparent`}>{value}</p></div>;
+}
+
+function CaseCard({ item, active, onSelect, onAction }: { item: ListCase; active: boolean; onSelect: () => void; onAction: (action: string, item: ListCase) => void }) {
+  const attachmentCount = item.images_count ?? item.images?.length ?? 0;
   return (
-    <div className="rounded-2xl border border-leaf-100 bg-white p-4 shadow-soft">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-sm font-medium text-slate-900">
-        {displayValue(value)}
-      </p>
-    </div>
+    <article className={`rounded-[1.5rem] border bg-white p-4 shadow-soft transition hover:-translate-y-0.5 ${active ? "border-leaf-400 ring-4 ring-leaf-100" : "border-slate-100"}`}>
+      <button type="button" onClick={onSelect} className="w-full text-left">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-leaf-100 font-black text-leaf-800">{initials(item.crop)}</div>
+            <div>
+              <h3 className="font-bold text-slate-950">{item.crop}</h3>
+              <p className="text-sm text-slate-500">{text(item.farm?.name)} · {[item.farm?.city, item.farm?.state].filter(Boolean).join("/") || "Localização não informada"}</p>
+            </div>
+          </div>
+          <RiskBadge riskLevel={item.risk_level} fallback="Risco pendente" />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <StatusBadge status={item.status} label={statusLabels[item.status || ""] ?? item.status ?? "Sem status"} />
+          {item.human_review_requested && <span className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-bold text-purple-800">Revisão humana</span>}
+          {item.latestReport?.report_url && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">Relatório PDF</span>}
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">{attachmentCount} anexos</span>
+        </div>
+        <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{item.symptoms}</p>
+        <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{formatDate(item.updated_at ?? item.created_at)}</p>
+      </button>
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold text-slate-700 md:grid-cols-4">
+        <button onClick={() => onAction("open", item)} className="rounded-xl border border-slate-200 px-3 py-2 hover:border-leaf-300">Abrir</button>
+        <button onClick={() => onAction("edit", item)} className="rounded-xl border border-slate-200 px-3 py-2 hover:border-leaf-300">Editar</button>
+        <button onClick={() => onAction("ai", item)} className="rounded-xl border border-slate-200 px-3 py-2 hover:border-leaf-300">Nova IA</button>
+        <button onClick={() => onAction("more", item)} className="rounded-xl border border-slate-200 px-3 py-2 hover:border-leaf-300">Ações</button>
+      </div>
+    </article>
   );
 }
 
-function AnalysisList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-2xl bg-leaf-50 p-5">
-      <h4 className="font-semibold text-slate-900">{title}</h4>
-      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-        {items.map((item) => (
-          <li key={item} className="flex gap-2">
-            <span
-              className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600"
-              aria-hidden
-            />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+function DetailBlock({ label, value }: { label: string; value?: string | number | null }) {
+  return <div className="rounded-2xl border border-slate-100 bg-white p-4"><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p><p className="mt-2 text-sm font-semibold leading-6 text-slate-900">{text(value)}</p></div>;
+}
+
+function ListSection({ title, items }: { title: string; items: string[] }) {
+  return <div className="rounded-[1.25rem] bg-leaf-50 p-5"><h4 className="font-bold text-slate-950">{title}</h4><ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">{items.length ? items.map((item) => <li key={item} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />{item}</li>) : <li className="text-slate-500">Aguardando geração de análise.</li>}</ul></div>;
 }
 
 function ConsultoriaIAContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId") ?? "";
-  const [caseData, setCaseData] = useState<AgronomicCase | null>(null);
+  const initialCaseId = searchParams.get("caseId") ?? "";
+  const [cases, setCases] = useState<ListCase[]>([]);
+  const [selectedId, setSelectedId] = useState(initialCaseId);
+  const [selectedCase, setSelectedCase] = useState<AgronomicCase | null>(null);
   const [analysis, setAnalysis] = useState<AgronomicPreAnalysis | null>(null);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
+  const [filters, setFilters] = useState<Filters>({ q: "", crop: "", status: "", risk: "", farm: "", period: "", humanOnly: false });
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [loadingList, setLoadingList] = useState(true);
   const [loadingCase, setLoadingCase] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatStatus, setChatStatus] = useState("IA analisando...");
-  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
-    [],
-  );
   const [error, setError] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [plan, setPlan] = useState<{ slug: PlanSlug; label: string; remaining: number | null; subscriptionStatus: string }>({ slug: "gratuito", label: "Gratuito", remaining: 1, subscriptionStatus: "Sem assinatura ativa" });
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [showUpsell, setShowUpsell] = useState(false);
+  const [showActions, setShowActions] = useState<ListCase | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm>({ crop: "", farmName: "", city: "", state: "", areaHectares: "", soilType: "", growthStage: "", symptoms: "", managementHistory: "" });
+  const [newImages, setNewImages] = useState<File[]>([]);
+  const [soilFile, setSoilFile] = useState<File | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingChunksRef = useRef<BlobPart[]>([]);
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const reviewUrl = useMemo(
-    () => `/revisao-humana?caseId=${encodeURIComponent(caseId)}`,
-    [caseId],
-  );
-  const requiresHumanReview =
-    analysis?.riskLevel === "medium" || analysis?.riskLevel === "high";
-  const currentPendingQuestion = pendingQuestions
-    .filter((item) => item.status === "pending")
-    .sort((a, b) => a.order_index - b.order_index)[0];
-  const answeredQuestionsCount = pendingQuestions.filter(
-    (item) => item.status === "answered",
-  ).length;
+  const token = typeof window === "undefined" ? null : getStoredSupabaseAccessToken();
+  const selectedListItem = useMemo(() => cases.find((item) => item.id === selectedId) ?? null, [cases, selectedId]);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatMessages, chatLoading]);
-
-  useEffect(() => {
-    if (!textareaRef.current) {
-      return;
-    }
-    textareaRef.current.style.height = "auto";
-    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 220)}px`;
-  }, [question]);
-
-  useEffect(() => {
-    async function loadCase() {
-      setError(null);
-      setCaseData(null);
-      setAnalysis(null);
-      setChatMessages([]);
-      setPendingQuestions([]);
-
-      if (!caseId) {
-        return;
-      }
-
-      const accessToken = getStoredSupabaseAccessToken();
-
-      if (!accessToken) {
-        setError("Faça login para carregar os dados do caso enviado.");
-        return;
-      }
-
-      setLoadingCase(true);
-
-      try {
-        const response = (await getAgronomicCase(caseId, accessToken)) as {
-          case: AgronomicCase;
-        };
-        setCaseData(response.case);
-        const savedMessages = (response.case.chat_messages ?? []).map(
-          (message) => ({
-            id: message.id,
-            role: message.role,
-            content: message.message,
-            messageType: message.message_type ?? "text",
-            fileUrl: message.file_url,
-            created_at: message.created_at,
-          }),
-        );
-
-        setChatMessages(
-          savedMessages.length
-            ? savedMessages
-            : (response.case.question_history ?? []).flatMap((historyItem) => [
-                { role: "user" as const, content: historyItem.question },
-                {
-                  role: "assistant" as const,
-                  content:
-                    historyItem.answer ??
-                    "Resposta registrada no histórico, mas sem conteúdo salvo para exibição.",
-                },
-              ]),
-        );
-        setPendingQuestions(response.case.pending_questions ?? []);
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Não foi possível carregar o caso.",
-        );
-      } finally {
-        setLoadingCase(false);
-      }
-    }
-
-    loadCase();
-  }, [caseId]);
-
-  async function handleGenerateAnalysis() {
-    if (!caseId) {
-      setError("Abra a consultoria usando um caseId válido na URL.");
-      return;
-    }
-
+  const loadCases = useCallback(async (preferredId?: string) => {
     const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken) { setError("Faça login para acessar sua central de consultoria agronômica."); setLoadingList(false); return; }
+    setLoadingList(true);
+    try {
+      const response = await getAgronomicCases(accessToken) as { cases: ListCase[]; plan?: typeof plan };
+      setCases(response.cases ?? []);
+      if (response.plan) setPlan(response.plan);
+      const nextId = preferredId || selectedId || response.cases?.[0]?.id || "";
+      setSelectedId(nextId);
+    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível carregar os casos."); }
+    finally { setLoadingList(false); }
+  }, [selectedId]);
 
-    if (!accessToken) {
-      setError("Faça login para gerar a pré-análise com IA.");
-      return;
+  const loadSelectedCase = useCallback(async (caseId: string) => {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !caseId) return;
+    setLoadingCase(true);
+    setError(null);
+    try {
+      const response = await getAgronomicCase(caseId, accessToken) as { case: AgronomicCase; activityLogs?: ActivityLog[] };
+      setSelectedCase(response.case);
+      setAnalysis(response.case.ai_summary ? {
+        initialDiagnosis: response.case.ai_summary,
+        probableHypotheses: [],
+        missingQuestions: (response.case.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question),
+        riskLevel: response.case.risk_level ?? "medium",
+        initialRecommendation: response.case.ai_recommendation ?? "Aguardando recomendações da IA.",
+        whenToCallHumanSpecialist: "Solicite revisão humana para decisões de alto impacto agronômico.",
+        disclaimer: "As orientações geradas por IA são informativas e não substituem avaliação profissional.",
+        knowledgeUsed: [],
+      } : null);
+      setChatMessages((response.case.chat_messages ?? []).map((message) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
+      setActivityLogs(response.activityLogs ?? []);
+      setEditForm({ crop: response.case.crop ?? "", farmName: response.case.farm?.name ?? "", city: response.case.farm?.city ?? "", state: response.case.farm?.state ?? "", areaHectares: response.case.farm?.area_hectares ? String(response.case.farm.area_hectares) : "", soilType: response.case.farm?.soil_type ?? "", growthStage: response.case.growth_stage ?? "", symptoms: response.case.symptoms ?? "", managementHistory: response.case.history ?? "" });
+      router.replace(`/consultoria-ia?caseId=${encodeURIComponent(caseId)}`, { scroll: false });
+    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível abrir o caso."); }
+    finally { setLoadingCase(false); }
+  }, [router]);
+
+  useEffect(() => { loadCases(initialCaseId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (selectedId) loadSelectedCase(selectedId); }, [selectedId, loadSelectedCase]);
+  useEffect(() => { const timer = window.setTimeout(() => setDebouncedQuery(filters.q.trim().toLowerCase()), 350); return () => window.clearTimeout(timer); }, [filters.q]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, chatLoading]);
+
+  const crops = useMemo(() => Array.from(new Set(cases.map((item) => item.crop).filter(Boolean))).sort(), [cases]);
+  const farms = useMemo(() => Array.from(new Set(cases.map((item) => item.farm?.name).filter(Boolean) as string[])).sort(), [cases]);
+  const filteredCases = useMemo(() => cases.filter((item) => {
+    const haystack = `${item.crop} ${item.farm?.name ?? ""} ${item.farm?.city ?? ""} ${item.farm?.state ?? ""} ${item.symptoms} ${item.history ?? ""}`.toLowerCase();
+    if (debouncedQuery && !haystack.includes(debouncedQuery)) return false;
+    if (filters.crop && item.crop !== filters.crop) return false;
+    if (filters.status && item.status !== filters.status) return false;
+    if (filters.risk && item.risk_level !== filters.risk) return false;
+    if (filters.farm && item.farm?.name !== filters.farm) return false;
+    if (filters.humanOnly && !item.human_review_requested) return false;
+    if (filters.period) {
+      const days = Number(filters.period);
+      const createdAt = item.created_at ? new Date(item.created_at).getTime() : 0;
+      if (createdAt < Date.now() - days * 86400000) return false;
     }
+    return true;
+  }), [cases, debouncedQuery, filters]);
 
+  const stats = useMemo(() => ({ total: cases.length, high: cases.filter((item) => item.risk_level === "high").length, review: cases.filter((item) => item.human_review_requested).length, pending: cases.filter((item) => item.status !== "completed").length }), [cases]);
+
+  async function handleGenerateAnalysis(caseId = selectedId) {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !caseId) return;
     setGenerating(true);
     setError(null);
-
     try {
-      const response = (await analyzeAgronomicCase(caseId, accessToken)) as {
-        analysis: AgronomicPreAnalysis;
-        pendingQuestions?: PendingQuestion[];
-        currentQuestion?: PendingQuestion | null;
-      };
+      const response = await analyzeAgronomicCase(caseId, accessToken);
       setAnalysis(response.analysis);
-      setPendingQuestions(response.pendingQuestions ?? []);
-      const introMessages: ChatMessage[] = [
-        {
-          role: "assistant",
-          content:
-            "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.",
-        },
-      ];
-
-      if (response.currentQuestion) {
-        introMessages.push({
-          role: "assistant",
-          content: response.currentQuestion.question,
-        });
-      }
-
-      setChatMessages(introMessages);
-    } catch (generateError) {
-      setError(
-        generateError instanceof Error
-          ? generateError.message
-          : "Não foi possível gerar a pré-análise.",
-      );
-    } finally {
-      setGenerating(false);
-    }
+      await loadCases(caseId);
+      await loadSelectedCase(caseId);
+    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível gerar a análise."); }
+    finally { setGenerating(false); }
   }
 
-  async function sendChatPayload(
-    formData: FormData | null,
-    optimisticMessage: ChatMessage,
-    status: string,
-  ) {
-    if (!caseId) {
-      return;
-    }
-
-    const accessToken = getStoredSupabaseAccessToken();
-
-    if (!accessToken) {
-      setError("Faça login para conversar com a IA sobre este caso.");
-      return;
-    }
-
-    setChatStatus(status);
-    setChatLoading(true);
-    setError(null);
-    setChatMessages((current) => [...current, optimisticMessage]);
-
-    try {
-      const response = await fetch(
-        `/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`,
-        {
-          method: "POST",
-          headers: formData
-            ? { Authorization: `Bearer ${accessToken}` }
-            : {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
-          body:
-            formData ?? JSON.stringify({ message: optimisticMessage.content }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          payload?.error || "Não foi possível enviar a mensagem.",
-        );
-      }
-
-      if (payload.analysis) {
-        setAnalysis(payload.analysis);
-      }
-      if (Array.isArray(payload.pendingQuestions)) {
-        setPendingQuestions(payload.pendingQuestions);
-      } else if (payload.currentQuestion) {
-        setPendingQuestions((current) =>
-          current.map((item) =>
-            item.id === payload.currentQuestion.id
-              ? payload.currentQuestion
-              : item,
-          ),
-        );
-      }
-      if (!Array.isArray(payload.pendingQuestions) && payload.answeredQuestion) {
-        setPendingQuestions((current) =>
-          current.map((item) =>
-            item.id === payload.answeredQuestion.id
-              ? payload.answeredQuestion
-              : item,
-          ),
-        );
-      }
-      if (payload.assistantMessage) {
-        setChatMessages((current) => [
-          ...current,
-          {
-            id: payload.assistantMessage.id,
-            role: "assistant",
-            content: payload.assistantMessage.message,
-            messageType: payload.assistantMessage.message_type ?? "text",
-            fileUrl: payload.assistantMessage.file_url,
-            created_at: payload.assistantMessage.created_at,
-          },
-        ]);
-      }
-    } catch (chatError) {
-      setError(
-        chatError instanceof Error
-          ? chatError.message
-          : "Não foi possível enviar a mensagem.",
-      );
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
-  async function handleAskQuestion(event: FormEvent<HTMLFormElement>) {
+  async function handleAskQuestion(event: FormEvent) {
     event.preventDefault();
-    const trimmedQuestion = question.trim();
-
-    if (!trimmedQuestion || !caseId) {
-      return;
-    }
-
+    const accessToken = getStoredSupabaseAccessToken();
+    const value = question.trim();
+    if (!accessToken || !selectedId || !value) return;
     setQuestion("");
-    await sendChatPayload(
-      null,
-      { role: "user", content: trimmedQuestion, messageType: "text" },
-      currentPendingQuestion
-        ? "IA gerando próxima pergunta..."
-        : "IA analisando...",
-    );
-  }
-
-  async function handleImageSelected(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
-      setError("Envie imagens jpg, jpeg, png ou webp.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("messageType", "image");
-    formData.append("message", question.trim());
-    formData.append("file", file);
-    setQuestion("");
-
-    await sendChatPayload(
-      formData,
-      {
-        role: "user",
-        content: question.trim() || "Nova imagem enviada durante a conversa.",
-        messageType: "image",
-        fileUrl: URL.createObjectURL(file),
-      },
-      "IA processando imagem...",
-    );
-  }
-
-  async function startRecording() {
+    setChatMessages((current) => [...current, { role: "user", content: value }]);
+    setChatLoading(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      recordingChunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordingChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(recordingChunksRef.current, {
-          type: "audio/webm",
-        });
-        setAudioBlob(blob);
-        setAudioPreviewUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach((track) => track.stop());
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-      setRecordingSeconds(0);
-      recordingTimerRef.current = setInterval(
-        () => setRecordingSeconds((seconds) => seconds + 1),
-        1000,
-      );
-    } catch {
-      setError("Não foi possível acessar o microfone neste navegador.");
-    }
+      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}/chat`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: (() => { const data = new FormData(); data.append("message", value); data.append("messageType", "text"); return data; })() });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível continuar a conversa.");
+      setChatMessages((payload.messages ?? []).map((message: { id: string; role: "user" | "assistant"; message: string; created_at: string | null }) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
+      if (payload.analysis) setAnalysis(payload.analysis);
+      await loadSelectedCase(selectedId);
+    } catch (err) { setError(err instanceof Error ? err.message : "Erro ao conversar com a IA."); }
+    finally { setChatLoading(false); }
   }
 
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-    }
+  async function handleSaveCase(reanalyze: boolean) {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !selectedId) return;
+    setSavingEdit(true);
+    try {
+      const data = new FormData();
+      Object.entries(editForm).forEach(([key, value]) => data.append(key, value));
+      newImages.forEach((file) => data.append("photos", file));
+      if (soilFile) data.append("soilAnalysis", soilFile);
+      const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}`, { method: "PATCH", headers: { Authorization: `Bearer ${accessToken}` }, body: data });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível salvar o caso.");
+      setShowEdit(false); setNewImages([]); setSoilFile(null);
+      await loadCases(selectedId); await loadSelectedCase(selectedId);
+      if (reanalyze) await handleGenerateAnalysis(selectedId);
+    } catch (err) { setError(err instanceof Error ? err.message : "Erro ao salvar edição."); }
+    finally { setSavingEdit(false); }
   }
 
-  function cancelRecording() {
-    if (recording) {
-      mediaRecorderRef.current?.stop();
-    }
-    setRecording(false);
-    setAudioBlob(null);
-    if (audioPreviewUrl) {
-      URL.revokeObjectURL(audioPreviewUrl);
-    }
-    setAudioPreviewUrl(null);
-    setRecordingSeconds(0);
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-    }
+  async function handleDelete() {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !selectedId) return;
+    const confirmation = window.prompt("Digite EXCLUIR para confirmar a exclusão segura deste caso.");
+    if (confirmation !== "EXCLUIR") return;
+    const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) { setError(payload?.error || "Não foi possível excluir."); return; }
+    setShowDelete(false); setSelectedCase(null); setSelectedId(""); await loadCases();
   }
 
-  async function sendRecordedAudio() {
-    if (!audioBlob) {
-      return;
-    }
-
-    const file = new File([audioBlob], `resposta-${Date.now()}.webm`, {
-      type: "audio/webm",
-    });
-    const formData = new FormData();
-    formData.append("messageType", "audio");
-    formData.append("file", file);
-
-    await sendChatPayload(
-      formData,
-      {
-        role: "user",
-        content:
-          "Áudio enviado. A IA está transcrevendo e analisando a resposta.",
-        messageType: "audio",
-        fileUrl: audioPreviewUrl,
-      },
-      "IA transcrevendo áudio...",
-    );
-    cancelRecording();
+  async function requestHumanReview(caseId = selectedId) {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken || !caseId) return;
+    const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/human-review`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` } });
+    const payload = await response.json().catch(() => null);
+    if (response.status === 402) { setShowUpsell(true); return; }
+    if (!response.ok) { setError(payload?.error || "Não foi possível solicitar revisão humana."); return; }
+    await loadCases(caseId); await loadSelectedCase(caseId);
   }
+
+  async function duplicateCase(item: ListCase) {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken) return;
+    const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(item.id)}/duplicate`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) { setError(payload?.error || "Não foi possível duplicar."); return; }
+    await loadCases(payload.caseId);
+  }
+
+  function handleAction(action: string, item: ListCase) {
+    setShowActions(null);
+    if (action === "open") setSelectedId(item.id);
+    if (action === "edit") { setSelectedId(item.id); setShowEdit(true); }
+    if (action === "delete") { setSelectedId(item.id); setShowDelete(true); }
+    if (action === "ai") handleGenerateAnalysis(item.id);
+    if (action === "human") { setSelectedId(item.id); requestHumanReview(item.id); }
+    if (action === "report") item.latestReport?.report_url ? window.open(item.latestReport.report_url, "_blank", "noopener") : setError("Este caso ainda não possui relatório PDF.");
+    if (action === "duplicate") duplicateCase(item);
+    if (action === "history") { setSelectedId(item.id); document.getElementById("case-timeline")?.scrollIntoView({ behavior: "smooth" }); }
+    if (action === "more") setShowActions(item);
+  }
+
+  const hasAnalysis = Boolean(selectedCase?.ai_summary || analysis);
 
   return (
-    <div className="bg-hero-gradient">
-      <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-        <WorkflowStepper
-          steps={[
-            {
-              title: "Enviar caso",
-              description: "Dados e anexos registrados.",
-              href: "/enviar-caso",
-              status: caseData ? "done" : "next",
-            },
-            {
-              title: "Gerar pré-análise",
-              description: "IA organiza hipóteses e risco.",
-              status: analysis ? "done" : "current",
-            },
-            {
-              title: "Revisão humana",
-              description: "Recomendada para risco médio ou alto.",
-              href: caseId ? reviewUrl : undefined,
-              status: requiresHumanReview ? "current" : "next",
-            },
-            {
-              title: "Meus relatórios",
-              description: "Acesse o parecer final quando disponível.",
-              href: "/meus-relatorios",
-              status: "next",
-            },
-          ]}
-        />
-
-        <div className="mt-8 grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
-          <div className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-soft md:p-8">
-            <p className="mb-4 inline-flex rounded-full bg-leaf-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-              Consultoria agronômica com IA
-            </p>
-            <SectionTitle
-              title="Consultoria IA"
-              subtitle="Veja o caso enviado, gere uma pré-análise e converse com a IA."
-            />
-            <p className="text-sm leading-6 text-slate-600">
-              A IA organiza os dados do caso para uma triagem inicial. Ela
-              sempre deve ser usada como apoio preliminar, não como substituta
-              de diagnóstico ou revisão profissional.
-            </p>
-            <SafetyDisclaimer className="mt-5" />
-
-            {!caseId && (
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                Nenhum caseId foi informado na URL. Envie um caso completo para
-                iniciar a consultoria com dados do Supabase.
-              </div>
-            )}
-
-            {error && (
-              <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleGenerateAnalysis}
-                disabled={!caseData || generating || loadingCase}
-                className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {generating
-                  ? "Gerando pré-análise..."
-                  : "Gerar pré-análise com IA"}
-              </button>
-              <Link
-                href="/enviar-caso"
-                className="rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-semibold text-leaf-700 shadow-soft hover:border-leaf-300"
-              >
-                Enviar outro caso
-              </Link>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dcfce7_0,transparent_32%),linear-gradient(180deg,#f8fafc_0%,#eef7ef_100%)] px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] space-y-6">
+        <header className="overflow-hidden rounded-[2rem] border border-white/70 bg-slate-950 p-6 text-white shadow-soft md:p-8">
+          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2"><span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-emerald-200">Centro operacional</span><span className="rounded-full bg-leaf-500 px-3 py-1 text-xs font-bold text-white">{plan.label || planLabels[plan.slug]}</span></div>
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">Consultoria Agronômica Inteligente</h1>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">Análises organizadas com IA e suporte especializado.</p>
+            </div>
+            <div className="flex flex-wrap gap-3 lg:justify-end">
+              <Link href="/enviar-caso" className="rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950 shadow-soft transition hover:-translate-y-0.5">Novo Caso</Link>
+              <button onClick={() => loadCases(selectedId)} className="rounded-full border border-white/20 px-5 py-3 text-sm font-black text-white hover:bg-white/10">Atualizar</button>
             </div>
           </div>
-
-          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <h3 className="text-xl font-semibold text-slate-900">
-                Resumo do caso
-              </h3>
-              {caseData && (
-                <StatusBadge
-                  status={caseData.status}
-                  label={
-                    statusLabels[caseData.status ?? ""] ??
-                    caseData.status ??
-                    "Sem status"
-                  }
-                />
-              )}
-            </div>
-            {loadingCase ? (
-              <div className="mt-4">
-                <LoadingCard
-                  title="Carregando caso"
-                  description="Buscando dados, sintomas e anexos salvos no Supabase..."
-                  rows={4}
-                />
-              </div>
-            ) : caseData ? (
-              <div className="mt-6 space-y-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <InfoItem label="Cultura" value={caseData.crop} />
-                  <InfoItem label="Propriedade" value={caseData.farm?.name} />
-                  <InfoItem
-                    label="Cidade/Estado"
-                    value={[caseData.farm?.city, caseData.farm?.state]
-                      .filter(Boolean)
-                      .join("/")}
-                  />
-                  <InfoItem
-                    label="Estágio da cultura"
-                    value={caseData.growth_stage}
-                  />
-                </div>
-
-                <div className="rounded-2xl bg-leaf-50 p-5">
-                  <h4 className="font-semibold text-slate-900">Sintomas</h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    {caseData.symptoms}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">Histórico</h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    {displayValue(caseData.history)}
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="font-semibold text-slate-900">
-                    Imagens anexadas
-                  </h4>
-                  {caseData.images.length > 0 ? (
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {caseData.images.map((image) => (
-                        <a
-                          key={image.id}
-                          href={image.image_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="overflow-hidden rounded-2xl border border-leaf-100 bg-slate-50 shadow-soft"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={image.image_url}
-                            alt="Imagem anexada ao caso"
-                            className="h-44 w-full object-cover"
-                          />
-                        </a>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-600">
-                      Nenhuma imagem anexada.
-                    </p>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">
-                    Análise de solo
-                  </h4>
-                  {caseData.soil_analysis_url ? (
-                    <a
-                      href={caseData.soil_analysis_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex text-sm font-semibold text-leaf-700 hover:text-leaf-800"
-                    >
-                      Abrir análise de solo anexada
-                    </a>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-600">
-                      Nenhuma análise de solo anexada.
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-slate-600">
-                Informe um caseId válido para visualizar o resumo do caso.
-              </p>
-            )}
+          <div className="mt-8 grid gap-3 md:grid-cols-4">
+            <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-300">Análises restantes no mês</p><p className="mt-2 text-2xl font-black">{plan.remaining === null ? "Ilimitado" : plan.remaining}</p></div>
+            <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-300">Status da assinatura</p><p className="mt-2 text-lg font-black">{plan.subscriptionStatus}</p></div>
+            <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-300">Casos em operação</p><p className="mt-2 text-2xl font-black">{stats.pending}</p></div>
+            <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-300">Risco alto</p><p className="mt-2 text-2xl font-black">{stats.high}</p></div>
           </div>
-        </div>
+        </header>
 
-        {!analysis && !generating && (
-          <div className="mt-10 rounded-3xl border border-dashed border-leaf-200 bg-white p-8 text-center shadow-soft">
-            <div
-              className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-leaf-50 text-2xl"
-              aria-hidden
-            >
-              🤖
-            </div>
-            <h3 className="mt-5 text-xl font-semibold text-slate-900">
-              A pré-análise ainda não foi gerada
-            </h3>
-            <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Confira o resumo do caso e clique em “Gerar pré-análise com IA”.
-              Se o risco vier médio ou alto, a tela indicará a revisão humana
-              paga.
-            </p>
-          </div>
-        )}
+        {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">{error}</div>}
 
-        {generating && (
-          <div className="mt-10">
-            <LoadingCard
-              title="Gerando pré-análise com IA"
-              description="A IA está avaliando sintomas, histórico e anexos para produzir uma triagem inicial."
-              rows={5}
-            />
-          </div>
-        )}
+        <section className="grid gap-4 md:grid-cols-4"><MetricCard label="Total de casos" value={stats.total} /><MetricCard label="Revisão humana" value={stats.review} tone="slate" /><MetricCard label="Risco alto" value={stats.high} tone="red" /><MetricCard label="Análises IA" value={cases.filter((item) => item.ai_summary).length} tone="amber" /></section>
 
-        {analysis && (
-          <>
-            <div className="mt-10 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">
-                    Resultado da IA
-                  </p>
-                  <h3 className="mt-2 text-2xl font-semibold text-slate-900">
-                    Pré-análise agronômica inicial
-                  </h3>
+        <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+          <aside className="space-y-4">
+            <div className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-soft backdrop-blur">
+              <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-black">Casos enviados</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">Paginação · 25 por página</span></div>
+              <div className="mt-4 grid gap-3">
+                <input value={filters.q} onChange={(e) => setFilters((current) => ({ ...current, q: e.target.value }))} placeholder="Buscar por cultura, propriedade, cidade, sintomas..." className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-400" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={filters.crop} onChange={(e) => setFilters((c) => ({ ...c, crop: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Cultura</option>{crops.map((crop) => <option key={crop}>{crop}</option>)}</select>
+                  <select value={filters.status} onChange={(e) => setFilters((c) => ({ ...c, status: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Status</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+                  <select value={filters.risk} onChange={(e) => setFilters((c) => ({ ...c, risk: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Risco</option>{Object.entries(riskLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+                  <select value={filters.farm} onChange={(e) => setFilters((c) => ({ ...c, farm: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Propriedade</option>{farms.map((farm) => <option key={farm}>{farm}</option>)}</select>
+                  <select value={filters.period} onChange={(e) => setFilters((c) => ({ ...c, period: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Período</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select>
+                  <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600"><input type="checkbox" checked={filters.humanOnly} onChange={(e) => setFilters((c) => ({ ...c, humanOnly: e.target.checked }))} /> Só revisão humana</label>
                 </div>
-                <RiskBadge riskLevel={analysis.riskLevel} />
-              </div>
-              <div className="mt-6 grid gap-5 lg:grid-cols-2">
-                <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">
-                    Diagnóstico inicial
-                  </h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    {analysis.initialDiagnosis}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">
-                    Recomendação inicial
-                  </h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    {analysis.initialRecommendation}
-                  </p>
-                </div>
-                <AnalysisList
-                  title="Hipóteses prováveis"
-                  items={analysis.probableHypotheses}
-                />
-                <AnalysisList
-                  title="Fila de perguntas pendentes"
-                  items={
-                    currentPendingQuestion
-                      ? [
-                          `Pergunta atual: ${currentPendingQuestion.question}`,
-                          `${answeredQuestionsCount} de ${pendingQuestions.length} perguntas já respondidas. As demais serão liberadas uma por vez no chat.`,
-                        ]
-                      : [
-                          "Triagem inicial concluída.",
-                          `Nível de risco/confiança operacional: ${riskLabels[analysis.riskLevel] ?? analysis.riskLevel}.`,
-                          "Não há perguntas pendentes obrigatórias na fila oficial do banco.",
-                        ]
-                  }
-                />
-              </div>
-              <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
-                  <p className="font-semibold">
-                    Aviso de orientação não substitutiva
-                  </p>
-                  <p className="mt-2">{analysis.disclaimer}</p>
-                  <p className="mt-2">{analysis.whenToCallHumanSpecialist}</p>
-                </div>
-                {requiresHumanReview ? (
-                  <Link
-                    href={reviewUrl}
-                    className="inline-flex justify-center rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700"
-                  >
-                    Pagar revisão humana
-                  </Link>
-                ) : (
-                  <Link
-                    href="/meus-relatorios"
-                    className="inline-flex justify-center rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-semibold text-leaf-700 shadow-soft hover:border-leaf-300"
-                  >
-                    Ver em Meus Relatórios
-                  </Link>
-                )}
               </div>
             </div>
+            <div className="space-y-3">{loadingList ? <><Skeleton /><Skeleton /><Skeleton /></> : filteredCases.length ? filteredCases.slice(0, 25).map((item) => <CaseCard key={item.id} item={item} active={item.id === selectedId} onSelect={() => setSelectedId(item.id)} onAction={handleAction} />) : <EmptyState title="Nenhum caso encontrado" description="Ajuste filtros ou crie um novo caso agronômico." />}</div>
+          </aside>
 
-            <div className="mt-10 rounded-[2rem] border border-leaf-100 bg-white p-4 shadow-soft md:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-2xl font-semibold text-slate-900">
-                    Converse com a IA sobre esse caso
-                  </h3>
-                  <p className="mt-2 max-w-3xl text-base leading-7 text-slate-600">
-                    Responda às perguntas pendentes e continue a conversa com
-                    base no histórico, sintomas, imagens, solo e contexto da
-                    cultura selecionada.
-                  </p>
-                </div>
-                <span className="rounded-full bg-leaf-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-leaf-700">
-                  Histórico vinculado ao caseId
-                </span>
-              </div>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-leaf-100 bg-leaf-50/70 px-4 py-3 text-sm text-leaf-900">
-                <span className="font-semibold">Fluxo progressivo:</span>
-                <span>
-                  {currentPendingQuestion
-                    ? `Pergunta atual ${answeredQuestionsCount + 1}/${pendingQuestions.length}: ${currentPendingQuestion.question}`
-                    : "Triagem inicial concluída. Não há pergunta pending real na fila oficial."}
-                </span>
-              </div>
-
-              <div className="mt-5 min-h-[620px] max-h-[78vh] space-y-6 overflow-y-auto rounded-[1.75rem] border border-slate-100 bg-slate-50/70 p-4 md:p-6">
-                {chatMessages.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-leaf-200 bg-white p-6 text-base leading-7 text-slate-600">
-                    Gere a pré-análise para iniciar uma conversa
-                    contextualizada. A IA liberará apenas uma pergunta pendente
-                    por vez.
+          <section className="space-y-6">
+            {!selectedCase && !loadingCase ? <EmptyState title="Selecione um caso" description="Abra um caso para visualizar análise IA, histórico operacional, anexos e ações de revisão humana." /> : null}
+            {loadingCase ? <Skeleton /> : selectedCase ? (
+              <>
+                <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div><p className="text-xs font-black uppercase tracking-[0.2em] text-leaf-600">Caso selecionado</p><h2 className="mt-2 text-3xl font-black text-slate-950">{selectedCase.crop}</h2><p className="mt-1 text-sm text-slate-500">{text(selectedCase.farm?.name)} · {[selectedCase.farm?.city, selectedCase.farm?.state].filter(Boolean).join("/") || "Localização não informada"}</p></div>
+                    <div className="flex flex-wrap gap-2"><RiskBadge riskLevel={selectedCase.risk_level} /><StatusBadge status={selectedCase.status} label={statusLabels[selectedCase.status || ""] ?? selectedCase.status ?? "Sem status"} /></div>
                   </div>
-                ) : (
-                  chatMessages.map((message, index) => (
-                    <div
-                      key={message.id ?? `${message.role}-${index}`}
-                      className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      {message.role === "assistant" && (
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-leaf-600 text-sm font-bold text-white shadow-soft">
-                          IA
-                        </div>
-                      )}
-                      <div
-                        className={`max-w-[88%] rounded-[1.5rem] px-5 py-4 text-base leading-7 shadow-sm md:max-w-[76%] ${message.role === "user" ? "rounded-br-sm bg-slate-900 text-white" : "rounded-bl-sm border border-leaf-100 bg-white text-slate-700"}`}
-                      >
-                        {message.fileUrl && message.messageType === "image" && (
-                          <a
-                            href={message.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={message.fileUrl}
-                              alt="Imagem enviada no chat"
-                              className="mb-3 max-h-72 w-full rounded-2xl object-cover"
-                            />
-                          </a>
-                        )}
-                        {message.fileUrl && message.messageType === "audio" && (
-                          <audio
-                            controls
-                            src={message.fileUrl}
-                            className="mb-3 w-full min-w-56"
-                          >
-                            <track kind="captions" />
-                          </audio>
-                        )}
-                        <p className="whitespace-pre-wrap">{message.content}</p>
-                        {message.messageType === "audio" && (
-                          <p className="mt-2 text-xs opacity-80">
-                            Transcrição do áudio
-                          </p>
-                        )}
+                  <div className="mt-6 grid gap-3 md:grid-cols-4"><DetailBlock label="Área" value={selectedCase.farm?.area_hectares ? `${selectedCase.farm.area_hectares} ha` : null} /><DetailBlock label="Tipo de solo" value={selectedCase.farm?.soil_type} /><DetailBlock label="Estágio" value={selectedCase.growth_stage} /><DetailBlock label="Última atualização" value={formatDate(selectedListItem?.updated_at ?? selectedCase.created_at)} /></div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2"><DetailBlock label="Sintomas" value={selectedCase.symptoms} /><DetailBlock label="Histórico operacional" value={selectedCase.history} /></div>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button onClick={() => handleGenerateAnalysis()} disabled={generating} className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white shadow-soft disabled:bg-slate-300">{generating ? "Gerando análise..." : hasAnalysis ? "Gerar nova análise IA" : "Gerar análise IA"}</button>
+                    <button onClick={() => requestHumanReview()} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-soft">Enviar para revisão humana</button>
+                    <button onClick={() => setShowEdit(true)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700">Editar caso completo</button>
+                    <button onClick={() => setShowDelete(true)} className="rounded-full border border-red-200 bg-red-50 px-5 py-3 text-sm font-black text-red-700">Excluir</button>
+                  </div>
+                </div>
+
+                <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_420px]">
+                  <div className="space-y-6">
+                    <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
+                      <div className="flex items-center justify-between"><h3 className="text-xl font-black">Área principal de análise IA</h3><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Contexto do caso ativo</span></div>
+                      <div className="mt-5 rounded-[1.5rem] bg-slate-950 p-5 text-white"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Resumo da IA</p><p className="mt-3 leading-7 text-slate-100">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses e recomendações iniciais."}</p></div>
+                      <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Hipóteses prováveis" items={analysis?.probableHypotheses ?? []} /><ListSection title="Perguntas pendentes" items={analysis?.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} /><ListSection title="Recomendações iniciais" items={[analysis?.initialRecommendation || selectedCase.ai_recommendation || "Aguardando análise."]} /></div>
+                    </div>
+
+                    <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
+                      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Interação contextual com IA</h3><div className="flex gap-2"><button onClick={() => setQuestion("Explique as recomendações em linguagem simples.")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">Explicar</button><button onClick={() => setQuestion("Quais informações faltam para aumentar a confiança da análise?")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">Perguntas</button></div></div>
+                      <div className="mt-5 max-h-[440px] space-y-3 overflow-y-auto rounded-[1.5rem] bg-slate-50 p-4">
+                        {chatMessages.length === 0 ? <EmptyState title="Conversa técnica vazia" description="Use a IA para complementar sintomas, interpretar recomendações e continuar a análise do caso atual." /> : chatMessages.map((message, index) => <div key={message.id ?? index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user" ? "bg-slate-950 text-white" : "bg-white text-slate-700 shadow-sm"}`}><p className="text-xs font-black uppercase tracking-wide opacity-60">{message.role === "user" ? "Produtor" : "IA agronômica"}</p><p className="mt-1 whitespace-pre-wrap">{message.content}</p></div></div>)}
+                        {chatLoading && <div className="text-sm font-bold text-leaf-700">IA processando contexto do caso...</div>}<div ref={chatEndRef} />
                       </div>
-                      {message.role === "user" && (
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-soft">
-                          Você
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-                {chatLoading && (
-                  <div className="flex items-center gap-3 text-sm font-semibold text-leaf-700">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-leaf-600 text-white">
-                      IA
-                    </div>
-                    <div className="flex items-center gap-3 rounded-full bg-white px-4 py-3 shadow-sm">
-                      <span className="h-2.5 w-2.5 animate-ping rounded-full bg-leaf-500" />
-                      {chatStatus}
+                      <form onSubmit={handleAskQuestion} className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]"><textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} placeholder="Faça uma pergunta complementar mantendo o contexto do caso atual..." className="resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-400" /><button disabled={chatLoading || !question.trim()} className="rounded-2xl bg-leaf-600 px-6 py-3 text-sm font-black text-white disabled:bg-slate-300">Enviar para IA</button></form>
                     </div>
                   </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
 
-              <form
-                onSubmit={handleAskQuestion}
-                className="mt-5 grid gap-3 rounded-[1.75rem] border border-leaf-100 bg-leaf-50/50 p-3 md:grid-cols-[auto_auto_1fr_auto] md:items-end"
-              >
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleImageSelected}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={!analysis || chatLoading}
-                  className="rounded-full border border-leaf-200 bg-white px-5 py-4 text-sm font-bold text-leaf-700 shadow-soft hover:border-leaf-300 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  📷 Foto
-                </button>
-                <button
-                  type="button"
-                  onClick={recording ? stopRecording : startRecording}
-                  disabled={!analysis || chatLoading}
-                  className={`rounded-full px-5 py-4 text-sm font-bold shadow-soft disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}
-                >
-                  {recording ? `Parar ${recordingSeconds}s` : "🎙️ Áudio"}
-                </button>
-                <textarea
-                  ref={textareaRef}
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      (event.metaKey || event.ctrlKey)
-                    ) {
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                  placeholder="Responda com detalhes. Enter cria nova linha; Ctrl/⌘+Enter envia."
-                  disabled={!analysis || chatLoading}
-                  rows={3}
-                  className="min-h-32 resize-none rounded-[1.25rem] border border-leaf-100 bg-white px-5 py-4 text-base leading-7 text-slate-900 shadow-soft outline-none transition focus:border-leaf-400 focus:ring-2 focus:ring-leaf-100 disabled:bg-slate-100"
-                />
-                <button
-                  type="submit"
-                  disabled={!analysis || chatLoading || !question.trim()}
-                  className="rounded-full bg-leaf-600 px-8 py-4 text-sm font-bold uppercase tracking-wide text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {chatLoading ? "Enviando..." : "Enviar"}
-                </button>
-              </form>
-
-              {(recording || audioPreviewUrl) && (
-                <div className="mt-3 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  {recording ? (
-                    <div className="flex flex-wrap items-center gap-3 font-semibold">
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-red-600" />
-                      Gravando áudio: {recordingSeconds}s
-                      <button
-                        type="button"
-                        onClick={cancelRecording}
-                        className="underline"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : audioPreviewUrl ? (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <audio controls src={audioPreviewUrl}>
-                        <track kind="captions" />
-                      </audio>
-                      <button
-                        type="button"
-                        onClick={sendRecordedAudio}
-                        disabled={chatLoading}
-                        className="rounded-full bg-leaf-600 px-5 py-2 font-bold text-white disabled:bg-slate-300"
-                      >
-                        Enviar áudio
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelRecording}
-                        className="font-semibold underline"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : null}
+                  <aside className="space-y-6">
+                    <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Anexos e análise de solo</h3><div className="mt-4 grid grid-cols-2 gap-3">{selectedCase.images?.length ? selectedCase.images.map((image) => <Image key={image.id} src={image.image_url} alt="Anexo do caso" width={220} height={220} className="aspect-square rounded-2xl object-cover" />) : <p className="col-span-2 text-sm text-slate-500">Nenhuma imagem anexada.</p>}</div>{selectedCase.soil_analysis_url && <a href={selectedCase.soil_analysis_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-sm font-bold text-leaf-700">Abrir análise de solo</a>}</div>
+                    <div id="case-timeline" className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Histórico de análises</h3><div className="mt-5 space-y-4">{(activityLogs.length ? activityLogs : [{ id: "created", action: "Caso criado", created_at: selectedCase.created_at }, ...(selectedCase.ai_summary ? [{ id: "ai", action: "IA analisou", created_at: selectedCase.created_at }] : []), ...(selectedCase.human_review_requested ? [{ id: "human", action: "Revisão humana solicitada", created_at: selectedCase.created_at }] : [])]).map((log) => <div key={log.id} className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-leaf-600 ring-4 ring-leaf-100" /><div><p className="font-bold text-slate-800">{log.action}</p><p className="text-xs text-slate-500">{formatDate(log.created_at)}</p></div></div>)}</div></div>
+                    <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 shadow-soft"><h3 className="text-xl font-black text-amber-950">Revisão humana rápida</h3><p className="mt-2 text-sm leading-6 text-amber-900">Encaminhe casos críticos para validação por especialista. Planos sem permissão veem a oferta comercial automaticamente.</p><button onClick={() => requestHumanReview()} className="mt-4 w-full rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white">Enviar para revisão humana</button></div>
+                  </aside>
                 </div>
-              )}
-            </div>
-          </>
-        )}
-      </section>
-    </div>
+                <SafetyDisclaimer />
+              </>
+            ) : null}
+          </section>
+        </section>
+      </div>
+
+      {showEdit && selectedCase && <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 p-4 backdrop-blur"><div className="mx-auto my-8 max-w-4xl rounded-[2rem] bg-white p-6 shadow-soft"><div className="flex items-start justify-between gap-4"><div><h2 className="text-2xl font-black">Editar caso completo</h2><p className="mt-1 text-sm text-slate-500">Atualize cultura, propriedade, área, solo, estágio, sintomas, histórico, imagens e análise de solo.</p></div><button onClick={() => setShowEdit(false)} className="rounded-full bg-slate-100 px-4 py-2 font-bold">Fechar</button></div><div className="mt-6 grid gap-4 md:grid-cols-2">{([ ["crop","Cultura"], ["farmName","Propriedade"], ["city","Cidade"], ["state","Estado"], ["areaHectares","Área (ha)"], ["soilType","Tipo de solo"], ["growthStage","Estágio da cultura"] ] as [keyof EditForm,string][]).map(([key,label]) => <label key={key} className="text-sm font-bold text-slate-700">{label}<input value={editForm[key]} onChange={(e) => setEditForm((c) => ({ ...c, [key]: e.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label>)}<label className="md:col-span-2 text-sm font-bold text-slate-700">Sintomas<textarea value={editForm.symptoms} onChange={(e) => setEditForm((c) => ({ ...c, symptoms: e.target.value }))} rows={4} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label><label className="md:col-span-2 text-sm font-bold text-slate-700">Histórico<textarea value={editForm.managementHistory} onChange={(e) => setEditForm((c) => ({ ...c, managementHistory: e.target.value }))} rows={4} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-leaf-400" /></label><label className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm font-bold text-slate-700">Adicionar novas imagens<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e: ChangeEvent<HTMLInputElement>) => setNewImages(Array.from(e.target.files ?? []))} className="mt-3 block w-full text-sm font-normal" /></label><label className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm font-bold text-slate-700">Substituir/adicionar análise de solo<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setSoilFile(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /></label></div><div className="mt-6 flex flex-wrap justify-end gap-3"><button onClick={() => handleSaveCase(false)} disabled={savingEdit} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Salvar rascunho</button><button onClick={() => hasAnalysis && !window.confirm("Deseja gerar uma nova análise com base nas alterações?") ? handleSaveCase(false) : handleSaveCase(true)} disabled={savingEdit} className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white">Salvar e reenviar para IA</button></div></div></div>}
+      {showDelete && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="max-w-lg rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-2xl font-black">Confirmar exclusão segura</h2><p className="mt-3 text-sm leading-6 text-slate-600">Usaremos soft delete preferencialmente para evitar perda acidental. Para confirmar, será solicitado digitar EXCLUIR.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDelete(false)} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Cancelar</button><button onClick={handleDelete} className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white">Excluir caso</button></div></div></div>}
+      {showUpsell && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="max-w-2xl rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-2xl font-black">Revisão humana disponível no Premium</h2><p className="mt-3 text-sm leading-6 text-slate-600">Seu plano atual não possui revisão humana inclusa. Escolha uma opção para encaminhar o caso a um especialista.</p><div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="font-black">Revisão avulsa</p><p className="mt-2 text-3xl font-black">R$ 197</p><Link href={`/revisao-humana?caseId=${selectedId}`} className="mt-4 inline-flex rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white">Contratar avulsa</Link></div><div className="rounded-2xl border border-leaf-200 bg-leaf-50 p-5"><p className="font-black">Premium mensal</p><p className="mt-2 text-3xl font-black">R$ 397</p><Link href="/planos" className="mt-4 inline-flex rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white">Ver Premium</Link></div></div><button onClick={() => setShowUpsell(false)} className="mt-5 rounded-full border border-slate-200 px-5 py-3 text-sm font-black">Fechar</button></div></div>}
+      {showActions && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur"><div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-soft"><h2 className="text-xl font-black">Ações do caso</h2><div className="mt-4 grid gap-2">{[["open","Abrir caso"],["edit","Editar caso completo"],["delete","Excluir caso"],["ai","Gerar nova análise IA"],["human","Solicitar revisão humana"],["report","Abrir relatório PDF"],["duplicate","Duplicar caso"],["history","Ver histórico do caso"]].map(([action,label]) => <button key={action} onClick={() => handleAction(action, showActions)} className="rounded-2xl border border-slate-200 px-4 py-3 text-left text-sm font-bold hover:border-leaf-300">{label}</button>)}</div><button onClick={() => setShowActions(null)} className="mt-4 rounded-full bg-slate-100 px-5 py-3 text-sm font-black">Fechar</button></div></div>}
+    </main>
   );
 }
 
 export default function ConsultoriaIAPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">
-          Carregando consultoria...
-        </div>
-      }
-    >
-      <ConsultoriaIAContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<div className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando consultoria...</div>}><ConsultoriaIAContent /></Suspense>;
 }
