@@ -11,6 +11,7 @@ type NavigationLink = {
   label: string;
   requiresAuth?: boolean;
   allowedRoles?: UserRole[];
+  children?: NavigationLink[];
 };
 
 const publicLinks: NavigationLink[] = [
@@ -25,7 +26,6 @@ const publicLinks: NavigationLink[] = [
 ];
 
 const accountLinks: NavigationLink[] = [
-  { href: "/perfil", label: "Perfil", requiresAuth: true },
   { href: "/consultoria-ia", label: "Consultoria IA", requiresAuth: true },
   { href: "/enviar-caso", label: "Enviar Caso", requiresAuth: true },
   { href: "/revisao-humana", label: "Revisão Humana", requiresAuth: true },
@@ -48,7 +48,7 @@ const accountLinks: NavigationLink[] = [
     href: "/configuracoes",
     label: "Configurações",
     requiresAuth: true,
-    allowedRoles: ["admin", "specialist"],
+    children: [{ href: "/perfil", label: "Perfil", requiresAuth: true }],
   },
   {
     href: "/admin/oportunidades",
@@ -106,7 +106,17 @@ export default function Navbar() {
     setMobileOpen(false);
   }, [pathname]);
 
-  const visibleAccountLinks = useMemo(() => accountLinks.filter((link) => canShowLink(link, profile)), [profile]);
+  const visibleAccountLinks = useMemo(() => {
+    return accountLinks
+      .filter((link) => canShowLink(link, profile))
+      .map((link) => {
+        if (!link.children) return link;
+        return {
+          ...link,
+          children: link.children.filter((child) => canShowLink(child, profile)),
+        };
+      });
+  }, [profile]);
 
   async function handleLogout() {
     await logout();
@@ -129,7 +139,16 @@ export default function Navbar() {
           ))}
           {visibleAccountLinks.length > 0 && <span className="mx-1 h-8 w-px bg-leaf-100" aria-hidden="true" />}
           {visibleAccountLinks.map((link) => (
-            <NavLink key={link.href} link={link} pathname={pathname} />
+            <div key={link.href} className="group relative">
+              <NavLink link={link} pathname={pathname} />
+              {link.children && link.children.length > 0 && (
+                <div className="invisible absolute left-0 top-full z-50 mt-1 min-w-44 rounded-2xl border border-leaf-100 bg-white p-2 opacity-0 shadow-soft transition group-hover:visible group-hover:opacity-100">
+                  {link.children.map((child) => (
+                    <NavLink key={child.href} link={child} pathname={pathname} />
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
 
@@ -171,7 +190,16 @@ export default function Navbar() {
             ))}
             {visibleAccountLinks.length > 0 && <div className="my-2 h-px bg-leaf-100" />}
             {visibleAccountLinks.map((link) => (
-              <NavLink key={link.href} link={link} pathname={pathname} onClick={() => setMobileOpen(false)} />
+              <div key={link.href} className="grid gap-2">
+                <NavLink link={link} pathname={pathname} onClick={() => setMobileOpen(false)} />
+                {link.children?.length ? (
+                  <div className="ml-4 grid gap-1 border-l border-leaf-100 pl-2">
+                    {link.children.map((child) => (
+                      <NavLink key={child.href} link={child} pathname={pathname} onClick={() => setMobileOpen(false)} />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             ))}
           </nav>
           <div className="mt-4 flex flex-wrap items-center gap-3">
