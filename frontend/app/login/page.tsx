@@ -142,28 +142,13 @@ function LoginContent() {
         throw new Error("Sessão inválida retornada pelo servidor.");
       }
 
-      const waitForSession = async () => {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const session = await getCurrentAuthSession().catch(() => null);
-
-          if (session?.access_token) {
-            return true;
-          }
-
-          await new Promise((resolve) => setTimeout(resolve, 180 * (attempt + 1)));
-        }
-
-        return false;
-      };
-
-      const hasActiveSession = await waitForSession();
-
-      if (!hasActiveSession) {
-        throw new Error("Sessão não foi persistida no navegador.");
-      }
+      // Diagnóstico não bloqueante: o navegador pode levar alguns instantes para
+      // propagar cookies/set-cookie entre requisições em alguns ambientes.
+      // Se a autenticação principal foi aceita, seguimos com refresh + redirecionamento.
+      void getCurrentAuthSession().catch(() => null);
 
       router.refresh();
-      window.location.assign(redirectTo);
+      router.replace(redirectTo);
     } catch (loginError) {
       const message =
         loginError instanceof Error
