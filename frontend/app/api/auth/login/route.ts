@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AUTH_ACCESS_COOKIE,
   AUTH_REFRESH_COOKIE,
+  getAuthCookieDomain,
   getCurrentProfile,
   supabaseAuthRequest,
 } from "../../../../lib/auth";
@@ -16,11 +17,13 @@ type PasswordGrantResponse = {
 function setAuthCookies(response: NextResponse, payload: PasswordGrantResponse) {
   const secure = process.env.NODE_ENV === "production";
   const maxAge = payload.expires_in || 60 * 60;
+  const domain = getAuthCookieDomain();
 
   response.cookies.set(AUTH_ACCESS_COOKIE, payload.access_token, {
     httpOnly: true,
     sameSite: "lax",
     secure,
+    ...(domain ? { domain } : {}),
     path: "/",
     maxAge,
   });
@@ -28,6 +31,7 @@ function setAuthCookies(response: NextResponse, payload: PasswordGrantResponse) 
     httpOnly: true,
     sameSite: "lax",
     secure,
+    ...(domain ? { domain } : {}),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
@@ -71,6 +75,8 @@ function mapAuthError(message: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const host = request.headers.get("host") || "unknown-host";
+
   try {
     const { email, password } = await request.json();
     const normalizedEmail = typeof email === "string" ? email.trim() : "";
@@ -103,13 +109,22 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ ...session, profile });
     setAuthCookies(response, session);
 
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[auth/login] sessão criada", {
+        host,
+        hasProfile: Boolean(profile),
+        profileStatus: profile?.status ?? null,
+        cookieDomain: getAuthCookieDomain() ?? null,
+      });
+    }
+
     return response;
   } catch (error) {
     const rawMessage =
       error instanceof Error ? error.message : "Não foi possível fazer login.";
 
     if (process.env.NODE_ENV !== "production") {
-      console.error("Erro de autenticação no login:", rawMessage);
+      console.error("[auth/login] erro", { host, message: rawMessage });
     }
 
     const mappedError = mapAuthError(rawMessage);

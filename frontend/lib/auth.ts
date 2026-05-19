@@ -25,6 +25,17 @@ type SupabaseConfig = {
 export const AUTH_ACCESS_COOKIE = "sf_access_token";
 export const AUTH_REFRESH_COOKIE = "sf_refresh_token";
 
+export function getAuthCookieDomain() {
+  const rawDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+
+  if (!rawDomain) {
+    return undefined;
+  }
+
+  const normalized = rawDomain.toLowerCase();
+  return normalized.startsWith(".") ? normalized : `.${normalized}`;
+}
+
 export function getSupabaseAuthConfig(): SupabaseConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

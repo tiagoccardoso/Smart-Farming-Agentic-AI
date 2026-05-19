@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE, ensureClientProfile, getCurrentProfile, supabaseAuthRequest } from "../../../../lib/auth";
+import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE, ensureClientProfile, getAuthCookieDomain, getCurrentProfile, supabaseAuthRequest } from "../../../../lib/auth";
 
 type SignupResponse = {
   access_token?: string;
@@ -10,11 +10,13 @@ type SignupResponse = {
 
 function setAuthCookies(response: NextResponse, payload: Required<Pick<SignupResponse, "access_token" | "refresh_token">> & { expires_in?: number }) {
   const secure = process.env.NODE_ENV === "production";
+  const domain = getAuthCookieDomain();
 
   response.cookies.set(AUTH_ACCESS_COOKIE, payload.access_token, {
     httpOnly: true,
     sameSite: "lax",
     secure,
+    ...(domain ? { domain } : {}),
     path: "/",
     maxAge: payload.expires_in || 60 * 60
   });
@@ -22,6 +24,7 @@ function setAuthCookies(response: NextResponse, payload: Required<Pick<SignupRes
     httpOnly: true,
     sameSite: "lax",
     secure,
+    ...(domain ? { domain } : {}),
     path: "/",
     maxAge: 60 * 60 * 24 * 30
   });
