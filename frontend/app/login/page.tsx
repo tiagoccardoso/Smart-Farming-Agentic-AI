@@ -142,15 +142,17 @@ function LoginContent() {
         throw new Error("Sessão inválida retornada pelo servidor.");
       }
 
-      const session = await getCurrentAuthSession();
-      if (!session?.user?.id) {
-        throw new Error(
-          "Login concluído, mas a sessão não foi persistida no navegador. Tente novamente.",
-        );
-      }
-
-      router.replace(redirectTo);
       router.refresh();
+      router.replace(redirectTo);
+
+      if (process.env.NODE_ENV === "development") {
+        void getCurrentAuthSession().catch((sessionError) => {
+          console.warn(
+            "Diagnóstico pós-login: /api/auth/me ainda indisponível logo após autenticação.",
+            sessionError,
+          );
+        });
+      }
     } catch (loginError) {
       const message =
         loginError instanceof Error
