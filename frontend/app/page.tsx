@@ -69,14 +69,6 @@ export default async function HomePage() {
                 src={page.image_url}
                 alt="Produção agrícola orgânica com tecnologia e orientação especializada no campo."
               />
-              <div className="absolute left-5 top-5 rounded-2xl border border-[#A7C957]/60 bg-white/95 p-4 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#2E7D32]">Diagnóstico técnico</p>
-                <p className="mt-1 text-sm font-bold text-[#123F2A]">Propriedade em conversão orgânica</p>
-              </div>
-              <div className="absolute bottom-5 right-5 max-w-[240px] rounded-2xl border border-[#D7A84A]/35 bg-white/95 p-4 shadow-soft">
-                <p className="text-sm font-bold text-[#123F2A]">IA + especialista</p>
-                <p className="mt-1 text-xs font-semibold text-[#A97142]">Orientação segura para decisões no campo</p>
-              </div>
             </div>
           </div>
         </div>
