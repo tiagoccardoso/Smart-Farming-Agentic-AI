@@ -940,6 +940,15 @@ function buildAgronomicPrompt(
         )
         .join("\n")
     : "Nenhuma imagem anexada.";
+  const attachmentSummary = [
+    `Quantidade de imagens anexadas: ${caseData.images.length}`,
+    `Análise de solo anexada: ${caseData.soil_analysis_url ? "sim" : "não"}`,
+    caseData.soil_analysis_url
+      ? `URL da análise de solo: ${caseData.soil_analysis_url}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
   const optionalQuestion = question?.trim()
     ? `\nPergunta complementar do usuário: ${question.trim()}`
     : "";
@@ -976,6 +985,9 @@ Dados do caso:
 - Imagens relacionadas:
 ${images}${optionalQuestion}
 
+Metadados de anexos (usar na análise):
+${attachmentSummary}
+
 Base de conhecimento specialist_knowledge disponível para este caso:
 ${knowledgeContext}
 
@@ -989,6 +1001,8 @@ Regras obrigatórias:
 - Não emita laudo, parecer conclusivo ou diagnóstico definitivo.
 - Não se apresente como responsável técnico e não substitua engenheiro agrônomo, consultor habilitado ou outro profissional competente.
 - Use linguagem simples.
+- Considere os anexos como parte obrigatória da triagem: use imagens e análise de solo (quando existir) para ajustar hipóteses, nível de risco, confiança e recomendações iniciais.
+- Se existir análise de solo apenas como URL/arquivo sem conteúdo textual extraído, declare explicitamente essa limitação na resposta e mantenha perguntas objetivas para coletar os principais parâmetros do solo (pH, MO, macro e micronutrientes).
 - Use a base specialist_knowledge apenas quando ela for relevante para o caso.
 - Não invente fontes: preencha knowledgeUsed somente com títulos e categorias listados em "Fontes permitidas em knowledgeUsed".
 - Se nenhuma fonte da base specialist_knowledge foi fornecida ou usada, retorne knowledgeUsed como array vazio.

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -172,6 +171,8 @@ function ConsultoriaIAContent() {
   const [editForm, setEditForm] = useState<EditForm>({ crop: "", farmName: "", city: "", state: "", areaHectares: "", soilType: "", growthStage: "", symptoms: "", managementHistory: "" });
   const [newImages, setNewImages] = useState<File[]>([]);
   const [soilFile, setSoilFile] = useState<File | null>(null);
+  const [attachmentsState, setAttachmentsState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
+  const [brokenAttachmentIds, setBrokenAttachmentIds] = useState<Record<string, boolean>>({});
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const token = typeof window === "undefined" ? null : getStoredSupabaseAccessToken();
@@ -208,6 +209,7 @@ function ConsultoriaIAContent() {
     const accessToken = getStoredSupabaseAccessToken();
     if (!accessToken || !caseId) return;
     setLoadingCase(true);
+    setAttachmentsState({ loading: true, error: null });
     setError(null);
     try {
       const response = await getAgronomicCase(caseId, accessToken) as { case: AgronomicCase; activityLogs?: ActivityLog[] };
@@ -237,8 +239,10 @@ function ConsultoriaIAContent() {
       setChatMessages((response.case.chat_messages ?? []).map((message) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
       setActivityLogs(response.activityLogs ?? []);
       setEditForm({ crop: response.case.crop ?? "", farmName: response.case.farm?.name ?? "", city: response.case.farm?.city ?? "", state: response.case.farm?.state ?? "", areaHectares: response.case.farm?.area_hectares ? String(response.case.farm.area_hectares) : "", soilType: response.case.farm?.soil_type ?? "", growthStage: response.case.growth_stage ?? "", symptoms: response.case.symptoms ?? "", managementHistory: response.case.history ?? "" });
+      setBrokenAttachmentIds({});
+      setAttachmentsState({ loading: false, error: null });
       router.replace(`/consultoria-ia?caseId=${encodeURIComponent(caseId)}`, { scroll: false });
-    } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível abrir o caso."; setError(message); showToast("error", message); logDevError("Erro ao abrir caso", err); }
+    } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível abrir o caso."; setError(message); setAttachmentsState({ loading: false, error: "Não foi possível carregar os anexos." }); showToast("error", message); logDevError("Erro ao abrir caso", err); }
     finally { setLoadingCase(false); }
   }, [router, showToast, logDevError]);
 
@@ -540,7 +544,7 @@ function ConsultoriaIAContent() {
                   </div>
 
                   <aside className="space-y-6">
-                    <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Anexos e análise de solo</h3><div className="mt-4 grid grid-cols-2 gap-3">{selectedCase.images?.length ? selectedCase.images.map((image) => <Image key={image.id} src={image.image_url} alt="Anexo do caso" width={220} height={220} className="aspect-square rounded-2xl object-cover" />) : <p className="col-span-2 text-sm text-slate-500">Nenhuma imagem anexada.</p>}</div>{selectedCase.soil_analysis_url && <a href={selectedCase.soil_analysis_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-sm font-bold text-leaf-700">Abrir análise de solo</a>}</div>
+                    <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Anexos e análise de solo</h3>{attachmentsState.loading ? <p className="mt-4 text-sm text-slate-500">Carregando anexos...</p> : attachmentsState.error ? <p className="mt-4 text-sm text-red-600">{attachmentsState.error}</p> : <div className="mt-4 space-y-4">{selectedCase.images?.length ? <div className="grid grid-cols-2 gap-3">{selectedCase.images.map((image) => <div key={image.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">{brokenAttachmentIds[image.id] ? <div className="flex aspect-square items-center justify-center p-4 text-center text-xs font-semibold text-slate-600">Não foi possível carregar esta imagem.</div> : <img src={image.image_url} alt="Anexo do caso" className="aspect-square w-full object-cover" loading="lazy" onError={() => setBrokenAttachmentIds((current) => ({ ...current, [image.id]: true }))} />}</div>)}</div> : <p className="text-sm text-slate-500">Nenhum anexo enviado.</p>}{selectedCase.soil_analysis_url ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-bold text-slate-800">Análise de solo</p><p className="mt-1 text-xs text-slate-500">Tipo: documento/arquivo de solo anexado</p><a href={selectedCase.soil_analysis_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-sm font-bold text-leaf-700">Visualizar ou baixar</a></div> : <p className="text-sm text-slate-500">Nenhuma análise de solo enviada.</p>}</div>}</div>
                     <div id="case-timeline" className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft"><h3 className="text-xl font-black">Histórico de análises</h3><div className="mt-5 space-y-4">{(activityLogs.length ? activityLogs : [{ id: "created", action: "Caso criado", created_at: selectedCase.created_at }, ...(selectedCase.ai_summary ? [{ id: "ai", action: "IA analisou", created_at: selectedCase.created_at }] : []), ...(selectedCase.human_review_requested ? [{ id: "human", action: "Revisão humana solicitada", created_at: selectedCase.created_at }] : [])]).map((log) => <div key={log.id} className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-leaf-600 ring-4 ring-leaf-100" /><div><p className="font-bold text-slate-800">{log.action}</p><p className="text-xs text-slate-500">{formatDate(log.created_at)}</p></div></div>)}</div></div>
                     <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 shadow-soft"><h3 className="text-xl font-black text-amber-950">Revisão humana rápida</h3><p className="mt-2 text-sm leading-6 text-amber-900">Encaminhe casos críticos para validação por especialista. Planos sem permissão veem a oferta comercial automaticamente.</p><button onClick={() => requestHumanReview()} disabled={humanReviewingId === selectedId} className="mt-4 w-full rounded-full bg-amber-600 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">{humanReviewingId === selectedId ? "Enviando..." : "Enviar para revisão humana"}</button></div>
                   </aside>
