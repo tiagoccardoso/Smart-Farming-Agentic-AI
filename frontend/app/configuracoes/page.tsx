@@ -3,33 +3,38 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import SectionTitle from "../../components/SectionTitle";
+import type { UserRole } from "../../lib/auth";
 import { getCurrentAuthSession } from "../../lib/supabaseAuth";
 
-const configLinks = [
-  { href: "/painel-doutora/usuarios", label: "Usuários", icon: "👥" },
-  { href: "/painel-doutora/culturas", label: "Culturas", icon: "🌱" },
-  { href: "/painel-doutora/site-pages/especialista", label: "Editar página da especialista", icon: "🧑‍⚕️" },
-  { href: "/painel-doutora/site-pages/home", label: "Editar página inicial", icon: "🏠" },
-  { href: "/painel-doutora/site-pages/agricultura-organica", label: "Editar página Agricultura Orgânica", icon: "🌿" },
+const configLinks: { href: string; label: string; icon: string; allowedRoles?: UserRole[] }[] = [
+  { href: "/perfil", label: "Perfil", icon: "👤" },
+  { href: "/painel-doutora/usuarios", label: "Usuários", icon: "👥", allowedRoles: ["admin", "specialist"] },
+  { href: "/painel-doutora/culturas", label: "Culturas", icon: "🌱", allowedRoles: ["admin", "specialist"] },
+  { href: "/painel-doutora/site-pages/especialista", label: "Editar página da especialista", icon: "🧑‍⚕️", allowedRoles: ["admin", "specialist"] },
+  { href: "/painel-doutora/site-pages/home", label: "Editar página inicial", icon: "🏠", allowedRoles: ["admin", "specialist"] },
+  { href: "/painel-doutora/site-pages/agricultura-organica", label: "Editar página Agricultura Orgânica", icon: "🌿", allowedRoles: ["admin", "specialist"] },
 ];
 
 export default function ConfiguracoesPage() {
-  const [accessDenied, setAccessDenied] = useState(false);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       const session = await getCurrentAuthSession().catch(() => null);
-      const role = session?.profile?.role;
-      setAccessDenied(!(role === "admin" || role === "specialist"));
+      setRole((session?.profile?.role as UserRole | undefined) ?? null);
+      setLoading(false);
     })();
   }, []);
 
-  if (accessDenied) {
+  const visibleLinks = configLinks.filter((item) => !item.allowedRoles || (role ? item.allowedRoles.includes(role) : false));
+
+  if (!loading && visibleLinks.length === 0) {
     return (
       <section className="mx-auto max-w-5xl px-6 py-16">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-900 shadow-soft">
           <h2 className="text-lg font-semibold">Acesso negado</h2>
-          <p className="mt-2 text-sm leading-6">Apenas usuários com role specialist ou admin podem acessar as configurações.</p>
+          <p className="mt-2 text-sm leading-6">Você não possui permissões para acessar os itens de configurações disponíveis.</p>
         </div>
       </section>
     );
@@ -44,7 +49,7 @@ export default function ConfiguracoesPage() {
       />
 
       <div className="mt-8 grid gap-4 md:grid-cols-2">
-        {configLinks.map((item) => (
+        {visibleLinks.map((item) => (
           <Link
             key={item.href}
             href={item.href}
