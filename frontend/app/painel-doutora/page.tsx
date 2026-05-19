@@ -653,6 +653,18 @@ export default function PainelDoutoraPage() {
         >
           Culturas
         </Link>
+        <Link
+          href="/painel-doutora/site-pages/especialista"
+          className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50"
+        >
+          Editar página da especialista
+        </Link>
+        <Link
+          href="/painel-doutora/site-pages/agricultura-organica"
+          className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50"
+        >
+          Editar página Agricultura Orgânica
+        </Link>
       </div>
 
       {accessDenied && (
@@ -692,6 +704,20 @@ export default function PainelDoutoraPage() {
               },
             ]}
           />
+
+
+          <div className="mt-8 grid gap-6 md:grid-cols-2">
+            <Link href="/painel-doutora/site-pages/especialista" className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft transition hover:-translate-y-1 hover:border-leaf-300">
+              <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Conteúdo público</p>
+              <h2 className="mt-2 text-xl font-bold text-[#123F2A]">Editar página da especialista</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Atualize nome exibido, título profissional, resumo, formação, experiências, competências, atuação na plataforma, CTA e foto.</p>
+            </Link>
+            <Link href="/painel-doutora/site-pages/agricultura-organica" className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft transition hover:-translate-y-1 hover:border-leaf-300">
+              <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Conteúdo público</p>
+              <h2 className="mt-2 text-xl font-bold text-[#123F2A]">Editar página Agricultura Orgânica</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Atualize título, subtítulo, introdução, benefícios, desafios, etapas, serviços, CTA e imagem.</p>
+            </Link>
+          </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {metrics.map((metric) => (
