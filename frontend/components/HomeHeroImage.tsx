@@ -25,7 +25,7 @@ export default function HomeHeroImage({ src, alt }: HomeHeroImageProps) {
         src={resolvedSrc}
         alt={alt}
         onError={() => setFailed(true)}
-        className="h-[260px] w-full object-cover object-center sm:h-[340px] lg:h-[620px]"
+        className="mx-auto h-auto max-h-[72vh] min-h-[220px] w-full object-contain object-center sm:min-h-[300px] lg:max-h-[700px] lg:object-cover"
         loading="eager"
       />
       {failed ? (
