@@ -108,6 +108,7 @@ export function clearStoredSupabaseSession() {
 export async function loginWithEmailPassword(email: string, password: string) {
   const response = await fetch("/api/auth/login", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
@@ -151,12 +152,15 @@ export async function registerWithEmailPassword(data: {
 }
 
 export async function logout() {
-  await fetch("/api/auth/logout", { method: "POST" });
+  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
   clearStoredSupabaseSession();
 }
 
 export async function getCurrentAuthSession() {
-  const response = await fetch("/api/auth/me", { cache: "no-store" });
+  const response = await fetch("/api/auth/me", {
+    cache: "no-store",
+    credentials: "include",
+  });
 
   if (response.status === 401) {
     return null;

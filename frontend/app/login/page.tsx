@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import {
+  getCurrentAuthSession,
   loginWithEmailPassword,
   requestPasswordRecovery,
 } from "../../lib/supabaseAuth";
@@ -38,6 +39,29 @@ function friendlyAuthError(message: string) {
     normalized.includes("timeout")
   ) {
     return "Falha de conexão. Verifique sua internet e tente novamente.";
+  }
+
+  if (
+    normalized.includes("sessão inválida retornada pelo servidor") ||
+    normalized.includes("sessao invalida retornada pelo servidor")
+  ) {
+    return "A autenticação retornou uma sessão inválida. Tente entrar novamente em instantes.";
+  }
+
+  if (
+    normalized.includes("sessão não foi persistida no navegador") ||
+    normalized.includes("sessao nao foi persistida no navegador")
+  ) {
+    return "Seu login foi aceito, mas a sessão não ficou ativa no navegador. Atualize a página e tente novamente.";
+  }
+
+  if (
+    normalized.includes("sessão não encontrada") ||
+    normalized.includes("sessao nao encontrada") ||
+    normalized.includes("sessão inválida") ||
+    normalized.includes("sessao invalida")
+  ) {
+    return "Não foi possível validar sua sessão de acesso. Tente entrar novamente.";
   }
 
   return "Não foi possível concluir o login agora. Tente novamente em instantes.";
@@ -111,8 +135,6 @@ function LoginContent() {
     setError(null);
     setRecoveryMessage(null);
 
-    let redirected = false;
-
     try {
       const authPayload = await loginWithEmailPassword(normalizedEmail, password);
 
@@ -120,7 +142,13 @@ function LoginContent() {
         throw new Error("Sessão inválida retornada pelo servidor.");
       }
 
-      redirected = true;
+      const session = await getCurrentAuthSession();
+      if (!session?.user?.id) {
+        throw new Error(
+          "Login concluído, mas a sessão não foi persistida no navegador. Tente novamente.",
+        );
+      }
+
       router.replace(redirectTo);
       router.refresh();
     } catch (loginError) {
@@ -135,9 +163,7 @@ function LoginContent() {
 
       setError(message);
     } finally {
-      if (!redirected) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }
 
