@@ -1,19 +1,68 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import {
+  getCurrentAuthSession,
   loginWithEmailPassword,
   requestPasswordRecovery,
 } from "../../lib/supabaseAuth";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function resolveRedirectPath(rawPath: string | null) {
+  if (!rawPath || !rawPath.startsWith("/")) {
+    return "/consultoria-ia";
+  }
+
+  if (rawPath.startsWith("/login")) {
+    return "/consultoria-ia";
+  }
+
+  return rawPath;
+}
+
+function friendlyAuthError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("email not confirmed") ||
+    (normalized.includes("email") &&
+      (normalized.includes("confirm") || normalized.includes("verified")))
+  ) {
+    return "Seu usuário ainda não foi confirmado. Verifique seu e-mail antes de entrar.";
+  }
+
+  if (
+    normalized.includes("invalid login credentials") ||
+    normalized.includes("invalid_credentials") ||
+    normalized.includes("invalid grant")
+  ) {
+    return "E-mail ou senha inválidos. Verifique os dados e tente novamente.";
+  }
+
+  if (
+    normalized.includes("network") ||
+    normalized.includes("fetch") ||
+    normalized.includes("failed to fetch") ||
+    normalized.includes("timeout")
+  ) {
+    return "Não foi possível acessar sua conta. Verifique sua conexão e tente novamente.";
+  }
+
+  return "Ocorreu um erro ao fazer login. Tente novamente em instantes.";
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/consultoria-ia";
+  const redirectTo = resolveRedirectPath(
+    searchParams.get("redirectTo") || searchParams.get("next"),
+  );
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,39 +70,101 @@ function LoginContent() {
   const [error, setError] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
 
+  const disableSubmit = loading || recoveringPassword;
+
+  const progressClasses = useMemo(
+    () =>
+      loading
+        ? "translate-x-0 opacity-100"
+        : "-translate-x-full opacity-0 group-hover:opacity-60",
+    [loading],
+  );
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (loading) {
+      return;
+    }
+
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      setError("Informe seu e-mail.");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      setError("Informe um e-mail válido.");
+      return;
+    }
+
+    if (!password) {
+      setError("Informe sua senha.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setRecoveryMessage(null);
 
     try {
-      await loginWithEmailPassword(email, password);
-      router.push(nextPath);
+      await loginWithEmailPassword(normalizedEmail, password);
+
+      const session = await getCurrentAuthSession();
+      if (!session?.user) {
+        throw new Error("SESSION_NOT_PERSISTED");
+      }
+
+      router.replace(redirectTo);
       router.refresh();
+      window.location.assign(redirectTo);
     } catch (loginError) {
-      setError(
+      const message =
         loginError instanceof Error
-          ? loginError.message
-          : "Não foi possível entrar.",
-      );
+          ? loginError.message === "SESSION_NOT_PERSISTED"
+            ? "O login foi concluído, mas a sessão não foi confirmada. Tente novamente."
+            : friendlyAuthError(loginError.message)
+          : "Ocorreu um erro ao fazer login. Tente novamente em instantes.";
+
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Falha no login:", loginError);
+      }
+
+      setError(message);
     } finally {
       setLoading(false);
     }
   }
 
   async function handlePasswordRecovery() {
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      setError("Informe seu e-mail.");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      setError("Informe um e-mail válido.");
+      return;
+    }
+
     setRecoveringPassword(true);
     setError(null);
     setRecoveryMessage(null);
 
     try {
-      const payload = await requestPasswordRecovery(email);
+      const payload = await requestPasswordRecovery(normalizedEmail);
       setRecoveryMessage(
         payload.message ??
           "Enviamos as instruções de recuperação para o e-mail informado.",
       );
     } catch (recoveryError) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Falha ao recuperar senha:", recoveryError);
+      }
+
       setError(
         recoveryError instanceof Error
           ? recoveryError.message
@@ -83,6 +194,8 @@ function LoginContent() {
 
       <form
         onSubmit={handleSubmit}
+        noValidate
+        aria-busy={loading}
         className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8"
       >
         <div className="space-y-5">
@@ -105,7 +218,10 @@ function LoginContent() {
         </div>
 
         {error && (
-          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div
+            role="alert"
+            className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
             {error}
           </div>
         )}
@@ -117,17 +233,27 @@ function LoginContent() {
 
         <button
           type="submit"
-          disabled={loading}
-          className="mt-6 w-full rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disableSubmit}
+          aria-busy={loading}
+          className="group relative mt-6 w-full overflow-hidden rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft transition hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {loading ? "Entrando..." : "Entrar"}
+          <span
+            aria-hidden="true"
+            className={`absolute inset-0 bg-gradient-to-r from-leaf-400/20 via-white/25 to-leaf-300/20 transition-all duration-700 ${progressClasses}`}
+          />
+          <span className="relative flex items-center justify-center gap-2">
+            {loading && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+            )}
+            {loading ? "Entrando..." : "Entrar"}
+          </span>
         </button>
 
         <div className="mt-5 space-y-3 text-center text-sm text-slate-600">
           <button
             type="button"
             onClick={handlePasswordRecovery}
-            disabled={recoveringPassword || !email}
+            disabled={recoveringPassword || loading || !email.trim()}
             className="font-semibold text-leaf-700 hover:text-leaf-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {recoveringPassword
