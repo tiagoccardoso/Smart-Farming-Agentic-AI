@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import {
+  getCurrentAuthSession,
   loginWithEmailPassword,
   requestPasswordRecovery,
 } from "../../lib/supabaseAuth";
@@ -111,8 +112,6 @@ function LoginContent() {
     setError(null);
     setRecoveryMessage(null);
 
-    let redirected = false;
-
     try {
       const authPayload = await loginWithEmailPassword(normalizedEmail, password);
 
@@ -120,7 +119,13 @@ function LoginContent() {
         throw new Error("Sessão inválida retornada pelo servidor.");
       }
 
-      redirected = true;
+      const session = await getCurrentAuthSession();
+      if (!session?.user?.id) {
+        throw new Error(
+          "Login concluído, mas a sessão não foi persistida no navegador. Tente novamente.",
+        );
+      }
+
       router.replace(redirectTo);
       router.refresh();
     } catch (loginError) {
@@ -135,9 +140,7 @@ function LoginContent() {
 
       setError(message);
     } finally {
-      if (!redirected) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }
 
