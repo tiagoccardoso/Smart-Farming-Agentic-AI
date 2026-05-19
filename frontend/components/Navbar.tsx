@@ -48,7 +48,6 @@ const accountLinks: NavigationLink[] = [
     href: "/configuracoes",
     label: "Configurações",
     requiresAuth: true,
-    children: [{ href: "/perfil", label: "Perfil", requiresAuth: true }],
   },
   {
     href: "/admin/oportunidades",
