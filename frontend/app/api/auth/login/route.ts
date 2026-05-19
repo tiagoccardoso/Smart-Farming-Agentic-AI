@@ -16,11 +16,14 @@ type PasswordGrantResponse = {
 function setAuthCookies(response: NextResponse, payload: PasswordGrantResponse) {
   const secure = process.env.NODE_ENV === "production";
   const maxAge = payload.expires_in || 60 * 60;
+  const cookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+  const domain = cookieDomain && cookieDomain.length > 0 ? cookieDomain : undefined;
 
   response.cookies.set(AUTH_ACCESS_COOKIE, payload.access_token, {
     httpOnly: true,
     sameSite: "lax",
     secure,
+    domain,
     path: "/",
     maxAge,
   });
@@ -28,6 +31,7 @@ function setAuthCookies(response: NextResponse, payload: PasswordGrantResponse) 
     httpOnly: true,
     sameSite: "lax",
     secure,
+    domain,
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
