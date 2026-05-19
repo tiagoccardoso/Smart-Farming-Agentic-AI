@@ -158,8 +158,8 @@ export async function createSubscriptionCheckoutSession(request: NextRequest, pl
   const params = new URLSearchParams({
     mode: "subscription",
     customer: stripeCustomerId,
-    success_url: `${origin}/planos?subscription=success`,
-    cancel_url: `${origin}/planos?subscription=cancelled`,
+    success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/checkout/cancelado`,
     client_reference_id: userId,
     "line_items[0][quantity]": "1",
     "metadata[userId]": userId,

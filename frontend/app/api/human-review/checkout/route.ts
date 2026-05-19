@@ -39,8 +39,8 @@ async function createStripeCheckoutSession(request: NextRequest, orderId: string
   const origin = getRequestOrigin(request);
   const params = new URLSearchParams({
     mode: "payment",
-    success_url: `${origin}/revisao-humana?caseId=${encodeURIComponent(caseId)}&checkout=success&orderId=${encodeURIComponent(orderId)}`,
-    cancel_url: `${origin}/revisao-humana?caseId=${encodeURIComponent(caseId)}&checkout=cancelled&orderId=${encodeURIComponent(orderId)}`,
+    success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/checkout/cancelado`,
     client_reference_id: orderId,
     "line_items[0][price]": stripePriceId,
     "line_items[0][quantity]": "1",
