@@ -8,8 +8,6 @@ type Plan = {
   slug: string;
   eyebrow: string;
   price: string;
-  annualPrice?: string;
-  annualNote?: string;
   audience: string;
   description: string;
   features: string[];
@@ -64,8 +62,6 @@ const plans: Plan[] = [
     slug: "ia-profissional",
     eyebrow: "Plano recomendado",
     price: "R$ 97/mês",
-    annualPrice: "R$ 79/mês no anual",
-    annualNote: "Economize R$ 216 por ano no pagamento anual.",
     audience: "Produtores e consultores que utilizarão o sistema com frequência.",
     description: "Sistema completo de decisão agronômica assistida por IA, com relatórios e histórico por propriedade.",
     features: ["Limite alto de análises", "Upload de fotos", "Upload de análise de solo", "Relatórios PDF", "Histórico por propriedade", "Análises mais completas", "Recomendações organizadas", "Prioridade de processamento", "Suporte prioritário"],
@@ -265,8 +261,6 @@ export default function PlanosPage() {
                 <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{plan.audience}</p>
                 <div className="mt-5 rounded-3xl bg-slate-50 p-4">
                   <p className="text-3xl font-black text-slate-950">{plan.price}</p>
-                  {plan.annualPrice && <p className="mt-2 text-sm font-bold text-leaf-700">{plan.annualPrice}</p>}
-                  {plan.annualNote && <p className="mt-1 text-xs text-slate-600">{plan.annualNote}</p>}
                 </div>
                 <p className="mt-5 text-sm leading-6 text-slate-700">{plan.description}</p>
 
