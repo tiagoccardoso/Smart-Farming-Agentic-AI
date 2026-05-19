@@ -660,6 +660,12 @@ export default function PainelDoutoraPage() {
           Editar página da especialista
         </Link>
         <Link
+          href="/painel-doutora/site-pages/home"
+          className="rounded-full border border-leaf-100 bg-white px-4 py-2 text-sm font-semibold text-[#123F2A] shadow-soft hover:border-leaf-300"
+        >
+          Editar página inicial
+        </Link>
+        <Link
           href="/painel-doutora/site-pages/agricultura-organica"
           className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50"
         >
@@ -707,6 +713,11 @@ export default function PainelDoutoraPage() {
 
 
           <div className="mt-8 grid gap-6 md:grid-cols-2">
+            <Link href="/painel-doutora/site-pages/home" className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft transition hover:-translate-y-1 hover:border-leaf-300">
+              <span className="text-2xl">🏠</span>
+              <h2 className="mt-2 text-xl font-bold text-[#123F2A]">Editar página inicial</h2>
+              <p className="mt-2 text-sm text-slate-600">Gerencie título, subtítulo, CTA e imagem principal da home pública.</p>
+            </Link>
             <Link href="/painel-doutora/site-pages/especialista" className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft transition hover:-translate-y-1 hover:border-leaf-300">
               <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">Conteúdo público</p>
               <h2 className="mt-2 text-xl font-bold text-[#123F2A]">Editar página da especialista</h2>
