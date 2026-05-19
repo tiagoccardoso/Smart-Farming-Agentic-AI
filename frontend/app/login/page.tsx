@@ -142,17 +142,28 @@ function LoginContent() {
         throw new Error("Sessão inválida retornada pelo servidor.");
       }
 
-      router.refresh();
-      router.replace(redirectTo);
+      const waitForSession = async () => {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const session = await getCurrentAuthSession().catch(() => null);
 
-      if (process.env.NODE_ENV === "development") {
-        void getCurrentAuthSession().catch((sessionError) => {
-          console.warn(
-            "Diagnóstico pós-login: /api/auth/me ainda indisponível logo após autenticação.",
-            sessionError,
-          );
-        });
+          if (session?.access_token) {
+            return true;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 180 * (attempt + 1)));
+        }
+
+        return false;
+      };
+
+      const hasActiveSession = await waitForSession();
+
+      if (!hasActiveSession) {
+        throw new Error("Sessão não foi persistida no navegador.");
       }
+
+      router.refresh();
+      window.location.assign(redirectTo);
     } catch (loginError) {
       const message =
         loginError instanceof Error
