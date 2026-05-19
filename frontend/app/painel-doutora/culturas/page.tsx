@@ -172,10 +172,10 @@ export default function CulturasPainelDoutoraPage() {
     <section className="mx-auto max-w-7xl px-6 py-12">
       <div className="mb-6 flex flex-wrap gap-3">
         <Link
-          href="/painel-doutora"
+          href="/configuracoes"
           className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50"
         >
-          Revisões e conhecimento
+          ⚙️ Configurações
         </Link>
         <Link
           href="/painel-doutora/usuarios"

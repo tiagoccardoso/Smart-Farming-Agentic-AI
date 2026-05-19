@@ -45,8 +45,8 @@ const accountLinks: NavigationLink[] = [
     allowedRoles: ["admin", "specialist"],
   },
   {
-    href: "/painel-doutora/usuarios",
-    label: "Usuários",
+    href: "/configuracoes",
+    label: "Configurações",
     requiresAuth: true,
     allowedRoles: ["admin", "specialist"],
   },
