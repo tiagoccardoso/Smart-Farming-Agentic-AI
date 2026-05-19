@@ -166,3 +166,29 @@ export async function getCurrentAuthSession() {
   storeSupabaseSession(payload);
   return payload;
 }
+
+export async function updateCurrentProfile(data: {
+  fullName: string;
+  phone: string;
+}) {
+  const response = await fetch("/api/auth/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  return parseAuthResponse(response);
+}
+
+export async function updateCurrentAuthCredentials(data: {
+  email?: string;
+  password?: string;
+}) {
+  const response = await fetch("/api/auth/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  return parseAuthResponse(response);
+}

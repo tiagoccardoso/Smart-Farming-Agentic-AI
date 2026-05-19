@@ -25,6 +25,7 @@ const publicLinks: NavigationLink[] = [
 ];
 
 const accountLinks: NavigationLink[] = [
+  { href: "/perfil", label: "Perfil", requiresAuth: true },
   { href: "/consultoria-ia", label: "Consultoria IA", requiresAuth: true },
   { href: "/enviar-caso", label: "Enviar Caso", requiresAuth: true },
   { href: "/revisao-humana", label: "Revisão Humana", requiresAuth: true },
