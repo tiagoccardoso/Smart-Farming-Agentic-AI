@@ -41,6 +41,29 @@ function friendlyAuthError(message: string) {
     return "Falha de conexão. Verifique sua internet e tente novamente.";
   }
 
+  if (
+    normalized.includes("sessão inválida retornada pelo servidor") ||
+    normalized.includes("sessao invalida retornada pelo servidor")
+  ) {
+    return "A autenticação retornou uma sessão inválida. Tente entrar novamente em instantes.";
+  }
+
+  if (
+    normalized.includes("sessão não foi persistida no navegador") ||
+    normalized.includes("sessao nao foi persistida no navegador")
+  ) {
+    return "Seu login foi aceito, mas a sessão não ficou ativa no navegador. Atualize a página e tente novamente.";
+  }
+
+  if (
+    normalized.includes("sessão não encontrada") ||
+    normalized.includes("sessao nao encontrada") ||
+    normalized.includes("sessão inválida") ||
+    normalized.includes("sessao invalida")
+  ) {
+    return "Não foi possível validar sua sessão de acesso. Tente entrar novamente.";
+  }
+
   return "Não foi possível concluir o login agora. Tente novamente em instantes.";
 }
 
