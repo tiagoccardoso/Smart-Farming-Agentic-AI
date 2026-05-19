@@ -82,7 +82,6 @@ export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -93,7 +92,6 @@ export default function Navbar() {
       const session = await getCurrentAuthSession().catch(() => null);
       if (active) {
         setProfile(session?.profile ?? null);
-        setUserEmail(session?.user?.email ?? null);
         setLoadingSession(false);
       }
     }
@@ -138,7 +136,7 @@ export default function Navbar() {
           {profile ? (
             <>
               <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
-                <Link href="/perfil" className="cursor-pointer rounded-full px-1 hover:text-leaf-900">{profile.full_name || userEmail || "Meu perfil"}</Link> · {profile.role}
+                {profile.full_name || "Conta"} · {profile.role}
               </span>
               <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
                 Sair
@@ -179,7 +177,7 @@ export default function Navbar() {
             {profile ? (
               <>
                 <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
-                  <Link href="/perfil" className="cursor-pointer rounded-full px-1 hover:text-leaf-900">{profile.full_name || userEmail || "Meu perfil"}</Link> · {profile.role}
+                  {profile.full_name || "Conta"} · {profile.role}
                 </span>
                 <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
                   Sair
