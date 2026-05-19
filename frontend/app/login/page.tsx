@@ -43,13 +43,28 @@ function friendlyAuthError(message: string) {
   return "Não foi possível concluir o login agora. Tente novamente em instantes.";
 }
 
+function resolveRedirectTarget(rawTarget: string | null) {
+  if (!rawTarget) {
+    return "/consultoria-ia";
+  }
+
+  if (!rawTarget.startsWith("/") || rawTarget.startsWith("//")) {
+    return "/consultoria-ia";
+  }
+
+  if (rawTarget === "/login" || rawTarget.startsWith("/login?")) {
+    return "/consultoria-ia";
+  }
+
+  return rawTarget;
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo =
-    searchParams.get("redirectTo") ||
-    searchParams.get("next") ||
-    "/consultoria-ia";
+  const redirectTo = resolveRedirectTarget(
+    searchParams.get("redirectTo") || searchParams.get("next"),
+  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -96,9 +111,17 @@ function LoginContent() {
     setError(null);
     setRecoveryMessage(null);
 
+    let redirected = false;
+
     try {
-      await loginWithEmailPassword(normalizedEmail, password);
-      router.push(redirectTo);
+      const authPayload = await loginWithEmailPassword(normalizedEmail, password);
+
+      if (!authPayload.access_token || !authPayload.user?.id) {
+        throw new Error("Sessão inválida retornada pelo servidor.");
+      }
+
+      redirected = true;
+      router.replace(redirectTo);
       router.refresh();
     } catch (loginError) {
       const message =
@@ -111,7 +134,10 @@ function LoginContent() {
       }
 
       setError(message);
-      setLoading(false);
+    } finally {
+      if (!redirected) {
+        setLoading(false);
+      }
     }
   }
 
