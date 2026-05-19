@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { getSitePage } from "../lib/site-pages";
 
 const premiumCards = [
   { icon: "🌱", title: "Conversão para orgânico", description: "Planejamento da transição, metas por etapa e orientação para reduzir riscos produtivos." },
@@ -16,7 +17,19 @@ const steps = [
   { title: "Conte com revisão especializada", description: "Quando necessário, a análise é complementada por orientação humana técnica e contextualizada." },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const page = await getSitePage("home");
+  const content = page.content ?? {};
+  const heroTitle =
+    page.title ||
+    "Consultoria agrícola inteligente para produção orgânica e decisões no campo";
+  const heroSubtitle =
+    page.subtitle ||
+    "Una inteligência artificial, conhecimento agronômico e revisão humana especializada para diagnosticar problemas, planejar manejos e apoiar a conversão da sua propriedade para agricultura orgânica.";
+  const heroText =
+    content.heroText ||
+    "A Plantasã ajuda produtores a organizarem informações da lavoura, enviarem fotos, receberem uma triagem inicial por IA e, quando necessário, contarem com revisão técnica humana conduzida por especialista em produção vegetal, olericultura e agricultura orgânica.";
+
   return (
     <div className="bg-[#F6F1E8] text-[#1F2933]">
       <section className="relative overflow-hidden bg-[radial-gradient(circle_at_top_left,#DCEED3_0%,#F6F1E8_44%,#FDFBF7_100%)]">
@@ -29,20 +42,20 @@ export default function HomePage() {
               🌿 Agricultura orgânica • IA • revisão humana
             </p>
             <h1 className="max-w-4xl text-4xl font-bold leading-tight text-[#123F2A] md:text-6xl">
-              Consultoria agrícola inteligente para produção orgânica e decisões no campo
+              {heroTitle}
             </h1>
             <p className="mt-6 max-w-3xl text-lg leading-8 text-[#1F2933]/80">
-              Una inteligência artificial, conhecimento agronômico e revisão humana especializada para diagnosticar problemas, planejar manejos e apoiar a conversão da sua propriedade para agricultura orgânica.
+              {heroSubtitle}
             </p>
             <p className="mt-5 max-w-3xl leading-7 text-[#1F2933]/72">
-              A Plantasã ajuda produtores a organizarem informações da lavoura, enviarem fotos, receberem uma triagem inicial por IA e, quando necessário, contarem com revisão técnica humana conduzida por especialista em produção vegetal, olericultura e agricultura orgânica.
+              {heroText}
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
-              <Link href="/agricultura-organica" className="rounded-full bg-[#123F2A] px-7 py-3 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#0F3322]">
-                Conhecer consultoria orgânica
+              <Link href={content.primaryButtonUrl || "/agricultura-organica"} className="rounded-full bg-[#123F2A] px-7 py-3 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#0F3322]">
+                {content.primaryButtonText || "Conhecer consultoria orgânica"}
               </Link>
-              <Link href="/consultoria-ia" className="rounded-full bg-[#A7C957] px-7 py-3 text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#94B94B]">
-                Iniciar consultoria com IA
+              <Link href={content.secondaryButtonUrl || "/consultoria-ia"} className="rounded-full bg-[#A7C957] px-7 py-3 text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#94B94B]">
+                {content.secondaryButtonText || "Iniciar consultoria com IA"}
               </Link>
               <Link href="/contact?requestType=conversao_propriedade_organica" className="rounded-full border border-[#123F2A]/20 bg-white px-7 py-3 text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123F2A]/50">
                 Falar com especialista
@@ -53,8 +66,8 @@ export default function HomePage() {
           <div className="relative">
             <div className="relative rounded-[2rem] border border-white/80 bg-white/70 p-3 shadow-soft backdrop-blur">
               <Image
-                src="/images/organic-consulting-premium.svg"
-                alt="Especialista em agricultura orgânica avaliando hortaliças em uma propriedade rural com apoio de tecnologia."
+                src={page.image_url || "/images/organic-consulting-premium.svg"}
+                alt="Produção agrícola orgânica com tecnologia e orientação especializada no campo."
                 width={900}
                 height={620}
                 className="w-full rounded-[1.5rem]"

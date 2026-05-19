@@ -44,6 +44,26 @@ export const agriculturaOrganicaFallback: SitePage = {
 };
 
 export const sitePageFallbacks: Record<string, SitePage> = {
+  home: {
+    slug: "home",
+    title: "Consultoria agrícola inteligente para produção orgânica e decisões no campo",
+    subtitle:
+      "Una inteligência artificial, conhecimento agronômico e revisão humana especializada para diagnosticar problemas, planejar manejos e apoiar a conversão da sua propriedade para agricultura orgânica.",
+    image_url: "",
+    content: {
+      heroText:
+        "A Plantasã ajuda produtores a organizarem informações da lavoura, enviarem fotos, receberem uma triagem inicial por IA e, quando necessário, contarem com revisão técnica humana conduzida por especialista em produção vegetal, olericultura e agricultura orgânica.",
+      primaryButtonText: "Conhecer consultoria orgânica",
+      primaryButtonUrl: "/agricultura-organica",
+      secondaryButtonText: "Iniciar consultoria com IA",
+      secondaryButtonUrl: "/consultoria-ia",
+      organicSectionTitle:
+        "Pensando em converter sua propriedade para produção orgânica?",
+      organicSectionText:
+        "A conversão para a agricultura orgânica pode abrir novas oportunidades de mercado, valorizar a produção e melhorar a sustentabilidade da propriedade. Mas esse processo exige diagnóstico, planejamento e acompanhamento técnico.",
+      cards: [],
+    },
+  },
   especialista: especialistaFallback,
   "agricultura-organica": agriculturaOrganicaFallback,
 };
