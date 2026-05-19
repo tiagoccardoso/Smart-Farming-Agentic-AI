@@ -1,5 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
+import HomeHeroImage from "../components/HomeHeroImage";
 import { getSitePage } from "../lib/site-pages";
 
 const premiumCards = [
@@ -65,13 +65,9 @@ export default async function HomePage() {
 
           <div className="relative">
             <div className="relative rounded-[2rem] border border-white/80 bg-white/70 p-3 shadow-soft backdrop-blur">
-              <Image
-                src={page.image_url || "/images/organic-consulting-premium.svg"}
+              <HomeHeroImage
+                src={page.image_url}
                 alt="Produção agrícola orgânica com tecnologia e orientação especializada no campo."
-                width={900}
-                height={620}
-                className="w-full rounded-[1.5rem]"
-                priority
               />
               <div className="absolute left-5 top-5 rounded-2xl border border-[#A7C957]/60 bg-white/95 p-4 shadow-soft">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#2E7D32]">Diagnóstico técnico</p>
