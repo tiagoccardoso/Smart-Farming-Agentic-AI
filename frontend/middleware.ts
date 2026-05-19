@@ -17,6 +17,7 @@ function loginRedirect(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") || "unknown-host";
   const requiresAuth = matchesRoute(pathname, protectedRoutes) || matchesRoute(pathname, specialistRoutes);
 
   if (!requiresAuth) {
@@ -32,23 +33,51 @@ export async function middleware(request: NextRequest) {
   try {
     const user = await getCurrentUser(token);
 
-    const profile = await getCurrentProfile(token, user.id);
+    let profile = null;
+    try {
+      profile = await getCurrentProfile(token, user.id);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        const message = error instanceof Error ? error.message : "erro desconhecido";
+        console.warn("[auth/middleware] profile indisponível temporariamente", {
+          host,
+          pathname,
+          userId: user.id,
+          message,
+        });
+      }
+    }
 
     if (!isActiveProfile(profile)) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[auth/middleware] usuário inativo, redirecionando para login", {
+          host,
+          pathname,
+          userId: user.id,
+        });
+      }
       return loginRedirect(request);
     }
 
     if (matchesRoute(pathname, specialistRoutes)) {
-      if (!hasRole(profile, ["specialist", "admin"])) {
+      if (!profile || !hasRole(profile, ["specialist", "admin"])) {
         const url = request.nextUrl.clone();
         url.pathname = "/consultoria-ia";
-        url.searchParams.set("auth", "forbidden");
+        url.searchParams.set("auth", profile ? "forbidden" : "profile-unavailable");
         return NextResponse.redirect(url);
       }
     }
 
     return NextResponse.next();
-  } catch {
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      const message = error instanceof Error ? error.message : "erro desconhecido";
+      console.warn("[auth/middleware] token inválido ou sessão expirada", {
+        host,
+        pathname,
+        message,
+      });
+    }
     return loginRedirect(request);
   }
 }
