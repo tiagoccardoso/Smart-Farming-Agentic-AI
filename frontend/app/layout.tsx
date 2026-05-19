@@ -4,8 +4,8 @@ import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 
 export const metadata: Metadata = {
-  title: "Consultor Agrícola IA",
-  description: "Recomendação de culturas, triagem de doenças e perguntas agrícolas em uma aplicação 100% Next.js."
+  title: "Plantasã",
+  description: "Consultoria agrícola com IA, revisão humana especializada e orientação para produção orgânica."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

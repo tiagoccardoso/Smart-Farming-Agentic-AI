@@ -66,7 +66,7 @@ export default function CropPage() {
     <div className="mx-auto max-w-6xl px-6 py-14">
       <SectionTitle
         title="Recomendação de culturas"
-        subtitle="Informe dados de solo e clima para receber uma sugestão leve em Next.js."
+        subtitle="Consulte todas as culturas cadastradas na base e use dados de solo e clima para receber uma recomendação inicial."
       />
 
       <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
@@ -126,28 +126,33 @@ export default function CropPage() {
         </div>
 
         <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-          {catalog.length > 0 && (
-            <div className="mb-6 rounded-2xl bg-leaf-50 p-4">
-              <p className="text-sm font-semibold text-leaf-800">
-                Base de culturas integrada à IA
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {catalog.slice(0, 8).map((crop) => (
+          <div className="mb-6 rounded-2xl bg-leaf-50 p-4">
+            <p className="text-sm font-semibold text-leaf-800">
+              Todas as culturas cadastradas na base
+            </p>
+            {catalog.length > 0 ? (
+              <div className="mt-3 flex max-h-72 flex-wrap gap-2 overflow-y-auto pr-1">
+                {catalog.map((crop) => (
                   <span
                     key={crop.id}
                     className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-leaf-100"
+                    title={crop.scientific_name || crop.name}
                   >
                     {crop.display_name_pt || crop.name}
                   </span>
                 ))}
               </div>
-              <p className="mt-3 text-xs leading-5 text-slate-600">
-                Quando um caso usa uma cultura cadastrada, a consultoria IA
-                considera clima, solo, ciclo, riscos, doenças, pragas e manejo
-                registrados no Painel da Doutora.
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="mt-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-4 text-sm text-slate-600">
+                Nenhuma cultura cadastrada no momento.
+              </div>
+            )}
+            <p className="mt-3 text-xs leading-5 text-slate-600">
+              Quando um caso usa uma cultura cadastrada, a consultoria IA
+              considera clima, solo, ciclo, riscos, doenças, pragas e manejo
+              registrados no Painel da Doutora.
+            </p>
+          </div>
           {result ? (
             <div className="space-y-5">
               <div>
