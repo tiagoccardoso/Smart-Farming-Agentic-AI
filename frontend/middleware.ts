@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE, getCurrentProfile, getCurrentUser, hasRole, isActiveProfile } from "./lib/auth";
 
-const protectedRoutes = ["/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/planos", "/dashboard"];
+const protectedRoutes = ["/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/planos", "/dashboard", "/perfil"];
 const specialistRoutes = ["/painel-doutora", "/admin/agendamentos"];
 
 function matchesRoute(pathname: string, routes: string[]) {
@@ -54,5 +54,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/planos/:path*", "/dashboard/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*"]
+  matcher: ["/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/planos/:path*", "/dashboard/:path*", "/perfil/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*"]
 };
