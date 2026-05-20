@@ -109,6 +109,7 @@ export async function loginWithEmailPassword(email: string, password: string) {
   const response = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify({ email, password }),
   });
   const payload = await parseAuthResponse(response);
@@ -156,7 +157,10 @@ export async function logout() {
 }
 
 export async function getCurrentAuthSession() {
-  const response = await fetch("/api/auth/me", { cache: "no-store" });
+  const response = await fetch("/api/auth/me", {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
 
   if (response.status === 401) {
     return null;

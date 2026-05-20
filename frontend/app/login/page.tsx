@@ -8,6 +8,7 @@ import SectionTitle from "../../components/SectionTitle";
 import {
   loginWithEmailPassword,
   requestPasswordRecovery,
+  getCurrentAuthSession,
 } from "../../lib/supabaseAuth";
 
 function LoginContent() {
@@ -29,8 +30,8 @@ function LoginContent() {
 
     try {
       await loginWithEmailPassword(email, password);
-      router.push(nextPath);
-      router.refresh();
+      await getCurrentAuthSession();
+      router.replace(nextPath);
     } catch (loginError) {
       setError(
         loginError instanceof Error
