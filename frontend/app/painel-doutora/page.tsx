@@ -361,6 +361,7 @@ export default function PainelDoutoraPage() {
   const [selectedKnowledgeFile, setSelectedKnowledgeFile] = useState<File | null>(null);
   const [uploadingKnowledgeFile, setUploadingKnowledgeFile] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>("Nenhum arquivo enviado.");
+  const [showKnowledge, setShowKnowledge] = useState(false);
 
   const selectedCase = useMemo(
     () =>
@@ -373,6 +374,13 @@ export default function PainelDoutoraPage() {
     () => (selectedCase ? buildPendingQuestions(selectedCase) : []),
     [selectedCase],
   );
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setShowKnowledge(params.get("tab") === "knowledge");
+    }
+  }, []);
 
   useEffect(() => {
     async function loadQueue() {
@@ -690,7 +698,7 @@ export default function PainelDoutoraPage() {
           href="/painel-doutora"
           className="rounded-full bg-leaf-600 px-4 py-2 text-sm font-semibold text-white shadow-soft"
         >
-          Revisões e conhecimento
+          Revisões
         </Link>
       </div>
 
@@ -764,7 +772,7 @@ export default function PainelDoutoraPage() {
             </div>
           )}
 
-          <article className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
+          {showKnowledge && (<article className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">
@@ -1051,7 +1059,7 @@ export default function PainelDoutoraPage() {
                 ))
               )}
             </div>
-          </article>
+          </article>)}
 
           {loading && (
             <div className="mt-8">
