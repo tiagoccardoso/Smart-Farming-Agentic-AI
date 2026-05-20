@@ -7,7 +7,7 @@ type Plan = {
   name: string;
   slug: string;
   eyebrow: string;
-  price: string;
+  priceLabel: string;
   audience: string;
   description: string;
   features: string[];
@@ -20,7 +20,7 @@ type Plan = {
 type ConsultingService = {
   name: string;
   serviceType: string;
-  price: string;
+  priceLabel: string;
   description: string;
 };
 
@@ -35,12 +35,15 @@ const freePlanNotice = "As respostas geradas por IA são orientativas e não sub
 
 const valuePhrases = ["Decisões agrícolas mais seguras", "IA + suporte especializado", "Análises organizadas e históricas"];
 
+const brlFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const formatBRL = (value: number) => brlFormatter.format(value);
+
 const plans: Plan[] = [
   {
     name: "Plano Gratuito",
     slug: "gratuito",
     eyebrow: "Demonstração",
-    price: "R$ 0",
+    priceLabel: formatBRL(0),
     audience: "Para conhecer a plataforma e validar valor rapidamente.",
     description: "Uma entrada objetiva para testar a IA orientativa em dúvidas agrícolas pontuais.",
     features: ["3 perguntas agrícolas por mês", "1 triagem simples com imagem", "Recomendação agrícola básica", "Sem PDF", "Histórico das perguntas realizadas", "Sem análise de solo", "Sem revisão humana"],
@@ -50,7 +53,7 @@ const plans: Plan[] = [
     name: "IA Básica",
     slug: "ia-basica",
     eyebrow: "Orientação inicial",
-    price: "R$ 39/mês",
+    priceLabel: `${formatBRL(39)}/mês`,
     audience: "Pequenos produtores, estudantes e técnicos agrícolas.",
     description: "Apoio recorrente para organizar dúvidas, recomendações iniciais e triagens simples.",
     features: ["Perguntas agrícolas com IA", "Histórico simples", "Recomendações iniciais", "Triagem básica de sintomas", "Limite mensal controlado", "Orientação inicial com IA"],
@@ -61,7 +64,7 @@ const plans: Plan[] = [
     name: "IA Profissional",
     slug: "ia-profissional",
     eyebrow: "Plano recomendado",
-    price: "R$ 97/mês",
+    priceLabel: `${formatBRL(97)}/mês`,
     audience: "Produtores e consultores que utilizarão o sistema com frequência.",
     description: "Sistema completo de decisão agronômica assistida por IA, com relatórios e histórico por propriedade.",
     features: ["Limite alto de análises", "Upload de fotos", "Upload de análise de solo", "Relatórios PDF", "Histórico por propriedade", "Análises mais completas", "Recomendações organizadas", "Prioridade de processamento", "Suporte prioritário"],
@@ -73,7 +76,7 @@ const plans: Plan[] = [
     name: "IA + Revisão Humana",
     slug: "ia-revisao-humana",
     eyebrow: "Premium",
-    price: "R$ 397/mês",
+    priceLabel: `${formatBRL(397)}/mês`,
     audience: "Operações que precisam de validação especializada mensal e acompanhamento mais próximo.",
     description: "Combina a velocidade da IA com uma revisão humana mensal feita por especialista.",
     features: ["Tudo do IA Profissional", "1 revisão humana mensal incluída", "Análise revisada por especialista", "Relatório revisado", "Suporte prioritário", "Acompanhamento mais próximo", "Revisões extras podem ser contratadas separadamente"],
@@ -85,25 +88,25 @@ const consultingServices: ConsultingService[] = [
   {
     name: "Revisão humana de caso",
     serviceType: "human_case_review",
-    price: "R$ 197",
+    priceLabel: formatBRL(197),
     description: "Validação especializada de um caso pontual já estruturado pela plataforma."
   },
   {
     name: "Interpretação de análise de solo",
     serviceType: "soil_analysis_review",
-    price: "R$ 250",
+    priceLabel: formatBRL(250),
     description: "Leitura técnica dos indicadores de solo com recomendações organizadas."
   },
   {
     name: "Relatório técnico especializado",
     serviceType: "technical_report",
-    price: "A partir de R$ 497",
+    priceLabel: `A partir de ${formatBRL(497)}`,
     description: "Documento técnico revisado para decisões agronômicas mais sensíveis."
   },
   {
     name: "Acompanhamento mensal de propriedade",
     serviceType: "monthly_farm_followup",
-    price: "A partir de R$ 997/mês",
+    priceLabel: `A partir de ${formatBRL(997)}/mês`,
     description: "Rotina de acompanhamento para histórico, prioridades e suporte especializado."
   }
 ];
@@ -260,7 +263,7 @@ export default function PlanosPage() {
                 <h3 className="mt-3 text-2xl font-black text-slate-950">{plan.name}</h3>
                 <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{plan.audience}</p>
                 <div className="mt-5 rounded-3xl bg-slate-50 p-4">
-                  <p className="text-3xl font-black text-slate-950">{plan.price}</p>
+                  <p className="text-3xl font-black text-slate-950">{plan.priceLabel}</p>
                 </div>
                 <p className="mt-5 text-sm leading-6 text-slate-700">{plan.description}</p>
 
@@ -312,9 +315,7 @@ export default function PlanosPage() {
                 Contrate validações pontuais quando precisar de uma análise revisada, um relatório técnico ou acompanhamento próximo da propriedade.
               </p>
             </div>
-            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-              Endpoint preparado: /api/stripe/create-human-review-checkout
-            </p>
+            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">Solicitação com checkout seguro para cada serviço.</p>
           </div>
 
           <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -325,7 +326,7 @@ export default function PlanosPage() {
               return (
                 <article key={service.serviceType} className="flex min-h-full flex-col rounded-3xl border border-leaf-100 bg-gradient-to-b from-white to-leaf-50/70 p-5 shadow-soft">
                   <h3 className="text-lg font-bold text-slate-950">{service.name}</h3>
-                  <p className="mt-3 text-2xl font-black text-leaf-800">{service.price}</p>
+                  <p className="mt-3 text-2xl font-black text-leaf-800">{service.priceLabel}</p>
                   <p className="mt-3 flex-1 text-sm leading-6 text-slate-600">{service.description}</p>
                   <button
                     type="button"
