@@ -327,3 +327,39 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const token = requireToken(request);
+
+    if (!token) {
+      return NextResponse.json({ error: "Faça login para excluir conteúdo técnico." }, { status: 401 });
+    }
+
+    const auth = await ensureSpecialist(token);
+
+    if (auth.error) {
+      return auth.error;
+    }
+
+    const payload = (await request.json().catch(() => null)) as KnowledgePayload | null;
+    const id = cleanOptionalText(payload?.id);
+
+    if (!id) {
+      return NextResponse.json({ error: "Informe o conteúdo que será excluído." }, { status: 400 });
+    }
+
+    await supabaseRequest(
+      `/rest/v1/specialist_knowledge?id=eq.${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+      token,
+      getSupabaseConfig()
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Não foi possível excluir o conteúdo técnico.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
