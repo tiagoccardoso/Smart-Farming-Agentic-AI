@@ -70,6 +70,11 @@ type KnowledgeMutationResponse = {
   material: KnowledgeMaterial | null;
 };
 
+type KnowledgeUploadResponse = {
+  fileUrl: string;
+  fileName: string;
+};
+
 const statusLabels: Record<string, string> = {
   waiting_review: "Aguardando revisão",
   in_review: "Em revisão",
@@ -207,6 +212,19 @@ async function updateKnowledgeStatus(
   return parseResponse(response) as Promise<KnowledgeMutationResponse>;
 }
 
+async function uploadKnowledgeFile(file: File, accessToken: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/specialist/knowledge/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: formData,
+  });
+
+  return parseResponse(response) as Promise<KnowledgeUploadResponse>;
+}
+
 function displayValue(value?: string | number | null) {
   if (value === null || value === undefined || value === "") {
     return "Não informado";
@@ -340,6 +358,9 @@ export default function PainelDoutoraPage() {
     crop: "",
     category: "",
   });
+  const [selectedKnowledgeFile, setSelectedKnowledgeFile] = useState<File | null>(null);
+  const [uploadingKnowledgeFile, setUploadingKnowledgeFile] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>("Nenhum arquivo enviado.");
 
   const selectedCase = useMemo(
     () =>
@@ -493,6 +514,36 @@ export default function PainelDoutoraPage() {
       );
     } finally {
       setKnowledgeSubmitting(false);
+    }
+  }
+
+  async function handleKnowledgeFileUpload() {
+    const accessToken = getStoredSupabaseAccessToken();
+    if (!accessToken) {
+      setAccessDenied(true);
+      return;
+    }
+    if (!selectedKnowledgeFile) {
+      setUploadStatus("Selecione um arquivo antes de enviar.");
+      return;
+    }
+
+    setUploadingKnowledgeFile(true);
+    setError(null);
+    setSuccessMessage(null);
+    setUploadStatus("Enviando arquivo...");
+
+    try {
+      const response = await uploadKnowledgeFile(selectedKnowledgeFile, accessToken);
+      setKnowledgeForm((current) => ({ ...current, file_url: response.fileUrl }));
+      setUploadStatus(`Upload concluído: ${response.fileName}`);
+      setSuccessMessage("Arquivo enviado com sucesso. Agora finalize o cadastro do conteúdo.");
+      setSelectedKnowledgeFile(null);
+    } catch (uploadError) {
+      setUploadStatus("Erro no envio do arquivo.");
+      setError(uploadError instanceof Error ? uploadError.message : "Não foi possível enviar o arquivo.");
+    } finally {
+      setUploadingKnowledgeFile(false);
     }
   }
 
@@ -666,7 +717,7 @@ export default function PainelDoutoraPage() {
               {
                 title: "Painel da Doutora",
                 description: "Especialista revisa dados e IA.",
-                status: "current",
+                status: cases.length > 0 ? "current" : "next",
               },
               {
                 title: "Finalizar análise",
@@ -806,6 +857,30 @@ export default function PainelDoutoraPage() {
                     type="url"
                   />
                 </label>
+                <div className="block">
+                  <span className="text-sm font-semibold text-slate-700">Upload de arquivo local</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.doc,.docx"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setSelectedKnowledgeFile(file);
+                        setUploadStatus(file ? `Arquivo selecionado: ${file.name}` : "Nenhum arquivo enviado.");
+                      }}
+                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-leaf-100 file:px-4 file:py-2 file:font-semibold file:text-leaf-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleKnowledgeFileUpload}
+                      disabled={uploadingKnowledgeFile}
+                      className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {uploadingKnowledgeFile ? "Enviando..." : "Enviar arquivo"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{uploadStatus}</p>
+                </div>
               </div>
               <label className="block">
                 <span className="text-sm font-semibold text-slate-700">
