@@ -198,6 +198,13 @@ function hasUsefulDiseaseData(suggestion: DiseaseAiSuggestion) {
   });
 }
 
+function countStructuredDiseaseFields(payload: DiseaseAiSuggestion) {
+  return diseaseRequiredFields.reduce((acc, field) => {
+    if (String(payload[field] ?? "").trim().length > 0) return acc + 1;
+    return acc;
+  }, 0);
+}
+
 function hasDiseaseShape(value: unknown) {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
@@ -453,7 +460,12 @@ Doença pesquisada: "${name}"`;
 
     const hasUsableData = hasUsefulDiseaseData(suggestion);
     if (!hasUsableData) {
-      return NextResponse.json({ success: false, error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.", details: "ai_no_usable_data" }, { status: 422 });
+      return NextResponse.json({
+        success: false,
+        error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.",
+        details: "ai_no_usable_data",
+        debug: { raw_text: rawTextResponse || undefined, warnings }
+      }, { status: 422 });
     }
 
     const response: DiseaseAiApiResponse = {
@@ -472,7 +484,10 @@ Doença pesquisada: "${name}"`;
         controle_biologico_preventivo: suggestion.preventive_control,
         manejo_curativo_quimico: suggestion.curative_control,
       },
-      debug: { warnings, raw_text: rawTextResponse || undefined }
+      debug: {
+        warnings: [...warnings, `Campos estruturados preenchidos: ${countStructuredDiseaseFields(suggestion)}/${diseaseRequiredFields.length}`],
+        raw_text: rawTextResponse || undefined
+      }
     };
     return NextResponse.json(response);
   } catch (e) {
