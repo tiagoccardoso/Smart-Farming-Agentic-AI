@@ -221,7 +221,7 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
   };
 
   const suggestion: DiseaseAiSuggestion = {
-    common_name: normalizedField("common_name", fallbackName),
+    common_name: fallbackName,
     scientific_name: normalizedField("scientific_name", diseaseFieldFallback),
     causal_agent: normalizedField("causal_agent", diseaseFieldFallback),
     disease_type: normalizedField("disease_type", diseaseFieldFallback),
@@ -280,6 +280,14 @@ async function ensureSpecialist(token: string) {
   return { user };
 }
 
+function isRetryableAiError(error: unknown) {
+  const e = error as OpenAIError;
+  const status = e?.status;
+  const code = e?.code;
+  if (status && status >= 500) return true;
+  return code === "overloaded_error" || code === "timeout" || code === "server_error";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const token = getToken(request);
@@ -308,12 +316,30 @@ Regras:
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
 `
-      : `Pesquise informações técnicas agronômicas sobre a doença "${name}".
-Responda em DUAS PARTES:
-1) Um resumo textual curto e objetivo em português do Brasil.
-2) Um JSON válido com os campos do cadastro (use string vazia quando não souber).
+      : `Pesquise informações técnicas agronômicas confiáveis sobre a doença: "${name}".
 
-Formato esperado do JSON:
+Objetivo:
+Gerar informações para preencher automaticamente um cadastro de doenças agrícolas.
+
+Regras obrigatórias:
+- Responda em português do Brasil.
+- Não invente dados incertos.
+- Quando a informação variar conforme a cultura, informe isso claramente.
+- Se não souber algum campo, use string vazia "".
+- Não inclua crop_id.
+- Considere possíveis variações do nome informado pelo usuário. Exemplo: se o usuário digitar "Antraquinose", considere que pode estar se referindo a "Antracnose".
+- Priorize informações agronômicas técnicas, como agente causal, sintomas, condições favoráveis e manejo.
+- O manejo químico deve sempre conter ressalva para validação com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro do produto para a cultura.
+
+Formato obrigatório da resposta:
+Responda em DUAS PARTES.
+
+PARTE 1:
+Um resumo textual curto, objetivo e técnico sobre a doença.
+
+PARTE 2:
+Um JSON válido, sem comentários, sem markdown dentro do JSON, seguindo exatamente este formato:
+
 {
   "nome_comum": "",
   "nome_cientifico": "",
@@ -328,23 +354,37 @@ Formato esperado do JSON:
   "manejo_curativo_quimico": ""
 }
 
-Regras obrigatórias:
-- Não invente dados incertos.
-- Não inclua crop_id.
-- Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
-`;
+Instruções para preenchimento:
+- nome_comum: nome popular mais usado da doença.
+- nome_cientifico: nome científico do patógeno ou grupo de patógenos, quando aplicável.
+- agente_causal: detalhe do organismo causador.
+- tipo_agente: Fungo, Bactéria, Vírus, Nematoide, Fisiológico, Praga ou outro tipo aplicável.
+- sintomas_principais: sintomas visíveis no campo.
+- condicoes_favoraveis: clima, umidade, temperatura, manejo ou ambiente que favorecem a doença.
+- periodo_critico_ocorrencia: fase da cultura ou época de maior risco.
+- nivel_severidade: Baixa, Média ou Alta, com justificativa curta.
+- manejo_preventivo: medidas culturais, sanitárias e preventivas.
+- controle_biologico_preventivo: opções biológicas/preventivas quando existirem; se depender da cultura, informe.
+- manejo_curativo_quimico: opções gerais de controle químico apenas quando tecnicamente aplicável, sempre com ressalva obrigatória sobre validação com receituário agronômico, legislação local, bula e registro para a cultura.
 
-    const result = await openAIProvider.generateText(
-      [
-        {
-          role: "system",
-          content:
-            "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
-        },
-        { role: "user", content: prompt },
-      ],
-      { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
-    );
+Doença pesquisada: "${name}"`;
+
+    const aiMessages = [
+      {
+        role: "system" as const,
+        content:
+          "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
+      },
+      { role: "user" as const, content: prompt },
+    ];
+    let result;
+    try {
+      result = await openAIProvider.generateText(aiMessages, { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
+    } catch (firstError) {
+      if (!isRetryableAiError(firstError)) throw firstError;
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      result = await openAIProvider.generateText(aiMessages, { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
+    }
 
     let raw: Record<string, unknown> = {};
     let parsedSource: AiParseResult["source"] | "text_only" = "text_only";
