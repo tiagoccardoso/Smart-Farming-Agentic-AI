@@ -8,6 +8,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
+type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -113,6 +114,7 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   const message = e?.message || "Falha ao gerar sugestão por IA.";
   const status = e?.status;
   const code = e?.code;
+  const lowerMessage = message.toLowerCase();
 
   if (message.includes("OPENAI_API_KEY") || message.includes("OPENAI_CHAT_MODEL")) return { status: 503, error: "Configuração de IA ausente ou inválida no servidor.", code: "ai_configuration_error" };
   if (status === 401 || code === "invalid_api_key") return { status: 502, error: "Falha de autenticação com o provedor de IA.", code: "ai_auth_error" };
@@ -120,6 +122,9 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível.", code: "ai_model_not_found" };
   if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes.", code: "ai_rate_limit" };
   if (status === 400 || code === "unsupported_parameter" || code === "invalid_request_error") return { status: 502, error: "A requisição enviada ao modelo de IA é incompatível com o modelo configurado.", code: "ai_invalid_request" };
+  if (e?.name === "AbortError" || lowerMessage.includes("aborted") || lowerMessage.includes("timeout") || lowerMessage.includes("fetch failed") || lowerMessage.includes("network")) {
+    return { status: 503, error: "Falha temporária de conexão com o serviço de IA.", code: "ai_network_error" };
+  }
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
   if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
@@ -286,6 +291,7 @@ async function ensureSpecialist(token: string) {
 }
 
 export async function POST(request: NextRequest) {
+  let errorStage: AiFillErrorStage = "unknown";
   try {
     const token = getToken(request);
     if (!token) return NextResponse.json({ error: "Faça login." }, { status: 401 });
@@ -371,6 +377,7 @@ Instruções para preenchimento:
 
 Doença pesquisada: "${name}"`;
 
+    errorStage = "provider_call";
     const result = await openAIProvider.generateText(
       [
         {
@@ -388,10 +395,12 @@ Doença pesquisada: "${name}"`;
     let rawTextResponse = typeof result.content === "string" ? result.content : "";
 
     try {
+      errorStage = "parse_json";
       const parsed = parseAiPayload(result.content);
       raw = parsed.payload;
       parsedSource = parsed.source;
     } catch {
+      errorStage = "fallback_extract";
       raw = extractFallbackFieldsFromText(rawTextResponse);
     }
 
@@ -432,6 +441,7 @@ Doença pesquisada: "${name}"`;
       return NextResponse.json(response);
     }
 
+    errorStage = "normalize";
     const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
     if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsedSource);
     const aiObject = hasDiseaseShape(aiObjectCandidate)
@@ -463,8 +473,9 @@ Doença pesquisada: "${name}"`;
       type: "ai_fill",
       status: (e as OpenAIError)?.status,
       code: (e as OpenAIError)?.code,
-      detail
+      detail,
+      errorStage
     });
-    return NextResponse.json({ error: mapped.error, code: mapped.code }, { status: mapped.status });
+    return NextResponse.json({ error: mapped.error, code: mapped.code, error_stage: errorStage }, { status: mapped.status });
   }
 }
