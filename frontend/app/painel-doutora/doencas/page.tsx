@@ -93,7 +93,7 @@ export default function Page() {
         const errorCode = typeof p?.code === "string" ? p.code : "";
         if (errorCode === "ai_configuration_error") setErr("A IA não está configurada no servidor. Contate o administrador.");
         else if (["ai_provider_unavailable", "ai_rate_limit"].includes(errorCode) || r.status === 429 || r.status >= 500) setErr("A IA está temporariamente indisponível. Tente novamente em instantes.");
-        else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("A IA retornou uma resposta inválida para preenchimento automático. Tente novamente.");
+        else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("Não foi possível interpretar a resposta da IA. Tente novamente ou preencha manualmente.");
         else setErr(p.error || "Erro ao gerar sugestão por IA.");
         return;
       }
