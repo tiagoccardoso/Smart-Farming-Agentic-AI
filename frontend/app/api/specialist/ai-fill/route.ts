@@ -13,6 +13,30 @@ const cleanText = (value: unknown) => (typeof value === "string" && value.trim()
 const cleanNullable = (value: unknown) => cleanText(value) ?? "";
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
+function normalizeToText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeToText(item))
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (isRecord(value)) {
+    return Object.entries(value)
+      .map(([key, val]) => {
+        const parsed = normalizeToText(val);
+        return parsed ? `${key}: ${parsed}` : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
+}
+
+const normalizeNullable = (value: unknown) => normalizeToText(value) || "";
+
 function mapAiError(error: unknown) {
   const e = error as OpenAIError;
   const message = e?.message || "Falha ao gerar sugestão por IA.";
@@ -67,15 +91,32 @@ export async function POST(request: NextRequest) {
     if (!type || !name) return NextResponse.json({ error: "Informe tipo e nome." }, { status: 400 });
 
     let cropsList = "";
+    const validCropIds = new Set<string>();
     if (type === "disease") {
       const cfg = adminCfg();
       const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>("/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc", { method: "GET" }, cfg.anonKey, cfg);
+      crops.forEach((crop) => validCropIds.add(crop.id));
       cropsList = crops.map((c) => `${c.id} | ${c.display_name_pt || c.name}`).join("\n");
     }
 
     const prompt = type === "crop"
-      ? `Preencha JSON para cadastro de cultura. Nome base: "${name}". Campos: name,display_name_pt,display_name_en,slug,model_label,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,aliases(array),active(boolean). Retorne SOMENTE JSON válido.`
-      : `Preencha JSON para cadastro de doença. Nome base: "${name}". Campos: common_name,scientific_name,causal_agent,disease_type,symptoms,favorable_conditions,crop_stage,severity_level,management_recommendations,preventive_control,curative_control,technical_notes,is_active,crop_id (UUID ou null). Use apenas crop_id desta lista:\n${cropsList}\nSe não houver correspondência segura, use null. Retorne SOMENTE JSON válido.`;
+      ? `Preencha um cadastro de cultura com base no nome "${name}".
+Responda com APENAS um objeto JSON válido, sem markdown e sem texto extra.
+Não inclua campos fora desta lista: name,display_name_pt,display_name_en,slug,model_label,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,aliases,active.
+Regras:
+- aliases deve ser array de strings;
+- active deve ser boolean;
+- campos textuais devem ser string (use "" quando não souber).
+`
+      : `Preencha um cadastro de doença com base no nome "${name}".
+Responda com APENAS um objeto JSON válido, sem markdown e sem texto extra.
+Não inclua campos fora desta lista: common_name,scientific_name,causal_agent,disease_type,symptoms,favorable_conditions,crop_stage,severity_level,management_recommendations,preventive_control,curative_control,technical_notes,is_active,crop_id.
+Regras:
+- is_active deve ser boolean;
+- crop_id deve ser UUID desta lista ou null:
+${cropsList}
+- campos textuais devem ser string (use "" quando não souber).
+`;
 
     const result = await openAIProvider.generateText(
       [
@@ -93,23 +134,27 @@ export async function POST(request: NextRequest) {
 
     if (type === "crop") {
       const suggestion = {
-        name: cleanNullable(raw.name) || name,
-        display_name_pt: cleanNullable(raw.display_name_pt) || name,
-        display_name_en: cleanNullable(raw.display_name_en),
-        slug: cleanNullable(raw.slug),
-        model_label: cleanNullable(raw.model_label),
-        scientific_name: cleanNullable(raw.scientific_name),
-        recommended_soil: cleanNullable(raw.recommended_soil),
-        ideal_climate: cleanNullable(raw.ideal_climate),
-        common_diseases: cleanNullable(raw.common_diseases),
-        common_pests: cleanNullable(raw.common_pests),
-        growth_cycle: cleanNullable(raw.growth_cycle),
-        irrigation_notes: cleanNullable(raw.irrigation_notes),
-        fertilization_notes: cleanNullable(raw.fertilization_notes),
-        recommended_region: cleanNullable(raw.recommended_region),
-        known_risks: cleanNullable(raw.known_risks),
-        management_notes: cleanNullable(raw.management_notes),
-        aliases: Array.isArray(raw.aliases) ? raw.aliases.filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean) : [name],
+        name: normalizeNullable(raw.name) || name,
+        display_name_pt: normalizeNullable(raw.display_name_pt) || name,
+        display_name_en: normalizeNullable(raw.display_name_en),
+        slug: normalizeNullable(raw.slug),
+        model_label: normalizeNullable(raw.model_label),
+        scientific_name: normalizeNullable(raw.scientific_name),
+        recommended_soil: normalizeNullable(raw.recommended_soil),
+        ideal_climate: normalizeNullable(raw.ideal_climate),
+        common_diseases: normalizeNullable(raw.common_diseases),
+        common_pests: normalizeNullable(raw.common_pests),
+        growth_cycle: normalizeNullable(raw.growth_cycle),
+        irrigation_notes: normalizeNullable(raw.irrigation_notes),
+        fertilization_notes: normalizeNullable(raw.fertilization_notes),
+        recommended_region: normalizeNullable(raw.recommended_region),
+        known_risks: normalizeNullable(raw.known_risks),
+        management_notes: normalizeNullable(raw.management_notes),
+        aliases: Array.isArray(raw.aliases)
+          ? raw.aliases.map((x) => normalizeToText(x)).map((x) => x.trim()).filter(Boolean)
+          : normalizeToText(raw.aliases)
+            ? [normalizeToText(raw.aliases)]
+            : [name],
         active: normalizeBoolean(raw.active, true),
       };
 
@@ -121,20 +166,21 @@ export async function POST(request: NextRequest) {
     }
 
     const cropId = cleanText(raw.crop_id);
+    const normalizedCropId = cropId && requireUuid(cropId) && validCropIds.has(cropId) ? cropId : null;
     const suggestion = {
-      common_name: cleanNullable(raw.common_name) || name,
-      scientific_name: cleanNullable(raw.scientific_name),
-      causal_agent: cleanNullable(raw.causal_agent),
-      disease_type: cleanNullable(raw.disease_type),
-      symptoms: cleanNullable(raw.symptoms),
-      favorable_conditions: cleanNullable(raw.favorable_conditions),
-      crop_stage: cleanNullable(raw.crop_stage),
-      severity_level: cleanNullable(raw.severity_level),
-      management_recommendations: cleanNullable(raw.management_recommendations),
-      preventive_control: cleanNullable(raw.preventive_control),
-      curative_control: cleanNullable(raw.curative_control),
-      technical_notes: cleanNullable(raw.technical_notes),
-      crop_id: cropId && requireUuid(cropId) ? cropId : null,
+      common_name: normalizeNullable(raw.common_name) || name,
+      scientific_name: normalizeNullable(raw.scientific_name),
+      causal_agent: normalizeNullable(raw.causal_agent),
+      disease_type: normalizeNullable(raw.disease_type),
+      symptoms: normalizeNullable(raw.symptoms),
+      favorable_conditions: normalizeNullable(raw.favorable_conditions),
+      crop_stage: normalizeNullable(raw.crop_stage),
+      severity_level: normalizeNullable(raw.severity_level),
+      management_recommendations: normalizeNullable(raw.management_recommendations),
+      preventive_control: normalizeNullable(raw.preventive_control),
+      curative_control: normalizeNullable(raw.curative_control),
+      technical_notes: normalizeNullable(raw.technical_notes),
+      crop_id: normalizedCropId,
       is_active: normalizeBoolean(raw.is_active, true),
     };
 
