@@ -7,7 +7,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
-type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[] };
+type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -24,6 +24,22 @@ type DiseaseAiSuggestion = {
   crop_id: string | null;
   is_active: boolean;
 };
+
+const diseaseOutputFields: Array<keyof DiseaseAiSuggestion> = [
+  "common_name",
+  "scientific_name",
+  "causal_agent",
+  "disease_type",
+  "symptoms",
+  "favorable_conditions",
+  "crop_stage",
+  "severity_level",
+  "management_recommendations",
+  "preventive_control",
+  "curative_control",
+  "technical_notes",
+];
+
 const diseaseRequiredFields: Array<keyof DiseaseAiSuggestion> = [
   "common_name",
   "scientific_name",
@@ -136,6 +152,49 @@ function parseAiPayload(raw: unknown): AiParseResult {
   throw new Error("A IA não retornou um objeto JSON válido.");
 }
 
+function stripMarkdownFence(value: string) {
+  return value.replace(/```json/gi, "").replace(/```/g, "").trim();
+}
+
+function extractAssistantMessage(rawText: string) {
+  const cleaned = stripMarkdownFence(rawText);
+  const jsonStart = cleaned.indexOf("{");
+  if (jsonStart <= 0) return cleaned.trim();
+  return cleaned.slice(0, jsonStart).trim();
+}
+
+function extractFallbackFieldsFromText(rawText: string) {
+  const text = stripMarkdownFence(rawText);
+  const result: Record<string, string> = {};
+  const labelMap: Array<[keyof DiseaseAiSuggestion, RegExp]> = [
+    ["common_name", /(?:nome\s*comum|doen[çc]a)\s*[:\-]\s*(.+)/i],
+    ["scientific_name", /nome\s*cient[íi]fico\s*[:\-]\s*(.+)/i],
+    ["causal_agent", /agente\s*causal\s*[:\-]\s*(.+)/i],
+    ["disease_type", /tipo\s*(?:de\s*)?agente\s*[:\-]\s*(.+)/i],
+    ["symptoms", /sintomas\s*(?:principais)?\s*[:\-]\s*(.+)/i],
+    ["favorable_conditions", /condi[çc][õo]es\s*favor[áa]veis\s*[:\-]\s*(.+)/i],
+    ["crop_stage", /per[íi]odo\s*cr[íi]tico(?:\s*de\s*ocorr[êe]ncia)?\s*[:\-]\s*(.+)/i],
+    ["severity_level", /n[íi]vel\s*de\s*severidade\s*[:\-]\s*(.+)/i],
+    ["management_recommendations", /manejo\s*preventivo\s*[:\-]\s*(.+)/i],
+    ["preventive_control", /controle\s*biol[óo]gico\s*\/?\s*preventivo\s*[:\-]\s*(.+)/i],
+    ["curative_control", /manejo\s*curativo\s*\/?\s*qu[íi]mico\s*[:\-]\s*(.+)/i],
+  ];
+
+  for (const [key, pattern] of labelMap) {
+    const match = text.match(pattern);
+    if (match?.[1]) result[key] = match[1].trim();
+  }
+
+  return result;
+}
+
+function hasUsefulDiseaseData(suggestion: DiseaseAiSuggestion) {
+  return diseaseOutputFields.some((field) => {
+    if (field === "is_active" || field === "crop_id") return false;
+    return typeof suggestion[field] === "string" && suggestion[field].trim().length > 0;
+  });
+}
+
 function hasDiseaseShape(value: unknown) {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
@@ -233,13 +292,11 @@ export async function POST(request: NextRequest) {
     const name = payload?.name?.trim();
     if (!type || !name) return NextResponse.json({ error: "Informe tipo e nome." }, { status: 400 });
 
-    let cropsList = "";
     const validCropIds = new Set<string>();
     if (type === "disease") {
       const cfg = adminCfg();
       const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>("/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc", { method: "GET" }, cfg.anonKey, cfg);
       crops.forEach((crop) => validCropIds.add(crop.id));
-      cropsList = crops.map((c) => `${c.id} | ${c.display_name_pt || c.name}`).join("\n");
     }
 
     const prompt = type === "crop"
@@ -251,9 +308,30 @@ Regras:
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
 `
-      : `Pesquise/estime informações técnicas agronômicas para a doença "${name}" e retorne EXCLUSIVAMENTE JSON válido.
-Retorne somente um objeto JSON puro, sem markdown, sem comentários e sem texto fora do JSON.
-Use exatamente esta estrutura:
+      : `Pesquise informações técnicas agronômicas confiáveis sobre a doença: "${name}".
+
+Objetivo:
+Gerar informações para preencher automaticamente um cadastro de doenças agrícolas.
+
+Regras obrigatórias:
+- Responda em português do Brasil.
+- Não invente dados incertos.
+- Quando a informação variar conforme a cultura, informe isso claramente.
+- Se não souber algum campo, use string vazia "".
+- Não inclua crop_id.
+- Considere possíveis variações do nome informado pelo usuário. Exemplo: se o usuário digitar "Antraquinose", considere que pode estar se referindo a "Antracnose".
+- Priorize informações agronômicas técnicas, como agente causal, sintomas, condições favoráveis e manejo.
+- O manejo químico deve sempre conter ressalva para validação com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro do produto para a cultura.
+
+Formato obrigatório da resposta:
+Responda em DUAS PARTES.
+
+PARTE 1:
+Um resumo textual curto, objetivo e técnico sobre a doença.
+
+PARTE 2:
+Um JSON válido, sem comentários, sem markdown dentro do JSON, seguindo exatamente este formato:
+
 {
   "nome_comum": "",
   "nome_cientifico": "",
@@ -267,27 +345,45 @@ Use exatamente esta estrutura:
   "controle_biologico_preventivo": "",
   "manejo_curativo_quimico": ""
 }
-Regras obrigatórias:
-- Não incluir campo cultura, crop_id ou qualquer campo adicional.
-- Não retornar arrays, tabelas, markdown, bloco de código ou explicações fora do JSON.
-- Todos os valores devem ser string; quando não souber use string vazia.
-- Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
-`;
+
+Instruções para preenchimento:
+- nome_comum: nome popular mais usado da doença.
+- nome_cientifico: nome científico do patógeno ou grupo de patógenos, quando aplicável.
+- agente_causal: detalhe do organismo causador.
+- tipo_agente: Fungo, Bactéria, Vírus, Nematoide, Fisiológico, Praga ou outro tipo aplicável.
+- sintomas_principais: sintomas visíveis no campo.
+- condicoes_favoraveis: clima, umidade, temperatura, manejo ou ambiente que favorecem a doença.
+- periodo_critico_ocorrencia: fase da cultura ou época de maior risco.
+- nivel_severidade: Baixa, Média ou Alta, com justificativa curta.
+- manejo_preventivo: medidas culturais, sanitárias e preventivas.
+- controle_biologico_preventivo: opções biológicas/preventivas quando existirem; se depender da cultura, informe.
+- manejo_curativo_quimico: opções gerais de controle químico apenas quando tecnicamente aplicável, sempre com ressalva obrigatória sobre validação com receituário agronômico, legislação local, bula e registro para a cultura.
+
+Doença pesquisada: "${name}"`;
 
     const result = await openAIProvider.generateText(
       [
         {
           role: "system",
           content:
-            "Você é um assistente de cadastro técnico agrícola. Responda exclusivamente com um único objeto JSON puro, sem markdown, sem comentários e sem texto adicional.",
+            "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
         },
         { role: "user", content: prompt },
       ],
       { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
     );
 
-    const parsed = parseAiPayload(result.content);
-    const raw = parsed.payload;
+    let raw: Record<string, unknown> = {};
+    let parsedSource: AiParseResult["source"] | "text_only" = "text_only";
+    let rawTextResponse = typeof result.content === "string" ? result.content : "";
+
+    try {
+      const parsed = parseAiPayload(result.content);
+      raw = parsed.payload;
+      parsedSource = parsed.source;
+    } catch {
+      raw = extractFallbackFieldsFromText(rawTextResponse);
+    }
 
     if (type === "crop") {
       const suggestion = {
@@ -327,23 +423,19 @@ Regras obrigatórias:
     }
 
     const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
-    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsed.source);
-    if (!hasDiseaseShape(aiObjectCandidate)) {
-      return NextResponse.json(
-        {
-          error:
-            "A IA respondeu sem dados suficientes para preencher o cadastro de doenças. Tente um nome mais específico ou revise manualmente.",
-          code: "ai_invalid_json",
-        },
-        { status: 422 },
-      );
-    }
-    const aiObject = aiObjectCandidate as Record<string, unknown>;
-    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || null;
+    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsedSource);
+    const aiObject = hasDiseaseShape(aiObjectCandidate)
+      ? (aiObjectCandidate as Record<string, unknown>)
+      : {
+          ...extractFallbackFieldsFromText(rawTextResponse),
+          ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
+        };
+    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
     const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
 
-    if (!suggestion.common_name) {
-      return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
+    const hasUsableData = hasUsefulDiseaseData(suggestion);
+    if (!hasUsableData) {
+      return NextResponse.json({ error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.", code: "ai_no_usable_data" }, { status: 422 });
     }
 
     const response: AiFillResponse<typeof suggestion> = {
@@ -351,6 +443,7 @@ Regras obrigatórias:
       assistant_message: assistantMessage ?? undefined,
       suggestion,
       warnings,
+      has_usable_data: hasUsableData,
     };
     return NextResponse.json(response);
   } catch (e) {
