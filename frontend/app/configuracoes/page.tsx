@@ -10,6 +10,7 @@ const configLinks: { href: string; label: string; icon: string; allowedRoles?: U
   { href: "/perfil", label: "Perfil", icon: "👤" },
   { href: "/painel-doutora/usuarios", label: "Usuários", icon: "👥", allowedRoles: ["admin", "specialist"] },
   { href: "/painel-doutora/culturas", label: "Culturas", icon: "🌱", allowedRoles: ["admin", "specialist"] },
+  { href: "/painel-doutora/doencas", label: "Cadastro de Doenças", icon: "🦠", allowedRoles: ["admin", "specialist"] },
   { href: "/painel-doutora/site-pages/especialista", label: "Editar página da especialista", icon: "🧑‍⚕️", allowedRoles: ["admin", "specialist"] },
   { href: "/painel-doutora/site-pages/home", label: "Editar página inicial", icon: "🏠", allowedRoles: ["admin", "specialist"] },
   { href: "/painel-doutora/site-pages/agricultura-organica", label: "Editar página Agricultura Orgânica", icon: "🌿", allowedRoles: ["admin", "specialist"] },
