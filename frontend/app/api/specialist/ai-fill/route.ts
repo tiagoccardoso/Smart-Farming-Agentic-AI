@@ -8,6 +8,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
+type DiseaseAiApiResponse = { success: true; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
 type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
 type DiseaseAiSuggestion = {
   common_name: string;
@@ -452,15 +453,26 @@ Doença pesquisada: "${name}"`;
 
     const hasUsableData = hasUsefulDiseaseData(suggestion);
     if (!hasUsableData) {
-      return NextResponse.json({ error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.", code: "ai_no_usable_data" }, { status: 422 });
+      return NextResponse.json({ success: false, error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.", details: "ai_no_usable_data" }, { status: 422 });
     }
 
-    const response: AiFillResponse<typeof suggestion> = {
-      message: `Montei uma sugestão técnica para a doença "${name}". Revise e ajuste conforme contexto local.`,
-      assistant_message: assistantMessage ?? undefined,
-      suggestion,
-      warnings,
-      has_usable_data: hasUsableData,
+    const response: DiseaseAiApiResponse = {
+      success: true,
+      summary: assistantMessage || `Resumo técnico gerado para ${name}. Revise e ajuste conforme o contexto local.`,
+      data: {
+        nome_comum: suggestion.common_name,
+        nome_cientifico: suggestion.scientific_name,
+        agente_causal: suggestion.causal_agent,
+        tipo_agente: suggestion.disease_type,
+        sintomas_principais: suggestion.symptoms,
+        condicoes_favoraveis: suggestion.favorable_conditions,
+        periodo_critico_ocorrencia: suggestion.crop_stage,
+        nivel_severidade: suggestion.severity_level,
+        manejo_preventivo: suggestion.management_recommendations,
+        controle_biologico_preventivo: suggestion.preventive_control,
+        manejo_curativo_quimico: suggestion.curative_control,
+      },
+      debug: { warnings, raw_text: rawTextResponse || undefined }
     };
     return NextResponse.json(response);
   } catch (e) {
@@ -473,6 +485,6 @@ Doença pesquisada: "${name}"`;
       detail,
       errorStage
     });
-    return NextResponse.json({ error: mapped.error, code: mapped.code, error_stage: errorStage }, { status: mapped.status });
+    return NextResponse.json({ success: false, error: mapped.error, details: `${mapped.code}:${errorStage}` }, { status: mapped.status });
   }
 }
