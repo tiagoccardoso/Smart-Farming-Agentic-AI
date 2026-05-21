@@ -25,7 +25,7 @@ type DiseaseAiSuggestion = {
   is_active: boolean;
 };
 
-const diseaseFieldFallback = "Informação não confirmada. Recomenda-se validação técnica local.";
+const diseaseFieldFallback = "";
 
 const diseaseFieldAliases: Record<keyof DiseaseAiSuggestion, string[]> = {
   common_name: ["common_name", "nome_comum", "nome", "doenca", "doença"],
@@ -132,8 +132,23 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
 
   const warnings: string[] = [];
   if (invalidCropId) warnings.push("crop_id inválido foi descartado e substituído por null.");
-  if (!suggestion.symptoms || suggestion.symptoms === diseaseFieldFallback) warnings.push("Campo de sintomas foi preenchido com orientação prudente por falta de confirmação.");
-  if (!suggestion.management_recommendations || suggestion.management_recommendations === diseaseFieldFallback) warnings.push("Campo de manejo preventivo foi preenchido com orientação prudente por falta de confirmação.");
+
+  const keyFields = [
+    suggestion.scientific_name,
+    suggestion.causal_agent,
+    suggestion.disease_type,
+    suggestion.symptoms,
+    suggestion.favorable_conditions,
+    suggestion.crop_stage,
+    suggestion.severity_level,
+    suggestion.management_recommendations,
+    suggestion.preventive_control,
+    suggestion.curative_control,
+  ].filter((value) => value.trim().length > 0);
+
+  if (keyFields.length < 3) {
+    warnings.push("A IA retornou poucos campos preenchidos. Revise e complemente manualmente.");
+  }
 
   return { suggestion, warnings };
 }
@@ -191,26 +206,22 @@ Regras:
 Retorne somente um objeto JSON puro, sem markdown, sem comentários e sem texto fora do JSON.
 Use exatamente esta estrutura:
 {
-  "resposta_textual": "",
-  "dados": {
-    "nome_comum": "",
-    "nome_cientifico": "",
-    "agente_causal": "",
-    "tipo_agente": "",
-    "sintomas_principais": "",
-    "condicoes_favoraveis": "",
-    "periodo_critico_ocorrencia": "",
-    "nivel_severidade": "",
-    "manejo_preventivo": "",
-    "controle_biologico_preventivo": "",
-    "manejo_curativo_quimico": ""
-  }
+  "nome_comum": "",
+  "nome_cientifico": "",
+  "agente_causal": "",
+  "tipo_agente": "",
+  "sintomas_principais": "",
+  "condicoes_favoraveis": "",
+  "periodo_critico_ocorrencia": "",
+  "nivel_severidade": "",
+  "manejo_preventivo": "",
+  "controle_biologico_preventivo": "",
+  "manejo_curativo_quimico": ""
 }
 Regras obrigatórias:
-- Não incluir campo cultura, crop_id ou qualquer campo adicional dentro de dados.
+- Não incluir campo cultura, crop_id ou qualquer campo adicional.
 - Não retornar arrays, tabelas, markdown, bloco de código ou explicações fora do JSON.
-- Preencher todos os campos; se houver incerteza use: "${diseaseFieldFallback}".
-- Em resposta_textual, escreva um resumo amigável e curto para o usuário.
+- Todos os valores devem ser string; quando não souber use string vazia.
 - Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
 `;
 
