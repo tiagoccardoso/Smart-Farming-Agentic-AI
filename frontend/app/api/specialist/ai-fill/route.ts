@@ -5,9 +5,27 @@ import { openAIProvider } from "../../../../src/lib/ai/providers/openai";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
+type OpenAIError = Error & { status?: number; code?: string; providerMessage?: string };
 const getToken = (request: NextRequest) => request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
 const cleanText = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const cleanNullable = (value: unknown) => cleanText(value) ?? "";
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+function mapAiError(error: unknown) {
+  const e = error as OpenAIError;
+  const message = e?.message || "Falha ao gerar sugestão por IA.";
+  const status = e?.status;
+  const code = e?.code;
+
+  if (message.includes("OPENAI_API_KEY")) return { status: 503, error: "Configuração de IA ausente no servidor." };
+  if (status === 401 || code === "invalid_api_key") return { status: 502, error: "Falha de autenticação com o provedor de IA." };
+  if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave." };
+  if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível." };
+  if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes." };
+  if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível." };
+  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou um formato inválido para preenchimento automático." };
+  return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes." };
+}
 
 function adminCfg() { const c = getSupabaseConfig(); const key = process.env.SUPABASE_SERVICE_ROLE_KEY; if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY ausente"); return { ...c, anonKey: key }; }
 
@@ -44,6 +62,9 @@ export async function POST(request: NextRequest) {
 
     const result = await openAIProvider.generateStructuredOutput<Record<string, unknown>>([{ role: "system", content: "Você responde apenas JSON válido, sem markdown." }, { role: "user", content: prompt }], { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
     const raw = result.content ?? {};
+    if (!isRecord(raw)) {
+      return NextResponse.json({ error: "A IA retornou uma estrutura inválida para sugestão." }, { status: 422 });
+    }
 
     if (type === "crop") {
       return NextResponse.json({ suggestion: { name: cleanNullable(raw.name) || name, display_name_pt: cleanNullable(raw.display_name_pt) || name, display_name_en: cleanNullable(raw.display_name_en), slug: cleanNullable(raw.slug), model_label: cleanNullable(raw.model_label), scientific_name: cleanNullable(raw.scientific_name), recommended_soil: cleanNullable(raw.recommended_soil), ideal_climate: cleanNullable(raw.ideal_climate), common_diseases: cleanNullable(raw.common_diseases), common_pests: cleanNullable(raw.common_pests), growth_cycle: cleanNullable(raw.growth_cycle), irrigation_notes: cleanNullable(raw.irrigation_notes), fertilization_notes: cleanNullable(raw.fertilization_notes), recommended_region: cleanNullable(raw.recommended_region), known_risks: cleanNullable(raw.known_risks), management_notes: cleanNullable(raw.management_notes), aliases: Array.isArray(raw.aliases) ? raw.aliases.filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean) : [name], active: typeof raw.active === "boolean" ? raw.active : true } });
@@ -51,7 +72,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ suggestion: { common_name: cleanNullable(raw.common_name) || name, scientific_name: cleanNullable(raw.scientific_name), causal_agent: cleanNullable(raw.causal_agent), disease_type: cleanNullable(raw.disease_type), symptoms: cleanNullable(raw.symptoms), favorable_conditions: cleanNullable(raw.favorable_conditions), crop_stage: cleanNullable(raw.crop_stage), severity_level: cleanNullable(raw.severity_level), management_recommendations: cleanNullable(raw.management_recommendations), preventive_control: cleanNullable(raw.preventive_control), curative_control: cleanNullable(raw.curative_control), technical_notes: cleanNullable(raw.technical_notes), crop_id: cleanText(raw.crop_id), is_active: typeof raw.is_active === "boolean" ? raw.is_active : true } });
   } catch (e) {
+    const mapped = mapAiError(e);
     const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";
-    return NextResponse.json({ error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", detail }, { status: 500 });
+    console.error("[specialist/ai-fill] Falha ao gerar sugestão", {
+      type: "ai_fill",
+      status: (e as OpenAIError)?.status,
+      code: (e as OpenAIError)?.code,
+      detail
+    });
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status });
   }
 }
