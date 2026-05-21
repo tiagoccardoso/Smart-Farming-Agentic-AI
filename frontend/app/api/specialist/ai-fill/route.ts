@@ -120,6 +120,7 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave.", code: "ai_forbidden" };
   if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível.", code: "ai_model_not_found" };
   if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes.", code: "ai_rate_limit" };
+  if (code === "ABORT_ERR" || message.toLowerCase().includes("aborted")) return { status: 504, error: "Tempo limite excedido ao consultar o serviço de IA.", code: "ai_timeout" };
   if (status === 400 || code === "unsupported_parameter" || code === "invalid_request_error") return { status: 502, error: "A requisição enviada ao modelo de IA é incompatível com o modelo configurado.", code: "ai_invalid_request" };
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
   if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
@@ -222,7 +223,7 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
   };
 
   const suggestion: DiseaseAiSuggestion = {
-    common_name: fallbackName,
+    common_name: normalizedField("common_name", fallbackName),
     scientific_name: normalizedField("scientific_name", diseaseFieldFallback),
     causal_agent: normalizedField("causal_agent", diseaseFieldFallback),
     disease_type: normalizedField("disease_type", diseaseFieldFallback),

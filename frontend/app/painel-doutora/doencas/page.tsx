@@ -60,6 +60,18 @@ export default function Page() {
   const [err, setErr] = useState<string | null>(null);
   const [errCode, setErrCode] = useState<string | null>(null);
   const token = () => getStoredSupabaseAccessToken();
+  const buildAiErrorMessage = (errorCode: string, errorStage: string, status: number, fallback?: string) => {
+    if (errorCode === "ai_configuration_error") return "A IA não está configurada no servidor. Contate o administrador.";
+    if (errorCode === "ai_invalid_request" || errorCode === "ai_model_not_found") return "A configuração do modelo de IA está incompatível no servidor. Contate o administrador.";
+    if (errorCode === "ai_rate_limit" || status === 429) return "Limite de uso da IA atingido no momento. Aguarde alguns instantes e tente novamente.";
+    if (errorCode === "ai_timeout") return "A IA demorou para responder e atingiu o tempo limite. Tente novamente com uma descrição mais curta.";
+    if (errorCode === "ai_invalid_json" || errorCode === "ai_no_usable_data" || status === 422) return fallback || "A IA respondeu sem dados úteis para aplicação automática. Ajuste a pergunta e tente novamente.";
+    if (errorCode === "ai_provider_unavailable") return "O serviço de IA está temporariamente indisponível. Tente novamente em instantes.";
+    if (errorCode === "ai_unknown_error" && errorStage === "parse_json") return "A IA respondeu, mas o formato não pôde ser convertido automaticamente. Tente novamente ou ajuste a descrição.";
+    if (errorCode === "ai_unknown_error" && errorStage === "provider_call") return "A chamada ao provedor de IA falhou antes do processamento da resposta.";
+    if (status >= 500) return "Falha interna ao processar a resposta da IA. Tente novamente em instantes.";
+    return fallback || "Falha na chamada da IA para gerar sugestão.";
+  };
 
   async function load() {
     const t = token();
@@ -102,13 +114,7 @@ export default function Page() {
         const errorCode = typeof p?.code === "string" ? p.code : "";
         const errorStage = typeof p?.error_stage === "string" ? p.error_stage : "";
         const technicalSuffix = errorCode || errorStage ? ` (código: ${[errorCode, errorStage].filter(Boolean).join(" / ")})` : "";
-        if (errorCode === "ai_configuration_error") setErr("A IA não está configurada no servidor. Contate o administrador.");
-        else if (errorCode === "ai_invalid_request" || errorCode === "ai_model_not_found") setErr("A configuração do modelo de IA está incompatível no servidor. Contate o administrador.");
-        else if (errorCode === "ai_rate_limit" || r.status === 429) setErr("Limite de uso da IA atingido no momento. Aguarde alguns instantes e tente novamente.");
-        else if (["ai_provider_unavailable"].includes(errorCode) || r.status >= 500) setErr("O serviço de IA está temporariamente indisponível. Tente novamente em instantes.");
-        else if (errorCode === "ai_invalid_json" || errorCode === "ai_no_usable_data" || r.status === 422) setErr(p.error || "A IA respondeu sem dados úteis para aplicação automática. Ajuste a pergunta e tente novamente.");
-        else if (errorCode === "ai_unknown_error") setErr("Erro inesperado ao processar a resposta da IA.");
-        else setErr(p.error || "Falha na chamada da IA para gerar sugestão.");
+        setErr(buildAiErrorMessage(errorCode, errorStage, r.status, p?.error));
         setErrCode(technicalSuffix || ` (HTTP ${r.status})`);
         return;
       }
