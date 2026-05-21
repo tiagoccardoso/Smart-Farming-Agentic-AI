@@ -8,6 +8,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
+type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -286,6 +287,7 @@ async function ensureSpecialist(token: string) {
 }
 
 export async function POST(request: NextRequest) {
+  let errorStage: AiFillErrorStage = "unknown";
   try {
     const token = getToken(request);
     if (!token) return NextResponse.json({ error: "Faça login." }, { status: 401 });
@@ -371,6 +373,7 @@ Instruções para preenchimento:
 
 Doença pesquisada: "${name}"`;
 
+    errorStage = "provider_call";
     const result = await openAIProvider.generateText(
       [
         {
@@ -388,10 +391,12 @@ Doença pesquisada: "${name}"`;
     let rawTextResponse = typeof result.content === "string" ? result.content : "";
 
     try {
+      errorStage = "parse_json";
       const parsed = parseAiPayload(result.content);
       raw = parsed.payload;
       parsedSource = parsed.source;
     } catch {
+      errorStage = "fallback_extract";
       raw = extractFallbackFieldsFromText(rawTextResponse);
     }
 
@@ -432,6 +437,7 @@ Doença pesquisada: "${name}"`;
       return NextResponse.json(response);
     }
 
+    errorStage = "normalize";
     const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
     if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsedSource);
     const aiObject = hasDiseaseShape(aiObjectCandidate)
@@ -463,8 +469,9 @@ Doença pesquisada: "${name}"`;
       type: "ai_fill",
       status: (e as OpenAIError)?.status,
       code: (e as OpenAIError)?.code,
-      detail
+      detail,
+      errorStage
     });
-    return NextResponse.json({ error: mapped.error, code: mapped.code }, { status: mapped.status });
+    return NextResponse.json({ error: mapped.error, code: mapped.code, error_stage: errorStage }, { status: mapped.status });
   }
 }
