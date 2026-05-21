@@ -270,7 +270,12 @@ function normalizeBoolean(value: unknown, fallback = true) {
   return fallback;
 }
 
-function adminCfg() { const c = getSupabaseConfig(); const key = process.env.SUPABASE_SERVICE_ROLE_KEY; if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY ausente"); return { ...c, anonKey: key }; }
+function adminCfgOrNull() {
+  const c = getSupabaseConfig();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  return { ...c, anonKey: key };
+}
 
 async function ensureSpecialist(token: string) {
   const user = await getAuthenticatedUser(token);
@@ -294,8 +299,13 @@ export async function POST(request: NextRequest) {
 
     const validCropIds = new Set<string>();
     if (type === "disease") {
-      const cfg = adminCfg();
-      const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>("/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc", { method: "GET" }, cfg.anonKey, cfg);
+      const cfg = adminCfgOrNull();
+      const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>(
+        "/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc",
+        { method: "GET" },
+        cfg?.anonKey ?? token,
+        cfg ?? undefined,
+      );
       crops.forEach((crop) => validCropIds.add(crop.id));
     }
 
