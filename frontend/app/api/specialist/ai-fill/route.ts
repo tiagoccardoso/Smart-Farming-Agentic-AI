@@ -7,6 +7,22 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
+type DiseaseAiSuggestion = {
+  common_name: string;
+  scientific_name: string;
+  causal_agent: string;
+  disease_type: string;
+  symptoms: string;
+  favorable_conditions: string;
+  crop_stage: string;
+  severity_level: string;
+  management_recommendations: string;
+  preventive_control: string;
+  curative_control: string;
+  technical_notes: string;
+  crop_id: string | null;
+  is_active: boolean;
+};
 type OpenAIError = Error & { status?: number; code?: string; providerMessage?: string };
 const getToken = (request: NextRequest) => request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
 const cleanText = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
@@ -57,6 +73,36 @@ function parseAiPayload(raw: unknown) {
   if (isRecord(raw)) return raw;
   if (typeof raw === "string") return parseJsonObject<Record<string, unknown>>(raw);
   throw new Error("A IA não retornou um objeto JSON válido.");
+}
+
+function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: string, validCropIds: Set<string>) {
+  const cropId = cleanText(raw.crop_id);
+  const normalizedCropId = cropId && requireUuid(cropId) && validCropIds.has(cropId) ? cropId : null;
+  const invalidCropId = typeof raw.crop_id === "string" && raw.crop_id.trim() && !normalizedCropId;
+
+  const suggestion: DiseaseAiSuggestion = {
+    common_name: normalizeNullable(raw.common_name) || fallbackName,
+    scientific_name: normalizeNullable(raw.scientific_name),
+    causal_agent: normalizeNullable(raw.causal_agent),
+    disease_type: normalizeNullable(raw.disease_type),
+    symptoms: normalizeNullable(raw.symptoms),
+    favorable_conditions: normalizeNullable(raw.favorable_conditions),
+    crop_stage: normalizeNullable(raw.crop_stage),
+    severity_level: normalizeNullable(raw.severity_level),
+    management_recommendations: normalizeNullable(raw.management_recommendations),
+    preventive_control: normalizeNullable(raw.preventive_control),
+    curative_control: normalizeNullable(raw.curative_control),
+    technical_notes: normalizeNullable(raw.technical_notes),
+    crop_id: normalizedCropId,
+    is_active: normalizeBoolean(raw.is_active, true),
+  };
+
+  const warnings: string[] = [];
+  if (invalidCropId) warnings.push("crop_id inválido foi descartado e substituído por null.");
+  if (!suggestion.symptoms) warnings.push("Campo symptoms não foi informado pela IA.");
+  if (!suggestion.management_recommendations) warnings.push("Campo management_recommendations não foi informado pela IA.");
+
+  return { suggestion, warnings };
 }
 
 function normalizeBoolean(value: unknown, fallback = true) {
@@ -115,7 +161,9 @@ Regras:
 - is_active deve ser boolean;
 - crop_id deve ser UUID desta lista ou null:
 ${cropsList}
-- campos textuais devem ser string (use "" quando não souber).
+- campos textuais devem ser string (use "" quando não souber);
+- se não houver crop_id válido, retorne null (nunca string vazia);
+- não use markdown, não use bloco de código, não escreva explicações.
 `;
 
     const result = await openAIProvider.generateText(
@@ -165,30 +213,13 @@ ${cropsList}
       return NextResponse.json({ suggestion });
     }
 
-    const cropId = cleanText(raw.crop_id);
-    const normalizedCropId = cropId && requireUuid(cropId) && validCropIds.has(cropId) ? cropId : null;
-    const suggestion = {
-      common_name: normalizeNullable(raw.common_name) || name,
-      scientific_name: normalizeNullable(raw.scientific_name),
-      causal_agent: normalizeNullable(raw.causal_agent),
-      disease_type: normalizeNullable(raw.disease_type),
-      symptoms: normalizeNullable(raw.symptoms),
-      favorable_conditions: normalizeNullable(raw.favorable_conditions),
-      crop_stage: normalizeNullable(raw.crop_stage),
-      severity_level: normalizeNullable(raw.severity_level),
-      management_recommendations: normalizeNullable(raw.management_recommendations),
-      preventive_control: normalizeNullable(raw.preventive_control),
-      curative_control: normalizeNullable(raw.curative_control),
-      technical_notes: normalizeNullable(raw.technical_notes),
-      crop_id: normalizedCropId,
-      is_active: normalizeBoolean(raw.is_active, true),
-    };
+    const { suggestion, warnings } = normalizeDiseaseSuggestion(raw, name, validCropIds);
 
     if (!suggestion.common_name) {
       return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
     }
 
-    return NextResponse.json({ suggestion });
+    return NextResponse.json({ suggestion, warnings });
   } catch (e) {
     const mapped = mapAiError(e);
     const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";

@@ -93,10 +93,36 @@ export default function Page() {
         setErr(p.error || "Erro ao gerar sugestão por IA.");
         return;
       }
-      const suggestedCropId = typeof p.suggestion?.crop_id === "string" ? p.suggestion.crop_id : null;
+      const rawSuggestion = p.suggestion ?? {};
+      const suggestedCropId = typeof rawSuggestion.crop_id === "string" ? rawSuggestion.crop_id : null;
       const validCropId = suggestedCropId && crops.some((c) => c.id === suggestedCropId) ? suggestedCropId : "";
-      setForm((c) => ({ ...c, ...p.suggestion, crop_id: validCropId, id: c.id }));
-      setMsg("Sugestão da IA aplicada. Revise os dados antes de salvar.");
+      const normalizedSuggestion = {
+        common_name: String(rawSuggestion.common_name ?? aiName.trim()),
+        scientific_name: String(rawSuggestion.scientific_name ?? ""),
+        causal_agent: String(rawSuggestion.causal_agent ?? ""),
+        disease_type: String(rawSuggestion.disease_type ?? ""),
+        symptoms: String(rawSuggestion.symptoms ?? ""),
+        favorable_conditions: String(rawSuggestion.favorable_conditions ?? ""),
+        crop_stage: String(rawSuggestion.crop_stage ?? ""),
+        severity_level: String(rawSuggestion.severity_level ?? ""),
+        management_recommendations: String(rawSuggestion.management_recommendations ?? ""),
+        preventive_control: String(rawSuggestion.preventive_control ?? ""),
+        curative_control: String(rawSuggestion.curative_control ?? ""),
+        technical_notes: String(rawSuggestion.technical_notes ?? ""),
+        crop_id: validCropId,
+        is_active: typeof rawSuggestion.is_active === "boolean" ? rawSuggestion.is_active : true,
+      };
+
+      if (!normalizedSuggestion.common_name.trim()) {
+        setErr("A IA retornou dados recuperáveis, mas sem nome comum da doença.");
+        return;
+      }
+
+      setForm((c) => ({ ...c, ...normalizedSuggestion, id: c.id }));
+      const warnings = Array.isArray(p.warnings) ? p.warnings.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0) : [];
+      setMsg(warnings.length > 0
+        ? `Sugestão da IA aplicada com avisos: ${warnings.join(" ")} Revise os dados antes de salvar.`
+        : "Sugestão da IA aplicada. Revise os dados antes de salvar.");
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Não foi possível gerar sugestão da IA.");
     } finally {
