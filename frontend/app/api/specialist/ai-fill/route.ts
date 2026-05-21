@@ -7,6 +7,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
+type ChatTurn = { role: "user" | "assistant"; content: string };
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
 type DiseaseAiApiResponse = { success: true; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
 type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
@@ -339,9 +340,12 @@ export async function POST(request: NextRequest) {
     const auth = await ensureSpecialist(token);
     if (auth.error) return auth.error;
 
-    const payload = (await request.json().catch(() => null)) as { type?: FillType; name?: string } | null;
+    const payload = (await request.json().catch(() => null)) as { type?: FillType; name?: string; history?: ChatTurn[] } | null;
     const type = payload?.type;
     const name = payload?.name?.trim();
+    const history = Array.isArray(payload?.history)
+      ? payload.history.filter((turn) => (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string" && turn.content.trim())
+      : [];
     if (!type || !name) return NextResponse.json({ error: "Informe tipo e nome." }, { status: 400 });
 
     const validCropIds = new Set<string>();
@@ -420,15 +424,17 @@ Instruções para preenchimento:
 Doença pesquisada: "${name}"`;
 
     errorStage = "provider_call";
+    const messages = [
+      {
+        role: "system" as const,
+        content:
+          "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
+      },
+      ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+      { role: "user" as const, content: prompt },
+    ];
     const result = await openAIProvider.generateText(
-      [
-        {
-          role: "system",
-          content:
-            "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
-        },
-        { role: "user", content: prompt },
-      ],
+      messages,
       { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
     );
 
