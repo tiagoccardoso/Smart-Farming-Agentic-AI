@@ -31,6 +31,7 @@ function LoginContent() {
     try {
       await loginWithEmailPassword(email, password);
       await getCurrentAuthSession();
+      window.dispatchEvent(new Event("auth:changed"));
       router.replace(nextPath);
       router.refresh();
     } catch (loginError) {
