@@ -23,6 +23,25 @@ type DiseaseAiSuggestion = {
   crop_id: string | null;
   is_active: boolean;
 };
+
+const diseaseFieldFallback = "Informação não confirmada. Recomenda-se validação técnica local.";
+
+const diseaseFieldAliases: Record<keyof DiseaseAiSuggestion, string[]> = {
+  common_name: ["common_name", "nome_comum", "nome", "doenca", "doença"],
+  scientific_name: ["scientific_name", "nome_cientifico", "nome_científico"],
+  causal_agent: ["causal_agent", "agente_causal", "patogeno", "patógeno"],
+  disease_type: ["disease_type", "tipo_agente", "tipo_doenca", "tipo_doença"],
+  symptoms: ["symptoms", "sintomas_principais", "sintomas"],
+  favorable_conditions: ["favorable_conditions", "condicoes_favoraveis", "condições_favoráveis"],
+  crop_stage: ["crop_stage", "periodo_critico_ocorrencia", "período_crítico_ocorrência"],
+  severity_level: ["severity_level", "nivel_severidade", "nível_severidade"],
+  management_recommendations: ["management_recommendations", "manejo_preventivo"],
+  preventive_control: ["preventive_control", "controle_biologico_preventivo", "controle_biológico_preventivo"],
+  curative_control: ["curative_control", "manejo_curativo_quimico", "manejo_curativo_químico"],
+  technical_notes: ["technical_notes", "observacoes_tecnicas", "observações_técnicas"],
+  crop_id: ["crop_id", "cultura_id", "id_cultura"],
+  is_active: ["is_active", "ativo"],
+};
 type OpenAIError = Error & { status?: number; code?: string; providerMessage?: string };
 const getToken = (request: NextRequest) => request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
 const cleanText = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
@@ -76,31 +95,43 @@ function parseAiPayload(raw: unknown) {
 }
 
 function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: string, validCropIds: Set<string>) {
-  const cropId = cleanText(raw.crop_id);
+  const pick = (field: keyof DiseaseAiSuggestion): unknown => {
+    for (const key of diseaseFieldAliases[field]) {
+      if (key in raw) return raw[key];
+    }
+    return undefined;
+  };
+
+  const cropId = cleanText(pick("crop_id"));
   const normalizedCropId = cropId && requireUuid(cropId) && validCropIds.has(cropId) ? cropId : null;
-  const invalidCropId = typeof raw.crop_id === "string" && raw.crop_id.trim() && !normalizedCropId;
+  const invalidCropId = typeof pick("crop_id") === "string" && String(pick("crop_id")).trim() && !normalizedCropId;
+
+  const normalizedField = (field: keyof DiseaseAiSuggestion, fallback = "") => {
+    const value = normalizeNullable(pick(field));
+    return value || fallback;
+  };
 
   const suggestion: DiseaseAiSuggestion = {
-    common_name: normalizeNullable(raw.common_name) || fallbackName,
-    scientific_name: normalizeNullable(raw.scientific_name),
-    causal_agent: normalizeNullable(raw.causal_agent),
-    disease_type: normalizeNullable(raw.disease_type),
-    symptoms: normalizeNullable(raw.symptoms),
-    favorable_conditions: normalizeNullable(raw.favorable_conditions),
-    crop_stage: normalizeNullable(raw.crop_stage),
-    severity_level: normalizeNullable(raw.severity_level),
-    management_recommendations: normalizeNullable(raw.management_recommendations),
-    preventive_control: normalizeNullable(raw.preventive_control),
-    curative_control: normalizeNullable(raw.curative_control),
-    technical_notes: normalizeNullable(raw.technical_notes),
+    common_name: normalizedField("common_name", fallbackName),
+    scientific_name: normalizedField("scientific_name", diseaseFieldFallback),
+    causal_agent: normalizedField("causal_agent", diseaseFieldFallback),
+    disease_type: normalizedField("disease_type", diseaseFieldFallback),
+    symptoms: normalizedField("symptoms", diseaseFieldFallback),
+    favorable_conditions: normalizedField("favorable_conditions", diseaseFieldFallback),
+    crop_stage: normalizedField("crop_stage", diseaseFieldFallback),
+    severity_level: normalizedField("severity_level", diseaseFieldFallback),
+    management_recommendations: normalizedField("management_recommendations", diseaseFieldFallback),
+    preventive_control: normalizedField("preventive_control", diseaseFieldFallback),
+    curative_control: normalizedField("curative_control", "Validar manejo curativo com receituário agronômico, legislação local, bula e registro para a cultura."),
+    technical_notes: normalizedField("technical_notes"),
     crop_id: normalizedCropId,
-    is_active: normalizeBoolean(raw.is_active, true),
+    is_active: normalizeBoolean(pick("is_active"), true),
   };
 
   const warnings: string[] = [];
   if (invalidCropId) warnings.push("crop_id inválido foi descartado e substituído por null.");
-  if (!suggestion.symptoms) warnings.push("Campo symptoms não foi informado pela IA.");
-  if (!suggestion.management_recommendations) warnings.push("Campo management_recommendations não foi informado pela IA.");
+  if (!suggestion.symptoms || suggestion.symptoms === diseaseFieldFallback) warnings.push("Campo de sintomas foi preenchido com orientação prudente por falta de confirmação.");
+  if (!suggestion.management_recommendations || suggestion.management_recommendations === diseaseFieldFallback) warnings.push("Campo de manejo preventivo foi preenchido com orientação prudente por falta de confirmação.");
 
   return { suggestion, warnings };
 }
@@ -154,17 +185,27 @@ Regras:
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
 `
-      : `Preencha um cadastro de doença com base no nome "${name}".
-Responda com APENAS um objeto JSON válido, sem markdown e sem texto extra.
-Não inclua campos fora desta lista: common_name,scientific_name,causal_agent,disease_type,symptoms,favorable_conditions,crop_stage,severity_level,management_recommendations,preventive_control,curative_control,technical_notes,is_active,crop_id.
-Regras:
-- is_active deve ser boolean;
-- crop_id deve ser UUID desta lista ou null:
-${cropsList}
-- campos textuais devem ser string (use "" quando não souber, sem textos explicativos);
-- se não houver crop_id válido, retorne null (nunca string vazia);
-- não use markdown, não use bloco de código, não escreva explicações;
-- retorne somente JSON puro iniciando com { e finalizando com }.
+      : `Pesquise/estime informações técnicas agronômicas para a doença "${name}" e retorne EXCLUSIVAMENTE JSON válido.
+Retorne somente um objeto JSON puro, sem markdown, sem comentários e sem texto fora do JSON.
+Use exatamente estes campos:
+{
+  "nome_comum": "",
+  "nome_cientifico": "",
+  "agente_causal": "",
+  "tipo_agente": "",
+  "sintomas_principais": "",
+  "condicoes_favoraveis": "",
+  "periodo_critico_ocorrencia": "",
+  "nivel_severidade": "",
+  "manejo_preventivo": "",
+  "controle_biologico_preventivo": "",
+  "manejo_curativo_quimico": ""
+}
+Regras obrigatórias:
+- Não incluir campo cultura, crop_id ou qualquer campo adicional.
+- Não retornar arrays, tabelas, markdown, bloco de código ou explicações.
+- Preencher todos os campos; se houver incerteza use: "${diseaseFieldFallback}".
+- Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
 `;
 
     const result = await openAIProvider.generateText(
