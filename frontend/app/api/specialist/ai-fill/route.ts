@@ -57,6 +57,12 @@ const diseaseFieldAliases: Record<keyof DiseaseAiSuggestion, string[]> = {
   is_active: ["is_active", "ativo"],
 };
 type OpenAIError = Error & { status?: number; code?: string; providerMessage?: string };
+
+type AiParseResult = {
+  payload: Record<string, unknown>;
+  source: "object" | "json_string" | "json_block";
+};
+
 const getToken = (request: NextRequest) => request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
 const cleanText = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const cleanNullable = (value: unknown) => cleanText(value) ?? "";
@@ -103,9 +109,30 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
 }
 
-function parseAiPayload(raw: unknown) {
-  if (isRecord(raw)) return raw;
-  if (typeof raw === "string") return parseJsonObject<Record<string, unknown>>(raw);
+function extractJsonObjectFromText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("A IA retornou resposta vazia.");
+  try {
+    return { payload: parseJsonObject<Record<string, unknown>>(trimmed), source: "json_string" as const };
+  } catch {}
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    return { payload: parseJsonObject<Record<string, unknown>>(fenced[1]), source: "json_block" as const };
+  }
+
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first >= 0 && last > first) {
+    return { payload: parseJsonObject<Record<string, unknown>>(trimmed.slice(first, last + 1)), source: "json_block" as const };
+  }
+
+  throw new Error("A IA retornou dados em formato inválido para preenchimento automático.");
+}
+
+function parseAiPayload(raw: unknown): AiParseResult {
+  if (isRecord(raw)) return { payload: raw, source: "object" };
+  if (typeof raw === "string") return extractJsonObjectFromText(raw);
   throw new Error("A IA não retornou um objeto JSON válido.");
 }
 
@@ -142,7 +169,7 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
     symptoms: normalizedField("symptoms", diseaseFieldFallback),
     favorable_conditions: normalizedField("favorable_conditions", diseaseFieldFallback),
     crop_stage: normalizedField("crop_stage", diseaseFieldFallback),
-    severity_level: normalizedField("severity_level", diseaseFieldFallback),
+    severity_level: normalizeSeverityLevel(normalizedField("severity_level", diseaseFieldFallback)),
     management_recommendations: normalizedField("management_recommendations", diseaseFieldFallback),
     preventive_control: normalizedField("preventive_control", diseaseFieldFallback),
     curative_control: normalizedField("curative_control", "Validar manejo curativo com receituário agronômico, legislação local, bula e registro para a cultura."),
@@ -164,6 +191,15 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
   }
 
   return { suggestion, warnings };
+}
+
+function normalizeSeverityLevel(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "";
+  if (["baixo", "baixa", "low", "leve", "mild"].includes(normalized)) return "baixo";
+  if (["medio", "médio", "moderado", "medium", "moderate"].includes(normalized)) return "médio";
+  if (["alto", "alta", "severo", "severa", "high", "grave", "severe"].includes(normalized)) return "alto";
+  return value.trim();
 }
 
 function normalizeBoolean(value: unknown, fallback = true) {
@@ -250,7 +286,8 @@ Regras obrigatórias:
       { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
     );
 
-    const raw = parseAiPayload(result.content);
+    const parsed = parseAiPayload(result.content);
+    const raw = parsed.payload;
 
     if (type === "crop") {
       const suggestion = {
@@ -290,11 +327,12 @@ Regras obrigatórias:
     }
 
     const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
+    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsed.source);
     if (!hasDiseaseShape(aiObjectCandidate)) {
       return NextResponse.json(
         {
           error:
-            "A IA respondeu, mas o formato veio diferente do esperado. Tente novamente com o nome da doença mais específico.",
+            "A IA respondeu sem dados suficientes para preencher o cadastro de doenças. Tente um nome mais específico ou revise manualmente.",
           code: "ai_invalid_json",
         },
         { status: 422 },
