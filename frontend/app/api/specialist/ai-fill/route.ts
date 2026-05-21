@@ -7,7 +7,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
-type AiFillResponse<T> = { message: string; suggestion: T; warnings?: string[] };
+type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[] };
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -84,6 +84,7 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave.", code: "ai_forbidden" };
   if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível.", code: "ai_model_not_found" };
   if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes.", code: "ai_rate_limit" };
+  if (status === 400 || code === "unsupported_parameter" || code === "invalid_request_error") return { status: 502, error: "A requisição enviada ao modelo de IA é incompatível com o modelo configurado.", code: "ai_invalid_request" };
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
   if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
@@ -188,24 +189,28 @@ Regras:
 `
       : `Pesquise/estime informações técnicas agronômicas para a doença "${name}" e retorne EXCLUSIVAMENTE JSON válido.
 Retorne somente um objeto JSON puro, sem markdown, sem comentários e sem texto fora do JSON.
-Use exatamente estes campos:
+Use exatamente esta estrutura:
 {
-  "nome_comum": "",
-  "nome_cientifico": "",
-  "agente_causal": "",
-  "tipo_agente": "",
-  "sintomas_principais": "",
-  "condicoes_favoraveis": "",
-  "periodo_critico_ocorrencia": "",
-  "nivel_severidade": "",
-  "manejo_preventivo": "",
-  "controle_biologico_preventivo": "",
-  "manejo_curativo_quimico": ""
+  "resposta_textual": "",
+  "dados": {
+    "nome_comum": "",
+    "nome_cientifico": "",
+    "agente_causal": "",
+    "tipo_agente": "",
+    "sintomas_principais": "",
+    "condicoes_favoraveis": "",
+    "periodo_critico_ocorrencia": "",
+    "nivel_severidade": "",
+    "manejo_preventivo": "",
+    "controle_biologico_preventivo": "",
+    "manejo_curativo_quimico": ""
+  }
 }
 Regras obrigatórias:
-- Não incluir campo cultura, crop_id ou qualquer campo adicional.
-- Não retornar arrays, tabelas, markdown, bloco de código ou explicações.
+- Não incluir campo cultura, crop_id ou qualquer campo adicional dentro de dados.
+- Não retornar arrays, tabelas, markdown, bloco de código ou explicações fora do JSON.
 - Preencher todos os campos; se houver incerteza use: "${diseaseFieldFallback}".
+- Em resposta_textual, escreva um resumo amigável e curto para o usuário.
 - Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
 `;
 
@@ -260,7 +265,9 @@ Regras obrigatórias:
       return NextResponse.json(response);
     }
 
-    const { suggestion, warnings } = normalizeDiseaseSuggestion(raw, name, validCropIds);
+    const aiObject = isRecord(raw.dados) ? raw.dados : raw;
+    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || null;
+    const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject as Record<string, unknown>, name, validCropIds);
 
     if (!suggestion.common_name) {
       return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
@@ -268,6 +275,7 @@ Regras obrigatórias:
 
     const response: AiFillResponse<typeof suggestion> = {
       message: `Montei uma sugestão técnica para a doença "${name}". Revise e ajuste conforme contexto local.`,
+      assistant_message: assistantMessage ?? undefined,
       suggestion,
       warnings,
     };

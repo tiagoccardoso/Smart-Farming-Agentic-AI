@@ -96,6 +96,7 @@ export default function Page() {
       if (!r.ok) {
         const errorCode = typeof p?.code === "string" ? p.code : "";
         if (errorCode === "ai_configuration_error") setErr("A IA não está configurada no servidor. Contate o administrador.");
+        else if (errorCode === "ai_invalid_request" || errorCode === "ai_model_not_found") setErr("A configuração do modelo de IA está incompatível no servidor. Contate o administrador.");
         else if (["ai_provider_unavailable", "ai_rate_limit"].includes(errorCode) || r.status === 429 || r.status >= 500) setErr("A IA está temporariamente indisponível. Tente novamente em instantes.");
         else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("Não foi possível interpretar a resposta da IA. Tente novamente ou preencha manualmente.");
         else setErr(p.error || "Erro ao gerar sugestão por IA.");
@@ -130,7 +131,7 @@ export default function Page() {
       setChatMessages((current) => [
         ...current,
         { role: "user", text: aiName.trim() },
-        { role: "assistant", text: p?.message || "Sugestão gerada. Clique em aplicar no cadastro para preencher o formulário." },
+        { role: "assistant", text: p?.assistant_message || p?.message || "Sugestão gerada. Clique em aplicar no cadastro para preencher o formulário." },
       ]);
       const warnings = Array.isArray(p.warnings) ? p.warnings.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0) : [];
       setMsg(warnings.length > 0
