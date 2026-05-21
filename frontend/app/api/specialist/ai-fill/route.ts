@@ -53,20 +53,20 @@ function normalizeToText(value: unknown): string {
 
 const normalizeNullable = (value: unknown) => normalizeToText(value) || "";
 
-function mapAiError(error: unknown) {
+function mapAiError(error: unknown): { status: number; error: string; code: string } {
   const e = error as OpenAIError;
   const message = e?.message || "Falha ao gerar sugestão por IA.";
   const status = e?.status;
   const code = e?.code;
 
-  if (message.includes("OPENAI_API_KEY")) return { status: 503, error: "Configuração de IA ausente no servidor." };
-  if (status === 401 || code === "invalid_api_key") return { status: 502, error: "Falha de autenticação com o provedor de IA." };
-  if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave." };
-  if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível." };
-  if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes." };
-  if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível." };
-  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático." };
-  return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes." };
+  if (message.includes("OPENAI_API_KEY") || message.includes("OPENAI_CHAT_MODEL")) return { status: 503, error: "Configuração de IA ausente ou inválida no servidor.", code: "ai_configuration_error" };
+  if (status === 401 || code === "invalid_api_key") return { status: 502, error: "Falha de autenticação com o provedor de IA.", code: "ai_auth_error" };
+  if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave.", code: "ai_forbidden" };
+  if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível.", code: "ai_model_not_found" };
+  if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes.", code: "ai_rate_limit" };
+  if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
+  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
+  return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
 }
 
 function parseAiPayload(raw: unknown) {
@@ -161,9 +161,10 @@ Regras:
 - is_active deve ser boolean;
 - crop_id deve ser UUID desta lista ou null:
 ${cropsList}
-- campos textuais devem ser string (use "" quando não souber);
+- campos textuais devem ser string (use "" quando não souber, sem textos explicativos);
 - se não houver crop_id válido, retorne null (nunca string vazia);
-- não use markdown, não use bloco de código, não escreva explicações.
+- não use markdown, não use bloco de código, não escreva explicações;
+- retorne somente JSON puro iniciando com { e finalizando com }.
 `;
 
     const result = await openAIProvider.generateText(
@@ -229,6 +230,6 @@ ${cropsList}
       code: (e as OpenAIError)?.code,
       detail
     });
-    return NextResponse.json({ error: mapped.error }, { status: mapped.status });
+    return NextResponse.json({ error: mapped.error, code: mapped.code }, { status: mapped.status });
   }
 }
