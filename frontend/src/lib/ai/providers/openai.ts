@@ -2,6 +2,12 @@ import { parseJsonObject } from "../utils/json-parser";
 import { estimateMessagesTokens, estimateTokens } from "../utils/token-estimator";
 import type { AIHealthCheck, AIImageInput, AIMessage, AIProvider, AIProviderCallOptions, AIProviderResult } from "./types";
 
+type OpenAIHttpError = Error & {
+  status?: number;
+  code?: string;
+  providerMessage?: string;
+};
+
 function getOpenAiApiKey() {
   return process.env.OPENAI_API_KEY || null;
 }
@@ -69,6 +75,14 @@ function normalizeUsage(payload: any, fallbackInputTokens: number, fallbackOutpu
   };
 }
 
+function buildOpenAIHttpError(payload: any, status: number): OpenAIHttpError {
+  const err = new Error(payload?.error?.message || "Falha na chamada da OpenAI.") as OpenAIHttpError;
+  err.status = status;
+  err.code = payload?.error?.code;
+  err.providerMessage = payload?.error?.message;
+  return err;
+}
+
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai" as const;
 
@@ -104,9 +118,7 @@ export class OpenAIProvider implements AIProvider {
     );
     const payload = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      throw new Error(payload?.error?.message || "Falha na chamada da OpenAI.");
-    }
+    if (!response.ok) throw buildOpenAIHttpError(payload, response.status);
 
     const content = normalizeTextFromResponse(payload);
     return {
