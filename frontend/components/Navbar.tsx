@@ -31,6 +31,7 @@ const accountLinks: NavigationLink[] = [
   { href: "/revisao-humana", label: "Revisão Humana", requiresAuth: true },
   { href: "/meus-relatorios", label: "Meus Relatórios", requiresAuth: true },
   { href: "/dashboard", label: "Painel", requiresAuth: true },
+  { href: "/acompanhamento", label: "Acompanhamento", requiresAuth: true, allowedRoles: ["admin", "specialist"] },
   { href: "/planos", label: "Planos", requiresAuth: true },
   {
     href: "/admin/agendamentos",
