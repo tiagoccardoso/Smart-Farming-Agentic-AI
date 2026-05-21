@@ -295,6 +295,42 @@ async function ensureSpecialist(token: string) {
   return { user };
 }
 
+
+async function enrichDiseaseSuggestion(name: string, suggestion: DiseaseAiSuggestion) {
+  const missing = diseaseRequiredFields.filter((field) => !String(suggestion[field] ?? "").trim());
+  if (missing.length === 0) return { suggestion, warnings: [] as string[] };
+
+  const completionPrompt = `Você é um especialista em fitopatologia. Complete SOMENTE os campos ausentes do JSON abaixo com conteúdo técnico em português do Brasil.
+Retorne APENAS JSON válido sem markdown, sem comentários e sem texto adicional.
+Não inclua chaves extras. Não inclua crop_id.
+
+Doença: "${name}"
+Campos ausentes: ${missing.join(", ")}
+
+JSON atual:
+${JSON.stringify(suggestion, null, 2)}`;
+
+  const completion = await openAIProvider.generateText(
+    [
+      { role: "system", content: "Você retorna somente JSON válido e técnico para cadastro agrícola." },
+      { role: "user", content: completionPrompt },
+    ],
+    { maxOutputTokens: 1000, promptType: "specialist_catalog_fill" },
+  );
+
+  const parsed = parseAiPayload(completion.content);
+  const completionData = parsed.payload;
+  const { suggestion: normalizedCompletion } = normalizeDiseaseSuggestion(completionData, name, new Set());
+
+  const merged: DiseaseAiSuggestion = { ...suggestion };
+  for (const field of missing) {
+    const value = String(normalizedCompletion[field] ?? "").trim();
+    if (value) merged[field] = value as never;
+  }
+
+  return { suggestion: merged, warnings: ["Sugestão parcialmente complementada por segunda etapa de IA."] };
+}
+
 export async function POST(request: NextRequest) {
   let errorStage: AiFillErrorStage = "unknown";
   try {
@@ -338,7 +374,8 @@ Regras obrigatórias:
 - Responda em português do Brasil.
 - Não invente dados incertos.
 - Quando a informação variar conforme a cultura, informe isso claramente.
-- Se não souber algum campo, use string vazia "".
+- Preencha todos os campos sempre que houver informação técnica confiável.
+- Não deixe campos vazios quando a informação puder ser inferida com segurança técnica.
 - Não inclua crop_id.
 - Considere possíveis variações do nome informado pelo usuário. Exemplo: se o usuário digitar "Antraquinose", considere que pode estar se referindo a "Antracnose".
 - Priorize informações agronômicas técnicas, como agente causal, sintomas, condições favoráveis e manejo.
@@ -456,7 +493,17 @@ Doença pesquisada: "${name}"`;
           ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
         };
     const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
-    const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
+    let { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
+
+    if (countStructuredDiseaseFields(suggestion) < diseaseRequiredFields.length) {
+      try {
+        const enriched = await enrichDiseaseSuggestion(name, suggestion);
+        suggestion = enriched.suggestion;
+        warnings = [...warnings, ...enriched.warnings];
+      } catch {
+        warnings = [...warnings, "Não foi possível complementar automaticamente todos os campos ausentes."];
+      }
+    }
 
     const hasUsableData = hasUsefulDiseaseData(suggestion);
     if (!hasUsableData) {
