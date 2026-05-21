@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import SectionTitle from "../../../components/SectionTitle";
 import { getStoredSupabaseAccessToken } from "../../../lib/supabaseAuth";
+import ChatBubble from "../../../components/ChatBubble";
 
 type CropOption = { id: string; display_name_pt: string | null; name: string };
 type Disease = {
@@ -49,6 +50,9 @@ export default function Page() {
   const [q, setQ] = useState("");
   const [aiName, setAiName] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [applyingSuggestion, setApplyingSuggestion] = useState(false);
+  const [diseaseSuggestion, setDiseaseSuggestion] = useState<Partial<Disease> | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -122,16 +126,29 @@ export default function Page() {
         return;
       }
 
-      setForm((c) => ({ ...c, ...normalizedSuggestion, id: c.id }));
+      setDiseaseSuggestion(normalizedSuggestion);
+      setChatMessages((current) => [
+        ...current,
+        { role: "user", text: aiName.trim() },
+        { role: "assistant", text: p?.message || "Sugestão gerada. Clique em aplicar no cadastro para preencher o formulário." },
+      ]);
       const warnings = Array.isArray(p.warnings) ? p.warnings.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0) : [];
       setMsg(warnings.length > 0
-        ? `Sugestão da IA aplicada com avisos: ${warnings.join(" ")} Revise os dados antes de salvar.`
-        : "Sugestão da IA aplicada. Revise os dados antes de salvar.");
+        ? `Sugestão gerada com avisos: ${warnings.join(" ")} Clique em aplicar no cadastro.`
+        : "Sugestão gerada. Clique em “Aplicar no cadastro”.");
     } catch (error) {
       setErr("Falha de comunicação ao gerar sugestão por IA. Verifique sua conexão e tente novamente.");
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function applySuggestion() {
+    if (!diseaseSuggestion) return;
+    setApplyingSuggestion(true);
+    setForm((c) => ({ ...c, ...diseaseSuggestion, id: c.id }));
+    setApplyingSuggestion(false);
+    setMsg("Dados da IA aplicados no cadastro. Revise antes de salvar.");
   }
 
   async function submit(e: FormEvent) {
@@ -179,5 +196,5 @@ export default function Page() {
 
   const visible = items.filter((x) => `${x.common_name} ${x.scientific_name ?? ""}`.toLowerCase().includes(q.toLowerCase()));
 
-  return <section className="mx-auto max-w-7xl px-6 py-12"><Link href="/configuracoes">← Configurações</Link><SectionTitle title="Cadastro de Doenças" subtitle="Gestão técnica de doenças para monitoramento fitossanitário." />{err && <p className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-red-700">{err}</p>}{msg && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-700">{msg}</p>}<div className="mb-4 mt-4 rounded-2xl border border-leaf-100 bg-leaf-50 p-4"><p className="text-sm font-semibold text-leaf-800">Preenchimento assistido por IA</p><div className="mt-2 flex flex-col gap-2 md:flex-row"><input className="w-full rounded-2xl border border-leaf-100 bg-white p-3 text-sm" placeholder="Digite o nome da doença" value={aiName} onChange={e => setAiName(e.target.value)} /><button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Gerando..." : "Preencher com IA"}</button></div></div><form onSubmit={submit} className="mt-5 grid gap-4 md:grid-cols-2">{fields.map(([k, l, required]) => <label key={String(k)}>{l}<textarea required={required} className="mt-1 w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm" value={String(form[k] ?? "")} onChange={e => setForm((c) => ({ ...c, [k]: e.target.value }))} /></label>)}<label>Cultura relacionada<select className="mt-1 w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm" value={form.crop_id ?? ""} onChange={(e) => setForm((c) => ({ ...c, crop_id: e.target.value }))}><option value="">Não vinculada</option>{crops.map(c => <option key={c.id} value={c.id}>{c.display_name_pt || c.name}</option>)}</select></label><label className="md:col-span-2"><input type="checkbox" checked={form.is_active} onChange={e => setForm((c) => ({ ...c, is_active: e.target.checked }))} /> Ativa</label><button disabled={saving} className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Salvando..." : "Salvar"}</button></form><input className="mt-4 w-full rounded border border-leaf-100 p-2" placeholder="Buscar doença" value={q} onChange={e => setQ(e.target.value)} /><div className="mt-4 space-y-2">{visible.length === 0 ? <p>Nenhuma doença cadastrada.</p> : visible.map(d => <article key={d.id} className="rounded-2xl border border-leaf-100 bg-white p-4 shadow-soft"><strong>{d.common_name}</strong><p>{d.scientific_name}</p><p className="text-xs text-slate-500">Cultura vinculada: {crops.find((c) => c.id === d.crop_id)?.display_name_pt || "não vinculada"}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => setForm({ ...d, crop_id: d.crop_id ?? "" })} className="rounded-full border border-leaf-200 px-3 py-1 text-xs font-semibold text-leaf-700">Editar</button><button onClick={async () => { const t = token(); if (!t) return; await fetch(`/api/specialist/diseases?id=${d.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } }); load(); setMsg("Cadastro excluído com sucesso."); }} className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700">Excluir</button></div></article>)}</div></section>;
+  return <section className="mx-auto max-w-7xl px-6 py-12"><Link href="/configuracoes">← Configurações</Link><SectionTitle title="Cadastro de Doenças" subtitle="Gestão técnica de doenças para monitoramento fitossanitário." />{err && <p className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-red-700">{err}</p>}{msg && <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-700">{msg}</p>}<div className="mb-4 mt-4 rounded-2xl border border-leaf-100 bg-leaf-50 p-4"><p className="text-sm font-semibold text-leaf-800">Chat de preenchimento assistido por IA</p><div className="mt-2 flex flex-col gap-2 md:flex-row"><input className="w-full rounded-2xl border border-leaf-100 bg-white p-3 text-sm" placeholder="Digite o nome da doença" value={aiName} onChange={e => setAiName(e.target.value)} /><button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Consultando..." : "Enviar para IA"}</button></div><div className="mt-3 space-y-2">{chatMessages.length === 0 ? <p className="text-xs text-slate-600">Pergunte sobre uma doença e aplique o retorno estruturado quando estiver satisfeito.</p> : chatMessages.map((message, index) => <ChatBubble key={`${message.role}-${index}`} role={message.role} text={message.text} />)}</div><div className="mt-3"><button type="button" onClick={applySuggestion} disabled={!diseaseSuggestion || applyingSuggestion} className="rounded-full border border-leaf-300 bg-white px-5 py-2 text-sm font-semibold text-leaf-700 disabled:cursor-not-allowed disabled:opacity-60">{applyingSuggestion ? "Aplicando..." : "Aplicar no cadastro"}</button></div></div><form onSubmit={submit} className="mt-5 grid gap-4 md:grid-cols-2">{fields.map(([k, l, required]) => <label key={String(k)}>{l}<textarea required={required} className="mt-1 w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm" value={String(form[k] ?? "")} onChange={e => setForm((c) => ({ ...c, [k]: e.target.value }))} /></label>)}<label>Cultura relacionada<select className="mt-1 w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm" value={form.crop_id ?? ""} onChange={(e) => setForm((c) => ({ ...c, crop_id: e.target.value }))}><option value="">Não vinculada</option>{crops.map(c => <option key={c.id} value={c.id}>{c.display_name_pt || c.name}</option>)}</select></label><label className="md:col-span-2"><input type="checkbox" checked={form.is_active} onChange={e => setForm((c) => ({ ...c, is_active: e.target.checked }))} /> Ativa</label><button disabled={saving} className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Salvando..." : "Salvar"}</button></form><input className="mt-4 w-full rounded border border-leaf-100 p-2" placeholder="Buscar doença" value={q} onChange={e => setQ(e.target.value)} /><div className="mt-4 space-y-2">{visible.length === 0 ? <p>Nenhuma doença cadastrada.</p> : visible.map(d => <article key={d.id} className="rounded-2xl border border-leaf-100 bg-white p-4 shadow-soft"><strong>{d.common_name}</strong><p>{d.scientific_name}</p><p className="text-xs text-slate-500">Cultura vinculada: {crops.find((c) => c.id === d.crop_id)?.display_name_pt || "não vinculada"}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => setForm({ ...d, crop_id: d.crop_id ?? "" })} className="rounded-full border border-leaf-200 px-3 py-1 text-xs font-semibold text-leaf-700">Editar</button><button onClick={async () => { const t = token(); if (!t) return; await fetch(`/api/specialist/diseases?id=${d.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } }); load(); setMsg("Cadastro excluído com sucesso."); }} className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700">Excluir</button></div></article>)}</div></section>;
 }

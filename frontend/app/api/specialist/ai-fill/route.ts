@@ -7,6 +7,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
+type AiFillResponse<T> = { message: string; suggestion: T; warnings?: string[] };
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -252,7 +253,11 @@ Regras obrigatórias:
         return NextResponse.json({ error: "A IA respondeu, mas não trouxe os campos obrigatórios da cultura (name e display_name_pt)." }, { status: 422 });
       }
 
-      return NextResponse.json({ suggestion });
+      const response: AiFillResponse<typeof suggestion> = {
+        message: `Encontrei uma sugestão inicial para a cultura "${name}". Revise os campos antes de salvar.`,
+        suggestion,
+      };
+      return NextResponse.json(response);
     }
 
     const { suggestion, warnings } = normalizeDiseaseSuggestion(raw, name, validCropIds);
@@ -261,7 +266,12 @@ Regras obrigatórias:
       return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
     }
 
-    return NextResponse.json({ suggestion, warnings });
+    const response: AiFillResponse<typeof suggestion> = {
+      message: `Montei uma sugestão técnica para a doença "${name}". Revise e ajuste conforme contexto local.`,
+      suggestion,
+      warnings,
+    };
+    return NextResponse.json(response);
   } catch (e) {
     const mapped = mapAiError(e);
     const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";
