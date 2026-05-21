@@ -6,16 +6,80 @@ import type { Profile } from "../../../lib/auth";
 import { getCurrentAuthSession, getStoredSupabaseAccessToken } from "../../../lib/supabaseAuth";
 import { acompanhamentoModules } from "../modules";
 
-type RecordItem = { id: string; title: string; status?: string | null; record_date?: string | null; amount?: number | null; property_id?: string | null; data?: Record<string, unknown> };
+type RecordItem = { id: string; title: string; amount?: number | null; property_id?: string | null; data?: Record<string, unknown> };
 type PropertyOption = { id: string; name: string; owner_name: string | null };
-type Field = { key: string; label: string; required?: boolean; type?: "text"|"textarea"|"date"|"number"|"currency"|"select"|"file"; options?: string[] };
-const diseaseLibrary = ["antracnose", "ferrugem", "requeima", "greening", "mofo-branco"];
-const moduleFields: Record<string, Field[]> = {"mapa-area":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"nome_ponto",label:"Nome do talhão/setor/ponto",required:true},{key:"tipo_registro",label:"Tipo do registro",required:true,type:"select",options:["talhão","reboleira","foco de doença","coleta de solo","ponto GPS"]},{key:"latitude",label:"Latitude",required:true},{key:"longitude",label:"Longitude",required:true},{key:"observacoes",label:"Observações",type:"textarea"},{key:"foto",label:"Foto opcional",type:"file"}],"monitoramento-fitossanitario":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"talhao_setor",label:"Talhão/setor",required:true},{key:"doenca_praga",label:"Doença/praga encontrada",required:true,type:"select",options:diseaseLibrary},{key:"severidade",label:"Nível de severidade",required:true},{key:"fotos",label:"Fotos",type:"file"},{key:"data_inspecao",label:"Data da inspeção",required:true,type:"date"}],"aplicacoes-manejo":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"talhao_setor",label:"Talhão/setor",required:true},{key:"tipo_aplicacao",label:"Tipo de aplicação",required:true},{key:"data_aplicacao",label:"Data da aplicação",required:true,type:"date"}],"controle-climatico":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"cultura_relacionada",label:"Cultura relacionada",required:true,type:"select",options:["tomate","soja","uva","citrus"]},{key:"data",label:"Data",required:true,type:"date"}],"financeiro-area":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"talhao_setor",label:"Talhão/setor",required:true},{key:"safra",label:"Safra",required:true},{key:"custo_safra",label:"Custo por safra",type:"currency"}],"relatorios-automaticos":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"data_visita",label:"Data da visita",required:true,type:"date"},{key:"tipo_relatorio",label:"Tipo de relatório",required:true},{key:"status_relatorio",label:"Status do relatório",required:true}],"inteligencia-artificial":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"tipo_analise",label:"Tipo de análise",required:true},{key:"arquivo",label:"Foto/arquivo enviado",type:"file"}],"cadastro-propriedade":[{key:"nome_propriedade",label:"Nome da propriedade",required:true}],"historico-culturas":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"cultura_atual",label:"Cultura atual",required:true},{key:"data_plantio",label:"Data de plantio",required:true,type:"date"}],"analise-solo":[{key:"property_id",label:"Propriedade vinculada",required:true,type:"select"},{key:"safra",label:"Safra",required:true},{key:"data_analise",label:"Data da análise",required:true,type:"date"},{key:"anexo_analise",label:"PDF/anexo da análise",type:"file"}]};
-const getFields=(slug:string)=>moduleFields[slug]??[];
-const formatCurrency=(v:number)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
-export default function Page(){const params=useParams<{modulo:string}>();const router=useRouter();const [profile,setProfile]=useState<Profile|null>(null);const [loading,setLoading]=useState(true);const [saving,setSaving]=useState(false);const [records,setRecords]=useState<RecordItem[]>([]);const [properties,setProperties]=useState<PropertyOption[]>([]);const [message,setMessage]=useState<string|null>(null);const [form,setForm]=useState<Record<string,string>>({id:""}); const moduleData=useMemo(()=>acompanhamentoModules.find((i)=>i.slug===params.modulo),[params.modulo]); const hasAccess=["admin","specialist"].includes(profile?.role??""); const fields=useMemo(()=>getFields(params.modulo),[params.modulo]);
-useEffect(()=>{(async()=>{try{const s=await getCurrentAuthSession(); if(!s?.access_token) return router.push('/login'); setProfile(s.profile??null);}finally{setLoading(false);}})();},[router]);
-const load=async()=>{const token=getStoredSupabaseAccessToken(); if(!token||!moduleData) return; const [a,b]=await Promise.all([fetch(`/api/acompanhamento/${moduleData.slug}`,{headers:{Authorization:`Bearer ${token}`}}),fetch('/api/acompanhamento/properties',{headers:{Authorization:`Bearer ${token}`}})]); if(a.ok) setRecords((await a.json()).records??[]); if(b.ok) setProperties((await b.json()).properties??[]);}; useEffect(()=>{if(hasAccess) load();},[hasAccess,moduleData?.slug]);
-if(!moduleData) return notFound(); if(loading) return <p>Carregando...</p>; if(!hasAccess) return <p>Acesso restrito.</p>;
-const submit=async(e:React.FormEvent)=>{e.preventDefault(); for(const f of fields) if(f.required&&!String(form[f.key]??"").trim()) return setMessage(`Campo obrigatório: ${f.label}.`); const token=getStoredSupabaseAccessToken(); setSaving(true); const r=await fetch(form.id?`/api/acompanhamento/${moduleData.slug}/${form.id}`:`/api/acompanhamento/${moduleData.slug}`,{method:form.id?"PUT":"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({title:form.nome_propriedade||form.cultura_atual||form.safra||form.tipo_relatorio||`Registro ${new Date().toLocaleDateString("pt-BR")}`,property_id:form.property_id||null,amount:form.custo_safra?Number(form.custo_safra.replace(/\./g,"").replace(",",".")):null,data:form})}); const p=await r.json(); setSaving(false); setMessage(r.ok?"Registro salvo com sucesso.":p.error||"Erro"); if(r.ok){setForm({id:""}); load();}};
-return <section className="mx-auto max-w-6xl px-4 py-8"><Link href="/acompanhamento">← Voltar</Link><h1>{moduleData.title}</h1>{message&&<p>{message}</p>}<form onSubmit={submit} className="grid gap-2 md:grid-cols-2">{fields.map((f)=><label key={f.key}>{f.label}{f.required?"*":""}{f.type==="textarea"?<textarea value={form[f.key]??""} onChange={(e)=>setForm((x)=>({...x,[f.key]:e.target.value}))}/>:f.type==="select"?<select value={form[f.key]??""} onChange={(e)=>setForm((x)=>({...x,[f.key]:e.target.value}))}><option value="">Selecione</option>{f.options?f.options.map((o)=><option key={o}>{o}</option>):properties.map((p)=><option key={p.id} value={p.id}>{p.name}</option>)}</select>:<input type={f.type==="date"?"date":"text"} placeholder={f.type==="file"?"Upload será habilitado via endpoint dedicado":undefined} value={form[f.key]??""} onChange={(e)=>setForm((x)=>({...x,[f.key]:e.target.value}))}/>}</label>)}<button disabled={saving}>{saving?"Salvando...":"Salvar"}</button></form><div>{records.length===0?<p>Nenhum registro cadastrado.</p>:records.map((item)=><article key={item.id}><strong>{item.title}</strong>{typeof item.amount==="number"?<span> • {formatCurrency(item.amount)}</span>:null}<button onClick={()=>setForm({id:item.id,property_id:item.property_id??"",...Object.fromEntries(Object.entries(item.data??{}).map(([k,v])=>[k,String(v??"")]))})}>Editar</button><button onClick={async()=>{if(!confirm("Deseja excluir este registro?")) return; const token=getStoredSupabaseAccessToken(); const d=await fetch(`/api/acompanhamento/${moduleData.slug}/${item.id}`,{method:"DELETE",headers:{Authorization:`Bearer ${token}`}}); if(d.ok){setMessage("Registro excluído com sucesso."); load();}}}>Excluir</button></article>)}</div></section>}
+type Field = { key: string; label: string; required?: boolean; type?: "text"|"textarea"|"date"|"currency"|"select"|"file"; options?: string[] };
+
+const moduleFields: Record<string, Field[]> = {
+  "cadastro-propriedade": [{ key: "nome_propriedade", label: "Nome da propriedade", required: true }, { key: "proprietario", label: "Proprietário", required: true }, { key: "localizacao_gps", label: "Localização/GPS", required: true }, { key: "area_total", label: "Área total", required: true }, { key: "talhoes_setores", label: "Talhões/setores", required: true }, { key: "tipo_solo", label: "Tipo de solo", required: true }, { key: "altitude", label: "Altitude" }, { key: "historico_area", label: "Histórico da área", type: "textarea" }, { key: "fotos_propriedade", label: "Fotos da propriedade", type: "file" }],
+  "historico-culturas": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "cultura_atual", label: "Cultura atual", required: true }, { key: "culturas_anteriores", label: "Culturas anteriores" }, { key: "rotacao_culturas", label: "Rotação" }, { key: "data_plantio", label: "Data de plantio", type: "date", required: true }, { key: "data_colheita", label: "Data de colheita", type: "date" }, { key: "cultivar_hibrido", label: "Cultivar/híbrido" }, { key: "populacao_ha", label: "População/planta por hectare" }],
+  "analise-solo": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "safra", label: "Safra", required: true }, { key: "data_analise", label: "Data da análise", type: "date", required: true }, { key: "laboratorio", label: "Laboratório" }, { key: "anexo_analise", label: "PDF/anexo", type: "file" }],
+  "mapa-area": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "nome_ponto", label: "Nome", required: true }, { key: "tipo_registro", label: "Tipo", type: "select", required: true, options: ["talhão", "reboleira", "foco de doença", "coleta de solo", "ponto GPS"] }, { key: "latitude", label: "Latitude", required: true }, { key: "longitude", label: "Longitude", required: true }, { key: "foto", label: "Foto", type: "file" }],
+  "monitoramento-fitossanitario": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "talhao_setor", label: "Talhão/setor", required: true }, { key: "doenca_praga", label: "Doença/praga", type: "select", required: true, options: ["antracnose", "ferrugem", "requeima", "greening", "mofo-branco"] }, { key: "severidade", label: "Severidade", required: true }, { key: "fotos", label: "Fotos", type: "file" }, { key: "data_inspecao", label: "Data da inspeção", type: "date", required: true }],
+  "aplicacoes-manejo": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "talhao_setor", label: "Talhão/setor", required: true }, { key: "tipo_aplicacao", label: "Tipo", required: true }, { key: "receituario", label: "Receituário", type: "file" }, { key: "data_aplicacao", label: "Data da aplicação", type: "date", required: true }],
+  "controle-climatico": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "cultura_relacionada", label: "Cultura", type: "select", required: true, options: ["tomate", "soja", "uva", "citrus"] }, { key: "data", label: "Data", type: "date", required: true }],
+  "financeiro-area": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "talhao_setor", label: "Talhão/setor", required: true }, { key: "safra", label: "Safra", required: true }, { key: "custo_safra", label: "Custo safra", type: "currency" }],
+  "relatorios-automaticos": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "data_visita", label: "Data visita", type: "date", required: true }, { key: "tipo_relatorio", label: "Tipo", required: true }, { key: "status_relatorio", label: "Status", required: true }, { key: "fotos_relatorio", label: "Fotos", type: "file" }],
+  "inteligencia-artificial": [{ key: "property_id", label: "Propriedade", type: "select", required: true }, { key: "tipo_analise", label: "Tipo", required: true }, { key: "arquivo", label: "Arquivo", type: "file" }]
+};
+
+export default function Page() {
+  const { modulo } = useParams<{ modulo: string }>();
+  const moduleData = useMemo(() => acompanhamentoModules.find((x) => x.slug === modulo), [modulo]);
+  const fields = useMemo(() => moduleFields[modulo] ?? [], [modulo]);
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
+  const [form, setForm] = useState<Record<string, string>>({ id: "" });
+  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const hasAccess = ["admin", "specialist"].includes(profile?.role ?? "");
+  const fileFields = new Set(fields.filter((x) => x.type === "file").map((x) => x.key));
+
+  async function load() {
+    const token = getStoredSupabaseAccessToken(); if (!token || !moduleData) return;
+    const [a, b] = await Promise.all([fetch(`/api/acompanhamento/${moduleData.slug}`, { headers: { Authorization: `Bearer ${token}` } }), fetch("/api/acompanhamento/properties", { headers: { Authorization: `Bearer ${token}` } })]);
+    if (a.ok) setRecords((await a.json()).records ?? []); if (b.ok) setProperties((await b.json()).properties ?? []);
+  }
+
+  useEffect(() => { (async () => { try { const s = await getCurrentAuthSession(); if (!s?.access_token) return router.push("/login"); setProfile(s.profile ?? null); } finally { setLoading(false); } })(); }, [router]);
+  useEffect(() => { if (hasAccess) load(); }, [hasAccess, moduleData?.slug]);
+
+  if (!moduleData) return notFound();
+  if (loading) return <p className="p-6">Carregando...</p>;
+  if (!hasAccess) return <p className="p-6">Acesso restrito.</p>;
+
+  async function uploadFile(file: File) {
+    const token = getStoredSupabaseAccessToken();
+    const fd = new FormData(); fd.set("file", file); fd.set("modulo", modulo);
+    const res = await fetch("/api/acompanhamento/upload", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || "Falha no upload");
+    return payload.fileUrl as string;
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    for (const f of fields) if (f.required && !String(form[f.key] ?? "").trim()) return setMessage(`Campo obrigatório: ${f.label}.`);
+    setSaving(true); setMessage(null);
+    try {
+      const data = { ...form } as Record<string, unknown>;
+      for (const key of fileFields) {
+        const raw = data[key];
+        if (raw instanceof File) data[key] = await uploadFile(raw);
+      }
+      const token = getStoredSupabaseAccessToken();
+      const amount = form.custo_safra ? Number(form.custo_safra.replace(/\./g, "").replace(",", ".")) : null;
+      const res = await fetch(form.id ? `/api/acompanhamento/${modulo}/${form.id}` : `/api/acompanhamento/${modulo}`, { method: form.id ? "PUT" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ title: form.nome_propriedade || form.cultura_atual || form.safra || "Registro", property_id: form.property_id || null, amount, data }) });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Erro");
+      setMessage("Registro salvo com sucesso."); setForm({ id: "" }); load();
+    } catch (err) { setMessage(err instanceof Error ? err.message : "Erro"); }
+    finally { setSaving(false); }
+  }
+
+  return <section className="mx-auto max-w-6xl px-4 py-8"><Link href="/acompanhamento">← Voltar</Link><h1 className="text-2xl font-bold">{moduleData.title}</h1>{message && <p>{message}</p>}<form onSubmit={submit} className="grid gap-3 md:grid-cols-2">{fields.map((f) => <label key={f.key} className="text-sm">{f.label}{f.required ? " *" : ""}{f.type === "textarea" ? <textarea className="w-full border p-2" value={String(form[f.key] ?? "")} onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.value }))} /> : f.type === "select" ? <select className="w-full border p-2" value={String(form[f.key] ?? "")} onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.value }))}><option value="">Selecione</option>{f.options ? f.options.map((o) => <option key={o} value={o}>{o}</option>) : properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : f.type === "file" ? <input className="w-full" type="file" onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.files?.[0] as unknown as string || "" }))} /> : <input className="w-full border p-2" type={f.type === "date" ? "date" : "text"} value={String(form[f.key] ?? "")} onChange={(e) => setForm((x) => ({ ...x, [f.key]: e.target.value }))} />}</label>)}<button disabled={saving} className="rounded bg-green-700 p-2 text-white">{saving ? "Salvando..." : "Salvar"}</button></form><div className="mt-6 space-y-3">{records.length === 0 ? <p>Nenhum registro cadastrado.</p> : records.map((r) => <article key={r.id} className="rounded border p-3"><strong>{r.title}</strong><div className="mt-2 flex gap-3"><button onClick={() => setForm({ id: r.id, property_id: r.property_id ?? "", ...Object.fromEntries(Object.entries(r.data ?? {}).map(([k, v]) => [k, String(v ?? "")])) })}>Editar</button><button onClick={async () => { if (!confirm("Deseja excluir este registro?")) return; const token = getStoredSupabaseAccessToken(); const d = await fetch(`/api/acompanhamento/${modulo}/${r.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); if (d.ok) { setMessage("Registro excluído com sucesso."); load(); } }}>Excluir</button></div></article>)}</div></section>;
+}
