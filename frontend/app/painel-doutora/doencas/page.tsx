@@ -85,7 +85,7 @@ export default function Page() {
     }
     setAiLoading(true);
     setErr(null);
-    setMsg(null);
+    setMsg("Consultando IA e estruturando dados do cadastro...");
     try {
       const r = await fetch("/api/specialist/ai-fill", {
         method: "POST",
@@ -98,7 +98,7 @@ export default function Page() {
         if (errorCode === "ai_configuration_error") setErr("A IA não está configurada no servidor. Contate o administrador.");
         else if (errorCode === "ai_invalid_request" || errorCode === "ai_model_not_found") setErr("A configuração do modelo de IA está incompatível no servidor. Contate o administrador.");
         else if (["ai_provider_unavailable", "ai_rate_limit"].includes(errorCode) || r.status === 429 || r.status >= 500) setErr("A IA está temporariamente indisponível. Tente novamente em instantes.");
-        else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("Não foi possível interpretar a resposta da IA. Tente novamente ou preencha manualmente.");
+        else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("A IA respondeu, mas em formato inválido para o cadastro de doenças. Tente novamente com um nome mais específico ou preencha manualmente.");
         else setErr(p.error || "Erro ao gerar sugestão por IA.");
         return;
       }
@@ -168,6 +168,7 @@ export default function Page() {
     setForm((c) => ({ ...c, ...diseaseSuggestion, id: c.id }));
     setApplyingSuggestion(false);
     setMsg("Dados da IA aplicados no cadastro. Revise antes de salvar.");
+    setErr(null);
   }
 
   async function submit(e: FormEvent) {

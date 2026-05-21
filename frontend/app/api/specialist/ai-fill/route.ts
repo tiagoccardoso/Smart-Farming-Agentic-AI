@@ -24,6 +24,19 @@ type DiseaseAiSuggestion = {
   crop_id: string | null;
   is_active: boolean;
 };
+const diseaseRequiredFields: Array<keyof DiseaseAiSuggestion> = [
+  "common_name",
+  "scientific_name",
+  "causal_agent",
+  "disease_type",
+  "symptoms",
+  "favorable_conditions",
+  "crop_stage",
+  "severity_level",
+  "management_recommendations",
+  "preventive_control",
+  "curative_control",
+];
 
 const diseaseFieldFallback = "";
 
@@ -96,6 +109,14 @@ function parseAiPayload(raw: unknown) {
   throw new Error("A IA não retornou um objeto JSON válido.");
 }
 
+function hasDiseaseShape(value: unknown) {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  return keys.some((key) =>
+    diseaseRequiredFields.some((field) => diseaseFieldAliases[field].includes(key)),
+  );
+}
+
 function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: string, validCropIds: Set<string>) {
   const pick = (field: keyof DiseaseAiSuggestion): unknown => {
     for (const key of diseaseFieldAliases[field]) {
@@ -133,18 +154,10 @@ function normalizeDiseaseSuggestion(raw: Record<string, unknown>, fallbackName: 
   const warnings: string[] = [];
   if (invalidCropId) warnings.push("crop_id inválido foi descartado e substituído por null.");
 
-  const keyFields = [
-    suggestion.scientific_name,
-    suggestion.causal_agent,
-    suggestion.disease_type,
-    suggestion.symptoms,
-    suggestion.favorable_conditions,
-    suggestion.crop_stage,
-    suggestion.severity_level,
-    suggestion.management_recommendations,
-    suggestion.preventive_control,
-    suggestion.curative_control,
-  ].filter((value) => value.trim().length > 0);
+  const keyFields = diseaseRequiredFields
+    .filter((field) => field !== "common_name")
+    .map((field) => suggestion[field])
+    .filter((value) => typeof value === "string" && value.trim().length > 0);
 
   if (keyFields.length < 3) {
     warnings.push("A IA retornou poucos campos preenchidos. Revise e complemente manualmente.");
@@ -276,9 +289,20 @@ Regras obrigatórias:
       return NextResponse.json(response);
     }
 
-    const aiObject = isRecord(raw.dados) ? raw.dados : raw;
+    const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
+    if (!hasDiseaseShape(aiObjectCandidate)) {
+      return NextResponse.json(
+        {
+          error:
+            "A IA respondeu, mas o formato veio diferente do esperado. Tente novamente com o nome da doença mais específico.",
+          code: "ai_invalid_json",
+        },
+        { status: 422 },
+      );
+    }
+    const aiObject = aiObjectCandidate as Record<string, unknown>;
     const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || null;
-    const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject as Record<string, unknown>, name, validCropIds);
+    const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
 
     if (!suggestion.common_name) {
       return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
