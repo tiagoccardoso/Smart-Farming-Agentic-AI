@@ -11,6 +11,7 @@ type Disease = { id: string; common_name: string; scientific_name?: string | nul
 type AiDiseaseData = { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; };
 type AiSearchResponse = { success: true; summary: string; data: AiDiseaseData; debug?: { raw_text?: string; warnings?: string[] } } | { success: false; error: string; details?: string; debug?: { raw_text?: string; warnings?: string[] } };
 type ChatTurn = { id: string; role: Role; content: string; createdAt: string; structuredData?: AiDiseaseData | null; warnings?: string[]; rawText?: string };
+type MappableDiseaseField = "common_name" | "scientific_name" | "causal_agent" | "disease_type" | "symptoms" | "favorable_conditions" | "crop_stage" | "severity_level" | "management_recommendations" | "preventive_control" | "curative_control";
 
 const emptyAiData: AiDiseaseData = { nome_comum: "", nome_cientifico: "", agente_causal: "", tipo_agente: "", sintomas_principais: "", condicoes_favoraveis: "", periodo_critico_ocorrencia: "", nivel_severidade: "", manejo_preventivo: "", controle_biologico_preventivo: "", manejo_curativo_quimico: "" };
 const empty: Disease = { id: "", common_name: "", scientific_name: "", causal_agent: "", disease_type: "", symptoms: "", favorable_conditions: "", crop_stage: "", severity_level: "", management_recommendations: "", preventive_control: "", curative_control: "", technical_notes: "", crop_id: "", is_active: true };
@@ -55,7 +56,7 @@ export default function Page() {
 
   const applySuggestion = useCallback((data: AiDiseaseData | null) => {
     if (!data) return;
-    const map: [keyof Disease, keyof AiDiseaseData][] = [["common_name", "nome_comum"], ["scientific_name", "nome_cientifico"], ["causal_agent", "agente_causal"], ["disease_type", "tipo_agente"], ["symptoms", "sintomas_principais"], ["favorable_conditions", "condicoes_favoraveis"], ["crop_stage", "periodo_critico_ocorrencia"], ["severity_level", "nivel_severidade"], ["management_recommendations", "manejo_preventivo"], ["preventive_control", "controle_biologico_preventivo"], ["curative_control", "manejo_curativo_quimico"]];
+    const map: Array<[MappableDiseaseField, keyof AiDiseaseData]> = [["common_name", "nome_comum"], ["scientific_name", "nome_cientifico"], ["causal_agent", "agente_causal"], ["disease_type", "tipo_agente"], ["symptoms", "sintomas_principais"], ["favorable_conditions", "condicoes_favoraveis"], ["crop_stage", "periodo_critico_ocorrencia"], ["severity_level", "nivel_severidade"], ["management_recommendations", "manejo_preventivo"], ["preventive_control", "controle_biologico_preventivo"], ["curative_control", "manejo_curativo_quimico"]];
     setForm((cur) => {
       const next = { ...cur };
       for (const [field, key] of map) {
