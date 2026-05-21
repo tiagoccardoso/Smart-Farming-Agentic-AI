@@ -19,5 +19,17 @@ export function extractJsonObject(text: string) {
 }
 
 export function parseJsonObject<T>(text: string): T {
-  return JSON.parse(extractJsonObject(text)) as T;
+  const raw = extractJsonObject(text);
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    const repaired = raw
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/([\{\s,])([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, "$1\"$2\":")
+      .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, ": \"$1\"");
+
+    return JSON.parse(repaired) as T;
+  }
 }
