@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       ? `Preencha JSON para cadastro de cultura. Nome base: "${name}". Campos: name,display_name_pt,display_name_en,slug,model_label,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,aliases(array),active(boolean). Retorne SOMENTE JSON válido.`
       : `Preencha JSON para cadastro de doença. Nome base: "${name}". Campos: common_name,scientific_name,disease_type,symptoms,severity_level,management_recommendations,is_active,crop_id (UUID ou null). Use apenas crop_id desta lista:\n${cropsList}\nSe não houver correspondência segura, use null. Retorne SOMENTE JSON válido.`;
 
-    const result = await openAIProvider.generateStructuredOutput<Record<string, unknown>>([{ role: "system", content: "Você responde apenas JSON válido, sem markdown." }, { role: "user", content: prompt }], { temperature: 0.2, maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
+    const result = await openAIProvider.generateStructuredOutput<Record<string, unknown>>([{ role: "system", content: "Você responde apenas JSON válido, sem markdown." }, { role: "user", content: prompt }], { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
     const raw = result.content ?? {};
 
     if (type === "crop") {
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ suggestion: { common_name: cleanNullable(raw.common_name) || name, scientific_name: cleanNullable(raw.scientific_name), disease_type: cleanNullable(raw.disease_type), symptoms: cleanNullable(raw.symptoms), severity_level: cleanNullable(raw.severity_level), management_recommendations: cleanNullable(raw.management_recommendations), crop_id: cleanText(raw.crop_id), is_active: typeof raw.is_active === "boolean" ? raw.is_active : true } });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Falha ao gerar sugestão por IA." }, { status: 500 });
+    const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";
+    return NextResponse.json({ error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", detail }, { status: 500 });
   }
 }

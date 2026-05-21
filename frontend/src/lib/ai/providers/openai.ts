@@ -53,6 +53,11 @@ function normalizeTextFromResponse(payload: any) {
   throw new Error("A OpenAI retornou uma resposta vazia.");
 }
 
+function modelSupportsTemperature(model: string) {
+  const normalized = model.toLowerCase();
+  return !normalized.startsWith("gpt-5");
+}
+
 function normalizeUsage(payload: any, fallbackInputTokens: number, fallbackOutputText = "") {
   const inputTokens = payload.usage?.input_tokens ?? payload.usage?.prompt_tokens ?? fallbackInputTokens;
   const outputTokens = payload.usage?.output_tokens ?? payload.usage?.completion_tokens ?? estimateTokens(fallbackOutputText);
@@ -75,12 +80,15 @@ export class OpenAIProvider implements AIProvider {
 
     const model = options.model || getOpenAiChatModel();
     const startedAt = Date.now();
-    const body = {
+    const body: Record<string, unknown> = {
       model,
       input: messages.map((message) => ({ role: message.role, content: message.content })),
-      temperature: options.temperature ?? 0.2,
       max_output_tokens: options.maxOutputTokens ?? 1400
     };
+
+    if (modelSupportsTemperature(model) && typeof options.temperature === "number") {
+      body.temperature = options.temperature;
+    }
 
     const response = await fetchWithTimeout(
       "https://api.openai.com/v1/responses",
