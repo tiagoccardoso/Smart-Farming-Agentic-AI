@@ -96,9 +96,14 @@ export default function Navbar() {
         setLoadingSession(false);
       }
     }
-    loadSession();
+    function handleAuthChanged() {
+      void loadSession();
+    }
+    void loadSession();
+    window.addEventListener("auth:changed", handleAuthChanged);
     return () => {
       active = false;
+      window.removeEventListener("auth:changed", handleAuthChanged);
     };
   }, [pathname]);
 
@@ -121,6 +126,7 @@ export default function Navbar() {
   async function handleLogout() {
     await logout();
     setProfile(null);
+    window.dispatchEvent(new Event("auth:changed"));
     router.push("/login");
     router.refresh();
   }
