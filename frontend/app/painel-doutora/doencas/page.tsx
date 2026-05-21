@@ -97,6 +97,8 @@ export default function Page() {
       const validCropId = suggestedCropId && crops.some((c) => c.id === suggestedCropId) ? suggestedCropId : "";
       setForm((c) => ({ ...c, ...p.suggestion, crop_id: validCropId, id: c.id }));
       setMsg("Sugestão da IA aplicada. Revise os dados antes de salvar.");
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Não foi possível gerar sugestão da IA.");
     } finally {
       setAiLoading(false);
     }
