@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentProfile, getCurrentUser } from "../../../../lib/auth";
+import { normalizeOptionalUuid } from "../../../../lib/server/uuid";
 
 function getConfig() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,7 +41,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { modulo } = await params;
     const body = await request.json();
     if (!body.title?.trim()) return NextResponse.json({ error: "Título é obrigatório." }, { status: 400 });
-    const rows = await req<unknown[]>(`/rest/v1/acompanhamento_records?select=*`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...body, module_slug: modulo, owner_id: body.owner_id || user.id }) }, token, c);
+    const payload = {
+      ...body,
+      module_slug: modulo,
+      owner_id: normalizeOptionalUuid(body.owner_id) ?? user.id,
+      specialist_id: normalizeOptionalUuid(body.specialist_id),
+      property_id: normalizeOptionalUuid(body.property_id),
+    };
+    const rows = await req<unknown[]>(`/rest/v1/acompanhamento_records?select=*`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) }, token, c);
     return NextResponse.json({ record: rows[0] });
   } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 400 }); }
 }
