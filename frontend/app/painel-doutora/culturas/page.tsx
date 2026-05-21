@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import SectionTitle from "../../../components/SectionTitle";
 import LoadingCard from "../../../components/agronomic/LoadingCard";
+import ChatBubble from "../../../components/ChatBubble";
 import { getStoredSupabaseAccessToken } from "../../../lib/supabaseAuth";
 
 type CropRecord = {
@@ -65,6 +66,9 @@ export default function CulturasPainelDoutoraPage() {
   const [saving, setSaving] = useState(false);
   const [aiName, setAiName] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [applyingSuggestion, setApplyingSuggestion] = useState(false);
+  const [cropSuggestion, setCropSuggestion] = useState<Partial<CropForm> | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -126,13 +130,31 @@ export default function CulturasPainelDoutoraPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ type: "crop", name: aiName.trim() }),
       }));
-      setForm((current) => ({ ...current, ...payload.suggestion, id: current.id }));
-      setSuccess("Sugestão da IA aplicada. Revise os dados antes de salvar.");
+      const safeSuggestion = payload?.suggestion && typeof payload.suggestion === "object" ? payload.suggestion : null;
+      if (!safeSuggestion) {
+        setError("A IA respondeu sem dados estruturados válidos para o cadastro.");
+        return;
+      }
+      setCropSuggestion(safeSuggestion);
+      setChatMessages((current) => [
+        ...current,
+        { role: "user", text: aiName.trim() },
+        { role: "assistant", text: payload?.message || "Sugestão gerada. Clique em aplicar no cadastro para preencher o formulário." },
+      ]);
+      setSuccess("Sugestão gerada. Clique em “Aplicar no cadastro”.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Não foi possível gerar sugestão da IA.");
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function applySuggestion() {
+    if (!cropSuggestion) return;
+    setApplyingSuggestion(true);
+    setForm((current) => ({ ...current, ...cropSuggestion, id: current.id }));
+    setApplyingSuggestion(false);
+    setSuccess("Dados da IA aplicados no cadastro. Revise antes de salvar.");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -243,7 +265,7 @@ export default function CulturasPainelDoutoraPage() {
             {form.id ? "Editar cultura" : "Cadastrar cultura"}
           </h2>
           <div className="mt-4 rounded-2xl border border-leaf-100 bg-leaf-50 p-4">
-            <p className="text-sm font-semibold text-leaf-800">Preenchimento assistido por IA</p>
+            <p className="text-sm font-semibold text-leaf-800">Chat de preenchimento assistido por IA</p>
             <div className="mt-2 flex flex-col gap-2 md:flex-row">
               <input
                 value={aiName}
@@ -251,7 +273,26 @@ export default function CulturasPainelDoutoraPage() {
                 placeholder="Digite o nome da cultura"
                 className="w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm"
               />
-              <button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Gerando..." : "Preencher com IA"}</button>
+              <button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Consultando..." : "Enviar para IA"}</button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {chatMessages.length === 0 ? (
+                <p className="text-xs text-slate-600">Pesquise uma cultura e depois aplique os dados retornados pela IA no formulário.</p>
+              ) : (
+                chatMessages.map((message, index) => (
+                  <ChatBubble key={`${message.role}-${index}`} role={message.role} text={message.text} />
+                ))
+              )}
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                disabled={!cropSuggestion || applyingSuggestion}
+                onClick={applySuggestion}
+                className="rounded-full border border-leaf-300 bg-white px-5 py-2 text-sm font-semibold text-leaf-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {applyingSuggestion ? "Aplicando..." : "Aplicar no cadastro"}
+              </button>
             </div>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
