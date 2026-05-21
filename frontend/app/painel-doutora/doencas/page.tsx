@@ -96,7 +96,7 @@ export default function Page() {
       }
       setAiResult({ summary: p.summary, data: p.data, warnings: p.debug?.warnings ?? [] });
       setAiRawResponse(p.debug?.raw_text ?? "");
-      setMsg("Pesquisa concluída. Revise o conteúdo e clique em 'Aplicar no cadastro'.");
+      setMsg("Sugestão gerada com sucesso. Você pode revisar e editar antes de aplicar no cadastro.");
     } catch {
       setErr("Falha de rede durante a pesquisa com IA. Verifique sua conexão e tente novamente.");
     } finally { setAiLoading(false); }
@@ -119,7 +119,7 @@ export default function Page() {
       preventive_control: d.controle_biologico_preventivo,
       curative_control: d.manejo_curativo_quimico,
     }));
-    setMsg("Dados aplicados ao formulário. Você pode editar qualquer campo antes de salvar.");
+    setMsg("Dados aplicados ao formulário. Revise os campos destacados e edite livremente antes de salvar.");
     setErr(null);
   }
 
@@ -128,6 +128,11 @@ export default function Page() {
     return Object.values(aiResult.data).filter((value) => String(value ?? "").trim().length > 0).length;
   }, [aiResult]);
   const canApplyAi = structuredFieldsCount >= 3;
+  const aiMissingFields = useMemo(() => {
+    if (!aiResult) return [];
+    const map: Array<[keyof AiDiseaseData, string]> = [["nome_comum","Nome comum"],["nome_cientifico","Nome científico"],["agente_causal","Agente causal"],["tipo_agente","Tipo de agente"],["sintomas_principais","Sintomas principais"],["condicoes_favoraveis","Condições favoráveis"],["periodo_critico_ocorrencia","Período crítico"],["nivel_severidade","Nível de severidade"],["manejo_preventivo","Manejo preventivo"],["controle_biologico_preventivo","Controle biológico/preventivo"],["manejo_curativo_quimico","Manejo curativo/químico"]];
+    return map.filter(([k]) => !String(aiResult.data[k] ?? "").trim()).map(([,label]) => label);
+  }, [aiResult]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -170,7 +175,7 @@ export default function Page() {
     {err && <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</p>}
     {msg && <p className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{msg}</p>}
 
-    <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+    <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
       <div className="space-y-6">
         <div className="rounded-3xl border border-leaf-100 bg-gradient-to-br from-leaf-50 to-white p-5 shadow-soft">
           <p className="text-sm font-semibold text-leaf-800">Pesquisa com IA</p>
@@ -187,7 +192,8 @@ export default function Page() {
             <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">{aiResult.summary}</p>
             <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Dados estruturados</p>
             <pre className="mt-2 max-h-72 overflow-auto rounded-2xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700">{JSON.stringify(aiResult.data, null, 2)}</pre>
-            {aiResult.warnings.length > 0 && <p className="mt-2 text-xs text-amber-700">Avisos: {aiResult.warnings.join(" ")}</p>}
+            {aiResult.warnings.length > 0 && <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">Avisos: {aiResult.warnings.join(" ")}</p>}
+            {aiMissingFields.length > 0 && <p className="mt-2 rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs text-orange-700">A IA retornou uma sugestão parcial. Revise os campos pendentes: {aiMissingFields.join(", ")}.</p>}
             <button type="button" onClick={applySuggestion} disabled={!canApplyAi} className="mt-4 rounded-full border border-leaf-300 bg-white px-5 py-2 text-sm font-semibold text-leaf-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">Aplicar no cadastro</button>
             <p className="mt-2 text-xs text-slate-500">Campos estruturados detectados: {structuredFieldsCount}/11.</p>
           </> : <p className="mt-3 text-sm text-slate-500">Aguardando pesquisa com IA.</p>}
