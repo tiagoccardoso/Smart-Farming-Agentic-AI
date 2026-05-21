@@ -63,6 +63,8 @@ export default function CulturasPainelDoutoraPage() {
   const [form, setForm] = useState<CropForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiName, setAiName] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -104,6 +106,33 @@ export default function CulturasPainelDoutoraPage() {
     setForm({ ...crop, aliases: crop.aliases ?? [] });
     setSuccess(null);
     setError(null);
+  }
+
+
+
+  async function fillWithAI() {
+    const token = getStoredSupabaseAccessToken();
+    if (!token) return;
+    if (!aiName.trim()) {
+      setError("Informe o nome da cultura para preenchimento com IA.");
+      return;
+    }
+    setAiLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const payload = await parseResponse(await fetch("/api/specialist/ai-fill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: "crop", name: aiName.trim() }),
+      }));
+      setForm((current) => ({ ...current, ...payload.suggestion, id: current.id }));
+      setSuccess("Sugestão da IA aplicada. Revise os dados antes de salvar.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Não foi possível gerar sugestão da IA.");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -213,6 +242,18 @@ export default function CulturasPainelDoutoraPage() {
           <h2 className="text-xl font-bold text-slate-900">
             {form.id ? "Editar cultura" : "Cadastrar cultura"}
           </h2>
+          <div className="mt-4 rounded-2xl border border-leaf-100 bg-leaf-50 p-4">
+            <p className="text-sm font-semibold text-leaf-800">Preenchimento assistido por IA</p>
+            <div className="mt-2 flex flex-col gap-2 md:flex-row">
+              <input
+                value={aiName}
+                onChange={(event) => setAiName(event.target.value)}
+                placeholder="Digite o nome da cultura"
+                className="w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm"
+              />
+              <button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Gerando..." : "Preencher com IA"}</button>
+            </div>
+          </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {fields.map(([field, label, required]) => (
               <label
