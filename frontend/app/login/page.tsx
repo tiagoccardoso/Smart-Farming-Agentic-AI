@@ -32,6 +32,7 @@ function LoginContent() {
       await loginWithEmailPassword(email, password);
       await getCurrentAuthSession();
       router.replace(nextPath);
+      router.refresh();
     } catch (loginError) {
       setError(
         loginError instanceof Error
