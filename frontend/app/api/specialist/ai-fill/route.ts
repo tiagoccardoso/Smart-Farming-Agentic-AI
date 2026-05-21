@@ -292,13 +292,11 @@ export async function POST(request: NextRequest) {
     const name = payload?.name?.trim();
     if (!type || !name) return NextResponse.json({ error: "Informe tipo e nome." }, { status: 400 });
 
-    let cropsList = "";
     const validCropIds = new Set<string>();
     if (type === "disease") {
       const cfg = adminCfg();
       const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>("/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc", { method: "GET" }, cfg.anonKey, cfg);
       crops.forEach((crop) => validCropIds.add(crop.id));
-      cropsList = crops.map((c) => `${c.id} | ${c.display_name_pt || c.name}`).join("\n");
     }
 
     const prompt = type === "crop"
@@ -310,9 +308,12 @@ Regras:
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
 `
-      : `Pesquise/estime informações técnicas agronômicas para a doença "${name}" e retorne EXCLUSIVAMENTE JSON válido.
-Retorne somente um objeto JSON puro, sem markdown, sem comentários e sem texto fora do JSON.
-Use exatamente esta estrutura:
+      : `Pesquise informações técnicas agronômicas sobre a doença "${name}".
+Responda em DUAS PARTES:
+1) Um resumo textual curto e objetivo em português do Brasil.
+2) Um JSON válido com os campos do cadastro (use string vazia quando não souber).
+
+Formato esperado do JSON:
 {
   "nome_comum": "",
   "nome_cientifico": "",
@@ -326,10 +327,10 @@ Use exatamente esta estrutura:
   "controle_biologico_preventivo": "",
   "manejo_curativo_quimico": ""
 }
+
 Regras obrigatórias:
-- Não incluir campo cultura, crop_id ou qualquer campo adicional.
-- Não retornar arrays, tabelas, markdown, bloco de código ou explicações fora do JSON.
-- Todos os valores devem ser string; quando não souber use string vazia.
+- Não invente dados incertos.
+- Não inclua crop_id.
 - Em manejo_curativo_quimico, inclua ressalva para validação com receituário agronômico, legislação local, bula e registro para a cultura.
 `;
 
@@ -338,7 +339,7 @@ Regras obrigatórias:
         {
           role: "system",
           content:
-            "Você é um assistente de cadastro técnico agrícola. Responda exclusivamente com um único objeto JSON puro, sem markdown, sem comentários e sem texto adicional.",
+            "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
         },
         { role: "user", content: prompt },
       ],
