@@ -14,6 +14,7 @@ type AiSearchResponse = { success: true; summary: string; data: AiDiseaseData; d
 
 const empty: Disease = { id: "", common_name: "", scientific_name: "", causal_agent: "", disease_type: "", symptoms: "", favorable_conditions: "", crop_stage: "", severity_level: "", management_recommendations: "", preventive_control: "", curative_control: "", technical_notes: "", crop_id: "", is_active: true };
 const now = () => new Date().toISOString();
+const applyIntentRegex = /(preencher\s+formul[aá]rio|aplicar\s+no\s+cadastro|usar\s+essa\s+resposta\s+no\s+formul[aá]rio|gerar\s+cadastro)/i;
 
 export default function Page() {
   const [items, setItems] = useState<Disease[]>([]);
@@ -25,6 +26,7 @@ export default function Page() {
   const [chat, setChat] = useState<ChatTurn[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [aiResult, setAiResult] = useState<{ summary: string; data: AiDiseaseData; warnings: string[] } | null>(null);
   const [aiRawResponse, setAiRawResponse] = useState("");
@@ -83,7 +85,12 @@ export default function Page() {
       setChat((prev) => [...prev, { role: "assistant", content: assistantSummary, createdAt: now() }]);
       setAiResult({ summary: assistantSummary, data: p.data, warnings: p.debug?.warnings ?? [] });
       setAiRawResponse(p.debug?.raw_text ?? "");
-      setMsg("Resposta atualizada. Se estiver correta, clique em 'Aplicar no cadastro'.");
+      const askedToApply = Boolean(turn && applyIntentRegex.test(turn));
+      if (askedToApply) {
+        setTimeout(() => applySuggestion({ summary: assistantSummary, data: p.data, warnings: p.debug?.warnings ?? [] }), 0);
+      } else {
+        setMsg("Resposta atualizada. Se estiver correta, clique em 'Preencher formulário com IA'.");
+      }
     } catch {
       setErr("Falha de rede ao consultar IA.");
     } finally {
@@ -91,9 +98,10 @@ export default function Page() {
     }
   }
 
-  function applySuggestion() {
-    if (!aiResult) return;
-    const d = aiResult.data;
+  function applySuggestion(payload = aiResult) {
+    if (!payload) return;
+
+    const d = payload.data;
     const map: [keyof Disease, keyof AiDiseaseData][] = [["common_name", "nome_comum"], ["scientific_name", "nome_cientifico"], ["causal_agent", "agente_causal"], ["disease_type", "tipo_agente"], ["symptoms", "sintomas_principais"], ["favorable_conditions", "condicoes_favoraveis"], ["crop_stage", "periodo_critico_ocorrencia"], ["severity_level", "nivel_severidade"], ["management_recommendations", "manejo_preventivo"], ["preventive_control", "controle_biologico_preventivo"], ["curative_control", "manejo_curativo_quimico"]];
     setForm((cur) => {
       const n = { ...cur };
@@ -164,7 +172,7 @@ export default function Page() {
             <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm">{aiResult.summary}</p>
             {aiResult.warnings.length > 0 && <ul className="mt-3 list-disc space-y-1 rounded-2xl border border-amber-200 bg-amber-50 p-3 pl-8 text-xs text-amber-800">{aiResult.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
             <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border bg-slate-50 p-3 text-xs">{JSON.stringify(aiResult.data, null, 2)}</pre>
-            <button type="button" onClick={applySuggestion} className="mt-4 rounded-full border border-leaf-300 px-4 py-2 text-sm font-semibold text-leaf-700">Aplicar no cadastro</button>
+            <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => applySuggestion()} className="rounded-full border border-leaf-300 px-4 py-2 text-sm font-semibold text-leaf-700">Preencher formulário com IA</button>{aiRawResponse ? <button type="button" onClick={() => { try { const b = aiRawResponse.trim(); const f = b.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]; const raw = f ?? b.slice(Math.max(0,b.indexOf('{')), b.lastIndexOf('}')+1); const data = JSON.parse(raw) as Partial<AiDiseaseData>; applySuggestion({ summary: "JSON reaproveitado da resposta bruta.", warnings: ["Conversão manual aplicada."], data: { nome_comum: String(data.nome_comum ?? ""), nome_cientifico: String(data.nome_cientifico ?? ""), agente_causal: String(data.agente_causal ?? ""), tipo_agente: String(data.tipo_agente ?? ""), sintomas_principais: String(data.sintomas_principais ?? ""), condicoes_favoraveis: String(data.condicoes_favoraveis ?? ""), periodo_critico_ocorrencia: String(data.periodo_critico_ocorrencia ?? ""), nivel_severidade: String(data.nivel_severidade ?? ""), manejo_preventivo: String(data.manejo_preventivo ?? ""), controle_biologico_preventivo: String(data.controle_biologico_preventivo ?? ""), manejo_curativo_quimico: String(data.manejo_curativo_quimico ?? "") } }); } catch { setErr("Não foi possível converter automaticamente. Peça para IA gerar o cadastro novamente."); } }} className="rounded-full border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700">Tentar converter resposta bruta</button> : null}</div>
           </> : <p className="mt-3 text-sm text-slate-500">Aguardando resposta da IA.</p>}
           {aiRawResponse && <pre className="mt-3 max-h-48 overflow-auto rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">{aiRawResponse}</pre>}
         </div>
@@ -181,7 +189,7 @@ export default function Page() {
 
     <div className="mt-8 rounded-3xl border bg-white p-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><p className="font-semibold">Doenças cadastradas</p><input className="rounded-2xl border p-2 text-sm" placeholder="Buscar" value={q} onChange={e => setQ(e.target.value)} /></div>
-      <div className="mt-4 space-y-2">{loadingData ? <p>Carregando...</p> : visible.map(d => <article key={d.id} className="rounded-2xl border bg-slate-50 p-3"><strong>{d.common_name}</strong><p className="text-sm">{d.scientific_name}</p></article>)}</div>
+      <div className="mt-4 space-y-2">{loadingData ? <p>Carregando...</p> : visible.map(d => <article key={d.id} className="rounded-2xl border bg-slate-50 p-3"><strong>{d.common_name}</strong><p className="text-sm">{d.scientific_name}</p><div className="mt-2 flex gap-2"><button type="button" className="rounded-full border border-leaf-200 px-3 py-1 text-xs" onClick={() => { setForm({ ...empty, ...d, crop_id: d.crop_id ?? "" }); setEditedFields(new Set()); }}>Editar</button><button type="button" disabled={deletingId===d.id} className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-700 disabled:opacity-60" onClick={async () => { if (!confirm("Deseja excluir este cadastro?")) return; const t = token(); if (!t) return; setDeletingId(d.id); try { const r = await fetch(`/api/specialist/diseases?id=${encodeURIComponent(d.id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } }); const p = await r.json().catch(() => ({})); if (!r.ok) throw new Error(p?.error || "Falha ao excluir"); setMsg("Cadastro excluído com sucesso."); await loadData(); } catch (e) { setErr(e instanceof Error ? e.message : "Falha ao excluir"); } finally { setDeletingId(null); } }}>Excluir</button></div></article>)}</div>
     </div>
   </section>;
 }
