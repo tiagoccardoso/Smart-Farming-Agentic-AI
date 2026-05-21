@@ -90,7 +90,11 @@ export default function Page() {
       });
       const p = await r.json();
       if (!r.ok) {
-        setErr(p.error || "Erro ao gerar sugestão por IA.");
+        const errorCode = typeof p?.code === "string" ? p.code : "";
+        if (errorCode === "ai_configuration_error") setErr("A IA não está configurada no servidor. Contate o administrador.");
+        else if (["ai_provider_unavailable", "ai_rate_limit"].includes(errorCode) || r.status === 429 || r.status >= 500) setErr("A IA está temporariamente indisponível. Tente novamente em instantes.");
+        else if (errorCode === "ai_invalid_json" || r.status === 422) setErr("A IA retornou uma resposta inválida para preenchimento automático. Tente novamente.");
+        else setErr(p.error || "Erro ao gerar sugestão por IA.");
         return;
       }
       const rawSuggestion = p.suggestion ?? {};
@@ -124,7 +128,7 @@ export default function Page() {
         ? `Sugestão da IA aplicada com avisos: ${warnings.join(" ")} Revise os dados antes de salvar.`
         : "Sugestão da IA aplicada. Revise os dados antes de salvar.");
     } catch (error) {
-      setErr("Não foi possível gerar sugestão da IA no momento.");
+      setErr("Falha de comunicação ao gerar sugestão por IA. Verifique sua conexão e tente novamente.");
     } finally {
       setAiLoading(false);
     }
