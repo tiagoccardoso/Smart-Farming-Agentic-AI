@@ -7,7 +7,7 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
-type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[] };
+type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
 type DiseaseAiSuggestion = {
   common_name: string;
   scientific_name: string;
@@ -24,6 +24,22 @@ type DiseaseAiSuggestion = {
   crop_id: string | null;
   is_active: boolean;
 };
+
+const diseaseOutputFields: Array<keyof DiseaseAiSuggestion> = [
+  "common_name",
+  "scientific_name",
+  "causal_agent",
+  "disease_type",
+  "symptoms",
+  "favorable_conditions",
+  "crop_stage",
+  "severity_level",
+  "management_recommendations",
+  "preventive_control",
+  "curative_control",
+  "technical_notes",
+];
+
 const diseaseRequiredFields: Array<keyof DiseaseAiSuggestion> = [
   "common_name",
   "scientific_name",
@@ -134,6 +150,49 @@ function parseAiPayload(raw: unknown): AiParseResult {
   if (isRecord(raw)) return { payload: raw, source: "object" };
   if (typeof raw === "string") return extractJsonObjectFromText(raw);
   throw new Error("A IA não retornou um objeto JSON válido.");
+}
+
+function stripMarkdownFence(value: string) {
+  return value.replace(/```json/gi, "").replace(/```/g, "").trim();
+}
+
+function extractAssistantMessage(rawText: string) {
+  const cleaned = stripMarkdownFence(rawText);
+  const jsonStart = cleaned.indexOf("{");
+  if (jsonStart <= 0) return cleaned.trim();
+  return cleaned.slice(0, jsonStart).trim();
+}
+
+function extractFallbackFieldsFromText(rawText: string) {
+  const text = stripMarkdownFence(rawText);
+  const result: Record<string, string> = {};
+  const labelMap: Array<[keyof DiseaseAiSuggestion, RegExp]> = [
+    ["common_name", /(?:nome\s*comum|doen[çc]a)\s*[:\-]\s*(.+)/i],
+    ["scientific_name", /nome\s*cient[íi]fico\s*[:\-]\s*(.+)/i],
+    ["causal_agent", /agente\s*causal\s*[:\-]\s*(.+)/i],
+    ["disease_type", /tipo\s*(?:de\s*)?agente\s*[:\-]\s*(.+)/i],
+    ["symptoms", /sintomas\s*(?:principais)?\s*[:\-]\s*(.+)/i],
+    ["favorable_conditions", /condi[çc][õo]es\s*favor[áa]veis\s*[:\-]\s*(.+)/i],
+    ["crop_stage", /per[íi]odo\s*cr[íi]tico(?:\s*de\s*ocorr[êe]ncia)?\s*[:\-]\s*(.+)/i],
+    ["severity_level", /n[íi]vel\s*de\s*severidade\s*[:\-]\s*(.+)/i],
+    ["management_recommendations", /manejo\s*preventivo\s*[:\-]\s*(.+)/i],
+    ["preventive_control", /controle\s*biol[óo]gico\s*\/?\s*preventivo\s*[:\-]\s*(.+)/i],
+    ["curative_control", /manejo\s*curativo\s*\/?\s*qu[íi]mico\s*[:\-]\s*(.+)/i],
+  ];
+
+  for (const [key, pattern] of labelMap) {
+    const match = text.match(pattern);
+    if (match?.[1]) result[key] = match[1].trim();
+  }
+
+  return result;
+}
+
+function hasUsefulDiseaseData(suggestion: DiseaseAiSuggestion) {
+  return diseaseOutputFields.some((field) => {
+    if (field === "is_active" || field === "crop_id") return false;
+    return typeof suggestion[field] === "string" && suggestion[field].trim().length > 0;
+  });
 }
 
 function hasDiseaseShape(value: unknown) {
@@ -286,8 +345,17 @@ Regras obrigatórias:
       { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
     );
 
-    const parsed = parseAiPayload(result.content);
-    const raw = parsed.payload;
+    let raw: Record<string, unknown> = {};
+    let parsedSource: AiParseResult["source"] | "text_only" = "text_only";
+    let rawTextResponse = typeof result.content === "string" ? result.content : "";
+
+    try {
+      const parsed = parseAiPayload(result.content);
+      raw = parsed.payload;
+      parsedSource = parsed.source;
+    } catch {
+      raw = extractFallbackFieldsFromText(rawTextResponse);
+    }
 
     if (type === "crop") {
       const suggestion = {
@@ -327,23 +395,19 @@ Regras obrigatórias:
     }
 
     const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
-    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsed.source);
-    if (!hasDiseaseShape(aiObjectCandidate)) {
-      return NextResponse.json(
-        {
-          error:
-            "A IA respondeu sem dados suficientes para preencher o cadastro de doenças. Tente um nome mais específico ou revise manualmente.",
-          code: "ai_invalid_json",
-        },
-        { status: 422 },
-      );
-    }
-    const aiObject = aiObjectCandidate as Record<string, unknown>;
-    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || null;
+    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsedSource);
+    const aiObject = hasDiseaseShape(aiObjectCandidate)
+      ? (aiObjectCandidate as Record<string, unknown>)
+      : {
+          ...extractFallbackFieldsFromText(rawTextResponse),
+          ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
+        };
+    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
     const { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
 
-    if (!suggestion.common_name) {
-      return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
+    const hasUsableData = hasUsefulDiseaseData(suggestion);
+    if (!hasUsableData) {
+      return NextResponse.json({ error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.", code: "ai_no_usable_data" }, { status: 422 });
     }
 
     const response: AiFillResponse<typeof suggestion> = {
@@ -351,6 +415,7 @@ Regras obrigatórias:
       assistant_message: assistantMessage ?? undefined,
       suggestion,
       warnings,
+      has_usable_data: hasUsableData,
     };
     return NextResponse.json(response);
   } catch (e) {
