@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import type { UserRole } from "../../../../lib/auth";
 import { openAIProvider } from "../../../../src/lib/ai/providers/openai";
+import { parseJsonObject } from "../../../../src/lib/ai/utils/json-parser";
+import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
@@ -23,8 +25,23 @@ function mapAiError(error: unknown) {
   if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível." };
   if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes." };
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível." };
-  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou um formato inválido para preenchimento automático." };
+  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático." };
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes." };
+}
+
+function parseAiPayload(raw: unknown) {
+  if (isRecord(raw)) return raw;
+  if (typeof raw === "string") return parseJsonObject<Record<string, unknown>>(raw);
+  throw new Error("A IA não retornou um objeto JSON válido.");
+}
+
+function normalizeBoolean(value: unknown, fallback = true) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+  return fallback;
 }
 
 function adminCfg() { const c = getSupabaseConfig(); const key = process.env.SUPABASE_SERVICE_ROLE_KEY; if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY ausente"); return { ...c, anonKey: key }; }
@@ -60,17 +77,72 @@ export async function POST(request: NextRequest) {
       ? `Preencha JSON para cadastro de cultura. Nome base: "${name}". Campos: name,display_name_pt,display_name_en,slug,model_label,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,aliases(array),active(boolean). Retorne SOMENTE JSON válido.`
       : `Preencha JSON para cadastro de doença. Nome base: "${name}". Campos: common_name,scientific_name,causal_agent,disease_type,symptoms,favorable_conditions,crop_stage,severity_level,management_recommendations,preventive_control,curative_control,technical_notes,is_active,crop_id (UUID ou null). Use apenas crop_id desta lista:\n${cropsList}\nSe não houver correspondência segura, use null. Retorne SOMENTE JSON válido.`;
 
-    const result = await openAIProvider.generateStructuredOutput<Record<string, unknown>>([{ role: "system", content: "Você responde apenas JSON válido, sem markdown." }, { role: "user", content: prompt }], { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" });
-    const raw = result.content ?? {};
-    if (!isRecord(raw)) {
-      return NextResponse.json({ error: "A IA retornou uma estrutura inválida para sugestão." }, { status: 422 });
-    }
+    const result = await openAIProvider.generateText(
+      [
+        {
+          role: "system",
+          content:
+            "Você é um assistente de cadastro técnico agrícola. Responda exclusivamente com um único objeto JSON puro, sem markdown, sem comentários e sem texto adicional.",
+        },
+        { role: "user", content: prompt },
+      ],
+      { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
+    );
+
+    const raw = parseAiPayload(result.content);
 
     if (type === "crop") {
-      return NextResponse.json({ suggestion: { name: cleanNullable(raw.name) || name, display_name_pt: cleanNullable(raw.display_name_pt) || name, display_name_en: cleanNullable(raw.display_name_en), slug: cleanNullable(raw.slug), model_label: cleanNullable(raw.model_label), scientific_name: cleanNullable(raw.scientific_name), recommended_soil: cleanNullable(raw.recommended_soil), ideal_climate: cleanNullable(raw.ideal_climate), common_diseases: cleanNullable(raw.common_diseases), common_pests: cleanNullable(raw.common_pests), growth_cycle: cleanNullable(raw.growth_cycle), irrigation_notes: cleanNullable(raw.irrigation_notes), fertilization_notes: cleanNullable(raw.fertilization_notes), recommended_region: cleanNullable(raw.recommended_region), known_risks: cleanNullable(raw.known_risks), management_notes: cleanNullable(raw.management_notes), aliases: Array.isArray(raw.aliases) ? raw.aliases.filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean) : [name], active: typeof raw.active === "boolean" ? raw.active : true } });
+      const suggestion = {
+        name: cleanNullable(raw.name) || name,
+        display_name_pt: cleanNullable(raw.display_name_pt) || name,
+        display_name_en: cleanNullable(raw.display_name_en),
+        slug: cleanNullable(raw.slug),
+        model_label: cleanNullable(raw.model_label),
+        scientific_name: cleanNullable(raw.scientific_name),
+        recommended_soil: cleanNullable(raw.recommended_soil),
+        ideal_climate: cleanNullable(raw.ideal_climate),
+        common_diseases: cleanNullable(raw.common_diseases),
+        common_pests: cleanNullable(raw.common_pests),
+        growth_cycle: cleanNullable(raw.growth_cycle),
+        irrigation_notes: cleanNullable(raw.irrigation_notes),
+        fertilization_notes: cleanNullable(raw.fertilization_notes),
+        recommended_region: cleanNullable(raw.recommended_region),
+        known_risks: cleanNullable(raw.known_risks),
+        management_notes: cleanNullable(raw.management_notes),
+        aliases: Array.isArray(raw.aliases) ? raw.aliases.filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean) : [name],
+        active: normalizeBoolean(raw.active, true),
+      };
+
+      if (!suggestion.name || !suggestion.display_name_pt) {
+        return NextResponse.json({ error: "A IA respondeu, mas não trouxe os campos obrigatórios da cultura (name e display_name_pt)." }, { status: 422 });
+      }
+
+      return NextResponse.json({ suggestion });
     }
 
-    return NextResponse.json({ suggestion: { common_name: cleanNullable(raw.common_name) || name, scientific_name: cleanNullable(raw.scientific_name), causal_agent: cleanNullable(raw.causal_agent), disease_type: cleanNullable(raw.disease_type), symptoms: cleanNullable(raw.symptoms), favorable_conditions: cleanNullable(raw.favorable_conditions), crop_stage: cleanNullable(raw.crop_stage), severity_level: cleanNullable(raw.severity_level), management_recommendations: cleanNullable(raw.management_recommendations), preventive_control: cleanNullable(raw.preventive_control), curative_control: cleanNullable(raw.curative_control), technical_notes: cleanNullable(raw.technical_notes), crop_id: cleanText(raw.crop_id), is_active: typeof raw.is_active === "boolean" ? raw.is_active : true } });
+    const cropId = cleanText(raw.crop_id);
+    const suggestion = {
+      common_name: cleanNullable(raw.common_name) || name,
+      scientific_name: cleanNullable(raw.scientific_name),
+      causal_agent: cleanNullable(raw.causal_agent),
+      disease_type: cleanNullable(raw.disease_type),
+      symptoms: cleanNullable(raw.symptoms),
+      favorable_conditions: cleanNullable(raw.favorable_conditions),
+      crop_stage: cleanNullable(raw.crop_stage),
+      severity_level: cleanNullable(raw.severity_level),
+      management_recommendations: cleanNullable(raw.management_recommendations),
+      preventive_control: cleanNullable(raw.preventive_control),
+      curative_control: cleanNullable(raw.curative_control),
+      technical_notes: cleanNullable(raw.technical_notes),
+      crop_id: cropId && requireUuid(cropId) ? cropId : null,
+      is_active: normalizeBoolean(raw.is_active, true),
+    };
+
+    if (!suggestion.common_name) {
+      return NextResponse.json({ error: "A IA respondeu, mas não trouxe o campo obrigatório da doença (common_name)." }, { status: 422 });
+    }
+
+    return NextResponse.json({ suggestion });
   } catch (e) {
     const mapped = mapAiError(e);
     const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";
