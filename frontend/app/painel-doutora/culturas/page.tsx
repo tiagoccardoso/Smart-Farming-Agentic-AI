@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import SectionTitle from "../../../components/SectionTitle";
 import LoadingCard from "../../../components/agronomic/LoadingCard";
-import ChatBubble from "../../../components/ChatBubble";
 import { getStoredSupabaseAccessToken } from "../../../lib/supabaseAuth";
 
 type CropRecord = {
@@ -64,11 +63,6 @@ export default function CulturasPainelDoutoraPage() {
   const [form, setForm] = useState<CropForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [aiName, setAiName] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [applyingSuggestion, setApplyingSuggestion] = useState(false);
-  const [cropSuggestion, setCropSuggestion] = useState<Partial<CropForm> | null>(null);
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -110,51 +104,6 @@ export default function CulturasPainelDoutoraPage() {
     setForm({ ...crop, aliases: crop.aliases ?? [] });
     setSuccess(null);
     setError(null);
-  }
-
-
-
-  async function fillWithAI() {
-    const token = getStoredSupabaseAccessToken();
-    if (!token) return;
-    if (!aiName.trim()) {
-      setError("Informe o nome da cultura para preenchimento com IA.");
-      return;
-    }
-    setAiLoading(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const payload = await parseResponse(await fetch("/api/specialist/ai-fill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: "crop", name: aiName.trim() }),
-      }));
-      const safeSuggestion = payload?.suggestion && typeof payload.suggestion === "object" ? payload.suggestion : null;
-      if (!safeSuggestion) {
-        setError("A IA respondeu sem dados estruturados válidos para o cadastro.");
-        return;
-      }
-      setCropSuggestion(safeSuggestion);
-      setChatMessages((current) => [
-        ...current,
-        { role: "user", text: aiName.trim() },
-        { role: "assistant", text: payload?.message || "Sugestão gerada. Clique em aplicar no cadastro para preencher o formulário." },
-      ]);
-      setSuccess("Sugestão gerada. Clique em “Aplicar no cadastro”.");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Não foi possível gerar sugestão da IA.");
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  function applySuggestion() {
-    if (!cropSuggestion) return;
-    setApplyingSuggestion(true);
-    setForm((current) => ({ ...current, ...cropSuggestion, id: current.id }));
-    setApplyingSuggestion(false);
-    setSuccess("Dados da IA aplicados no cadastro. Revise antes de salvar.");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -256,46 +205,21 @@ export default function CulturasPainelDoutoraPage() {
         </div>
       )}
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_0.9fr]">
+      <div className="mt-8 grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
         <form
           onSubmit={handleSubmit}
-          className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft"
+          className="rounded-[2rem] border border-slate-200/70 bg-gradient-to-b from-white to-slate-50/70 p-6 shadow-soft md:p-8"
         >
-          <h2 className="text-xl font-bold text-slate-900">
+          <h2 className="text-2xl font-black tracking-tight text-slate-900">
             {form.id ? "Editar cultura" : "Cadastrar cultura"}
           </h2>
-          <div className="mt-4 rounded-2xl border border-leaf-100 bg-leaf-50 p-4">
-            <p className="text-sm font-semibold text-leaf-800">Chat de preenchimento assistido por IA</p>
-            <div className="mt-2 flex flex-col gap-2 md:flex-row">
-              <input
-                value={aiName}
-                onChange={(event) => setAiName(event.target.value)}
-                placeholder="Digite o nome da cultura"
-                className="w-full rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-sm"
-              />
-              <button type="button" onClick={fillWithAI} disabled={aiLoading} className="rounded-full bg-leaf-700 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300">{aiLoading ? "Consultando..." : "Enviar para IA"}</button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {chatMessages.length === 0 ? (
-                <p className="text-xs text-slate-600">Pesquise uma cultura e depois aplique os dados retornados pela IA no formulário.</p>
-              ) : (
-                chatMessages.map((message, index) => (
-                  <ChatBubble key={`${message.role}-${index}`} role={message.role} text={message.text} />
-                ))
-              )}
-            </div>
-            <div className="mt-3">
-              <button
-                type="button"
-                disabled={!cropSuggestion || applyingSuggestion}
-                onClick={applySuggestion}
-                className="rounded-full border border-leaf-300 bg-white px-5 py-2 text-sm font-semibold text-leaf-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {applyingSuggestion ? "Aplicando..." : "Aplicar no cadastro"}
-              </button>
-            </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Preencha os dados técnicos da cultura para manter o catálogo padronizado, atualizado e pronto para uso em fluxos internos.
+          </p>
+          <div className="mt-4 rounded-2xl border border-leaf-100 bg-leaf-50/70 p-4 text-sm text-leaf-900">
+            Os campos marcados com <strong>*</strong> são obrigatórios.
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
             {fields.map(([field, label, required]) => (
               <label
                 key={field}
@@ -310,7 +234,7 @@ export default function CulturasPainelDoutoraPage() {
                   rows={field === "management_notes" ? 4 : 2}
                   value={String(form[field] ?? "")}
                   onChange={(event) => updateForm(field, event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
                 />
               </label>
             ))}
@@ -328,7 +252,7 @@ export default function CulturasPainelDoutoraPage() {
                       .filter(Boolean),
                   )
                 }
-                className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
               />
             </label>
           </div>
@@ -343,9 +267,14 @@ export default function CulturasPainelDoutoraPage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               disabled={saving}
-              className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:bg-slate-300"
+              className="inline-flex items-center gap-2 rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {saving ? "Salvando..." : "Salvar cultura"}
+              {saving ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                  Salvando cultura...
+                </>
+              ) : "Salvar cultura"}
             </button>
             <button
               type="button"
@@ -357,7 +286,7 @@ export default function CulturasPainelDoutoraPage() {
           </div>
         </form>
 
-        <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+        <div className="rounded-[2rem] border border-slate-200/70 bg-white p-6 shadow-soft md:p-7">
           <h2 className="text-xl font-bold text-slate-900">
             Culturas cadastradas
           </h2>
