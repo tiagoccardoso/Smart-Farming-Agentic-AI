@@ -86,11 +86,9 @@ export default function Page() {
       const p = (await r.json()) as AiSearchResponse;
       if (!r.ok || !p.success) {
         const errorMessage = ("error" in p && p.error) ? p.error : "Falha na IA";
-        const details = "details" in p ? p.details : undefined;
         const rawText = "debug" in p ? p.debug?.raw_text : undefined;
-        const combined = details ? `${errorMessage} (${details})` : errorMessage;
-        setChat((prev) => [...prev, { id: newId(), role: "assistant", content: `${combined}. Ajuste sua solicitação ou preencha manualmente.`, createdAt: now(), rawText }]);
-        throw new Error(combined);
+        setChat((prev) => [...prev, { id: newId(), role: "assistant", content: `${errorMessage}. Ajuste sua solicitação ou preencha manualmente.`, createdAt: now(), rawText }]);
+        throw new Error(errorMessage);
       }
 
       const normalizedData = { ...emptyAiData, ...p.data };
