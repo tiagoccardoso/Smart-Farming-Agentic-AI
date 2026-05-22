@@ -43,7 +43,7 @@ function normalizeTextFromResponse(payload: any) {
   const output = Array.isArray(payload.output) ? payload.output : [];
   const text = output
     .flatMap((item: any) => (Array.isArray(item.content) ? item.content : []))
-    .map((part: any) => part.text || part.output_text || "")
+    .map((part: any) => part.text || part.output_text || part?.content?.[0]?.text || "")
     .filter(Boolean)
     .join("\n");
 
@@ -75,6 +75,37 @@ function normalizeUsage(payload: any, fallbackInputTokens: number, fallbackOutpu
   };
 }
 
+
+
+async function requestChatCompletionsFallback(apiKey: string, model: string, messages: AIMessage[], options: AIProviderCallOptions = {}) {
+  const body: Record<string, unknown> = {
+    model,
+    messages: messages.map((message) => ({ role: message.role, content: message.content })),
+    max_completion_tokens: options.maxOutputTokens ?? 1400
+  };
+
+  if (modelSupportsTemperature(model) && typeof options.temperature === "number") {
+    body.temperature = options.temperature;
+  }
+
+  const response = await fetchWithTimeout(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    },
+    options.timeoutMs
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw buildOpenAIHttpError(payload, response.status);
+  const content = normalizeTextFromResponse(payload);
+  return { payload, content };
+}
+
 function buildOpenAIHttpError(payload: any, status: number): OpenAIHttpError {
   const err = new Error(payload?.error?.message || "Falha na chamada da OpenAI.") as OpenAIHttpError;
   err.status = status;
@@ -96,7 +127,10 @@ export class OpenAIProvider implements AIProvider {
     const startedAt = Date.now();
     const body: Record<string, unknown> = {
       model,
-      input: messages.map((message) => ({ role: message.role, content: message.content })),
+      input: messages.map((message) => ({
+        role: message.role,
+        content: [{ type: "input_text", text: message.content }]
+      })),
       max_output_tokens: options.maxOutputTokens ?? 1400
     };
 
@@ -116,9 +150,25 @@ export class OpenAIProvider implements AIProvider {
       },
       options.timeoutMs
     );
-    const payload = await response.json().catch(() => null);
+    let payload = await response.json().catch(() => null);
 
-    if (!response.ok) throw buildOpenAIHttpError(payload, response.status);
+    if (!response.ok) {
+      const error = buildOpenAIHttpError(payload, response.status);
+      if (response.status === 400 || error.code === "unsupported_parameter" || error.code === "invalid_request_error") {
+        const fallback = await requestChatCompletionsFallback(apiKey, model, messages, options);
+        payload = fallback.payload;
+        const content = fallback.content;
+        return {
+          provider: this.name,
+          model,
+          content,
+          usage: normalizeUsage(payload, estimateMessagesTokens(messages), content),
+          responseTimeMs: Date.now() - startedAt,
+          raw: payload
+        };
+      }
+      throw error;
+    }
 
     const content = normalizeTextFromResponse(payload);
     return {
