@@ -405,59 +405,35 @@ Regras:
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
 `
-      : `Pesquise informações técnicas agronômicas confiáveis sobre a doença: "${name}".
+      : `Pesquise informações técnicas agronômicas sobre a doença agrícola: "${name}".
 
-Objetivo:
-Gerar informações para preencher automaticamente um cadastro de doenças agrícolas.
+IMPORTANTE: Retorne SOMENTE um objeto JSON válido. Sem texto antes ou depois. Sem markdown. Sem comentários.
 
-Regras obrigatórias:
-- Responda em português do Brasil.
-- Não invente dados incertos.
-- Quando a informação variar conforme a cultura, informe isso claramente.
-- Preencha todos os campos sempre que houver informação técnica confiável.
-- Não deixe campos vazios quando a informação puder ser inferida com segurança técnica.
-- Não inclua crop_id.
-- Considere possíveis variações do nome informado pelo usuário. Exemplo: se o usuário digitar "Antraquinose", considere que pode estar se referindo a "Antracnose".
-- Priorize informações agronômicas técnicas, como agente causal, sintomas, condições favoráveis e manejo.
-- O manejo químico deve sempre conter ressalva para validação com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro do produto para a cultura.
-
-Formato obrigatório da resposta:
-Responda em DUAS PARTES.
-
-PARTE 1:
-Um resumo textual curto, objetivo e técnico sobre a doença.
-
-PARTE 2:
-Um JSON válido, sem comentários, sem markdown dentro do JSON, seguindo exatamente este formato:
+Use exatamente estas chaves e forneça strings de linha única (sem quebras de linha dentro dos valores):
 
 {
-  "nome_comum": "",
-  "nome_cientifico": "",
-  "agente_causal": "",
-  "tipo_agente": "",
-  "sintomas_principais": "",
-  "condicoes_favoraveis": "",
-  "periodo_critico_ocorrencia": "",
-  "nivel_severidade": "",
-  "manejo_preventivo": "",
-  "controle_biologico_preventivo": "",
-  "manejo_curativo_quimico": "",
-  "observacoes_tecnicas": ""
+  "resumo": "2-3 frases técnicas objetivas sobre a doença",
+  "nome_comum": "nome popular mais usado",
+  "nome_cientifico": "nome científico do patógeno ou grupo, quando aplicável",
+  "agente_causal": "organismo causador detalhado",
+  "tipo_agente": "Fungo ou Bactéria ou Vírus ou Nematoide ou Fisiológico ou outro",
+  "sintomas_principais": "sintomas visíveis no campo, separados por ponto e vírgula",
+  "condicoes_favoraveis": "clima, umidade, temperatura e ambiente que favorecem a doença",
+  "periodo_critico_ocorrencia": "fase da cultura ou época de maior risco",
+  "nivel_severidade": "Baixa ou Média ou Alta, com justificativa curta",
+  "manejo_preventivo": "medidas culturais, sanitárias e preventivas separadas por ponto e vírgula",
+  "controle_biologico_preventivo": "opções biológicas e preventivas separadas por ponto e vírgula, ou string vazia se não houver",
+  "manejo_curativo_quimico": "opções de controle químico quando aplicável — OBRIGATÓRIO incluir: Validar com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro para a cultura",
+  "observacoes_tecnicas": "notas adicionais, variações regionais, resistência a fungicidas ou alertas técnicos, ou string vazia"
 }
 
-Instruções para preenchimento:
-- nome_comum: nome popular mais usado da doença.
-- nome_cientifico: nome científico do patógeno ou grupo de patógenos, quando aplicável.
-- agente_causal: detalhe do organismo causador.
-- tipo_agente: Fungo, Bactéria, Vírus, Nematoide, Fisiológico, Praga ou outro tipo aplicável.
-- sintomas_principais: sintomas visíveis no campo.
-- condicoes_favoraveis: clima, umidade, temperatura, manejo ou ambiente que favorecem a doença.
-- periodo_critico_ocorrencia: fase da cultura ou época de maior risco.
-- nivel_severidade: Baixa, Média ou Alta, com justificativa curta.
-- manejo_preventivo: medidas culturais, sanitárias e preventivas.
-- controle_biologico_preventivo: opções biológicas/preventivas quando existirem; se depender da cultura, informe.
-- manejo_curativo_quimico: opções gerais de controle químico apenas quando tecnicamente aplicável, sempre com ressalva obrigatória sobre validação com receituário agronômico, legislação local, bula e registro para a cultura.
-- observacoes_tecnicas: notas adicionais, variações regionais, resistência a fungicidas, alertas técnicos relevantes ou referências normativas (pode ficar vazio se não houver informação técnica adicional relevante).
+Regras:
+- Responder em português do Brasil
+- Não inventar dados; se incerto, informar isso no próprio campo
+- NUNCA incluir quebras de linha dentro dos valores de string
+- Usar ponto e vírgula para separar itens de listas dentro de strings
+- Considerar variações de grafia: ex. "Antraquinose" pode ser "Antracnose"
+- Não incluir a chave "crop_id" na resposta
 
 Doença pesquisada: "${name}"`;
 
@@ -466,7 +442,7 @@ Doença pesquisada: "${name}"`;
       {
         role: "system" as const,
         content:
-          "Você é um assistente de cadastro técnico agrícola. Responda de forma objetiva em português do Brasil e inclua um JSON válido com os campos solicitados.",
+          "Você é um assistente de cadastro técnico agrícola. Responda SEMPRE com um objeto JSON válido e nada mais — sem texto antes, sem markdown, sem comentários. Todos os valores devem ser strings de linha única sem quebras de linha.",
       },
       ...history.map((turn) => ({ role: turn.role, content: turn.content })),
       { role: "user" as const, content: prompt },
@@ -536,7 +512,7 @@ Doença pesquisada: "${name}"`;
           ...extractFallbackFieldsFromText(rawTextResponse),
           ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
         };
-    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
+    const assistantMessage = cleanText(raw.resumo) || cleanText(raw.summary) || cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
     let { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
 
     if (countStructuredDiseaseFields(suggestion) < diseaseRequiredFields.length) {
