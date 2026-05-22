@@ -42,8 +42,12 @@ function normalizeTextFromResponse(payload: any) {
 
   const output = Array.isArray(payload.output) ? payload.output : [];
   const text = output
-    .flatMap((item: any) => (Array.isArray(item.content) ? item.content : []))
-    .map((part: any) => part.text || part.output_text || "")
+    .flatMap((item: any) => {
+      if (Array.isArray(item.content)) return item.content;
+      if (typeof item.content === "string" && item.content.trim()) return [{ text: item.content }];
+      return [];
+    })
+    .map((part: any) => (typeof part === "string" ? part : part.text || part.output_text || ""))
     .filter(Boolean)
     .join("\n");
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import type { UserRole } from "../../../../lib/auth";
 import { openAIProvider } from "../../../../src/lib/ai/providers/openai";
+import { geminiProvider } from "../../../../src/lib/ai/providers/gemini";
 import { parseJsonObject } from "../../../../src/lib/ai/utils/json-parser";
 import { requireUuid } from "../../../../lib/server/uuid";
 
@@ -297,6 +298,21 @@ async function ensureSpecialist(token: string) {
 }
 
 
+async function generateTextWithFallback(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  options: { maxOutputTokens: number; promptType: string },
+) {
+  try {
+    return await openAIProvider.generateText(messages, options);
+  } catch (openAiErr) {
+    try {
+      return await geminiProvider.generateText(messages, options);
+    } catch {
+      throw openAiErr;
+    }
+  }
+}
+
 async function enrichDiseaseSuggestion(name: string, suggestion: DiseaseAiSuggestion) {
   const missing = diseaseRequiredFields.filter((field) => !String(suggestion[field] ?? "").trim());
   if (missing.length === 0) return { suggestion, warnings: [] as string[] };
@@ -311,7 +327,7 @@ Campos ausentes: ${missing.join(", ")}
 JSON atual:
 ${JSON.stringify(suggestion, null, 2)}`;
 
-  const completion = await openAIProvider.generateText(
+  const completion = await generateTextWithFallback(
     [
       { role: "system", content: "Você retorna somente JSON válido e técnico para cadastro agrícola." },
       { role: "user", content: completionPrompt },
@@ -433,7 +449,7 @@ Doença pesquisada: "${name}"`;
       ...history.map((turn) => ({ role: turn.role, content: turn.content })),
       { role: "user" as const, content: prompt },
     ];
-    const result = await openAIProvider.generateText(
+    const result = await generateTextWithFallback(
       messages,
       { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
     );
