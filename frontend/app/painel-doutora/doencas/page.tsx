@@ -57,7 +57,7 @@ export default function Page() {
 
   return <section className="mx-auto max-w-7xl px-4 py-8 md:px-6 md:py-12">
     <Link href="/configuracoes" className="text-sm text-leaf-700 hover:underline">← Configurações</Link>
-    <SectionTitle title="Cadastro Premium de Doenças" subtitle="Cadastro técnico padronizado para manter o histórico fitossanitário consistente." />
+    <SectionTitle title="Doenças" subtitle="Cadastro técnico padronizado para manter o histórico fitossanitário consistente." />
     {err && <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</p>}
     {msg && <p className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{msg}</p>}
     <div className="mt-6 rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft md:p-6">
