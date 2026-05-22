@@ -62,7 +62,9 @@ export default function Page() {
       const next = { ...cur };
       for (const [field, key] of map) {
         if (editedFields.has(field)) continue;
-        next[field] = String(data[key] ?? "").trim();
+        const incoming = String(data[key] ?? "").trim();
+        if (!incoming) continue;
+        next[field] = incoming;
       }
       return next;
     });
@@ -84,9 +86,11 @@ export default function Page() {
       const p = (await r.json()) as AiSearchResponse;
       if (!r.ok || !p.success) {
         const errorMessage = ("error" in p && p.error) ? p.error : "Falha na IA";
-        const details = "debug" in p ? p.debug?.raw_text : undefined;
-        setChat((prev) => [...prev, { id: newId(), role: "assistant", content: `${errorMessage}. Ajuste sua solicitação ou preencha manualmente.`, createdAt: now(), rawText: details }]);
-        throw new Error(errorMessage);
+        const details = "details" in p ? p.details : undefined;
+        const rawText = "debug" in p ? p.debug?.raw_text : undefined;
+        const combined = details ? `${errorMessage} (${details})` : errorMessage;
+        setChat((prev) => [...prev, { id: newId(), role: "assistant", content: `${combined}. Ajuste sua solicitação ou preencha manualmente.`, createdAt: now(), rawText }]);
+        throw new Error(combined);
       }
 
       const normalizedData = { ...emptyAiData, ...p.data };
