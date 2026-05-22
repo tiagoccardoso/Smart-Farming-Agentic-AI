@@ -8,9 +8,11 @@ import { requireUuid } from "../../../../lib/server/uuid";
 
 type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | null };
 type FillType = "crop" | "disease";
+type DiseaseMode = "chat" | "fill";
 type ChatTurn = { role: "user" | "assistant"; content: string };
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
-type DiseaseAiApiResponse = { success: true; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; observacoes_tecnicas?: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
+type DiseaseChatApiResponse = { success: true; type: "chat"; message: string } | { success: false; error: string; details?: string };
+type DiseaseAiApiResponse = { success: true; type: "fill"; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; observacoes_tecnicas?: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
 type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
 type DiseaseAiSuggestion = {
   common_name: string;
@@ -434,13 +436,33 @@ export async function POST(request: NextRequest) {
     const auth = await ensureSpecialist(token);
     if (auth.error) return auth.error;
 
-    const payload = (await request.json().catch(() => null)) as { type?: FillType; name?: string; history?: ChatTurn[] } | null;
+    const payload = (await request.json().catch(() => null)) as { type?: FillType; name?: string; history?: ChatTurn[]; mode?: DiseaseMode } | null;
     const type = payload?.type;
     const name = payload?.name?.trim();
+    const mode: DiseaseMode = payload?.mode === "chat" ? "chat" : "fill";
     const history = Array.isArray(payload?.history)
       ? payload.history.filter((turn) => (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string" && turn.content.trim())
       : [];
     if (!type || !name) return NextResponse.json({ error: "Informe tipo e nome." }, { status: 400 });
+
+    // ── Chat mode: conversational free-text response ──────────────────────
+    if (type === "disease" && mode === "chat") {
+      errorStage = "provider_call";
+      const chatSystemMessages = [
+        {
+          role: "system" as const,
+          content: "Você é um assistente especialista em fitopatologia e agronomia. Responda perguntas técnicas sobre doenças de plantas, sintomas, causas, manejo e controle em português do Brasil. Seja claro, objetivo e use linguagem técnica acessível. Evite respostas excessivamente longas, salvo se o usuário pedir análise detalhada. NÃO gere JSON nem listas de chaves estruturadas. Responda sempre em texto corrido.",
+        },
+        ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+        { role: "user" as const, content: name },
+      ];
+      const chatResult = await generateTextWithFallback(
+        chatSystemMessages,
+        { maxOutputTokens: 1000, promptType: "disease_chat" },
+      );
+      const response: DiseaseChatApiResponse = { success: true, type: "chat", message: chatResult.content };
+      return NextResponse.json(response);
+    }
 
     const validCropIds = new Set<string>();
     if (type === "disease") {
@@ -616,6 +638,7 @@ Regras:
 
     const response: DiseaseAiApiResponse = {
       success: true,
+      type: "fill",
       summary: assistantMessage || `Resumo técnico gerado para ${name}. Revise e ajuste conforme o contexto local.`,
       data: {
         nome_comum: suggestion.common_name,
