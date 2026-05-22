@@ -17,6 +17,7 @@ const emptyAiData: AiDiseaseData = { nome_comum: "", nome_cientifico: "", agente
 const empty: Disease = { id: "", common_name: "", scientific_name: "", causal_agent: "", disease_type: "", symptoms: "", favorable_conditions: "", crop_stage: "", severity_level: "", management_recommendations: "", preventive_control: "", curative_control: "", technical_notes: "", crop_id: "", is_active: true };
 const now = () => new Date().toISOString();
 const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const minimumAiKeys: Array<keyof AiDiseaseData> = ["nome_comum", "nome_cientifico", "agente_causal"];
 
 export default function Page() {
   const [items, setItems] = useState<Disease[]>([]);
@@ -119,6 +120,10 @@ export default function Page() {
   const fields: Array<[keyof Disease, string]> = [["common_name", "Nome comum *"], ["scientific_name", "Nome científico *"], ["causal_agent", "Agente causal *"], ["disease_type", "Tipo de agente *"], ["symptoms", "Sintomas principais *"], ["favorable_conditions", "Condições favoráveis *"], ["crop_stage", "Período crítico de ocorrência *"], ["severity_level", "Nível de severidade *"], ["management_recommendations", "Manejo preventivo *"], ["preventive_control", "Controle biológico / preventivo *"], ["curative_control", "Manejo curativo / químico *"], ["technical_notes", "Observações técnicas"]];
   const visible = useMemo(() => items.filter((x) => `${x.common_name} ${x.scientific_name ?? ""}`.toLowerCase().includes(search.toLowerCase())), [items, search]);
   const latestStructuredData = [...chat].reverse().find((turn) => turn.structuredData)?.structuredData ?? null;
+  const canApplyLatestStructuredData = useMemo(() => {
+    if (!latestStructuredData) return false;
+    return minimumAiKeys.some((key) => String(latestStructuredData[key] ?? "").trim().length > 0);
+  }, [latestStructuredData]);
 
   return <section className="mx-auto max-w-7xl px-4 py-8 md:px-6 md:py-12">
     <Link href="/configuracoes" className="text-sm text-leaf-700 hover:underline">← Configurações</Link>
@@ -135,13 +140,13 @@ export default function Page() {
         <div className="mt-3 rounded-2xl border bg-white p-2">
           <label htmlFor="disease-ai-chat-input" className="sr-only">Mensagem para IA</label>
           <textarea id="disease-ai-chat-input" aria-label="Mensagem para IA" className="min-h-[84px] w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none ring-leaf-400 focus:ring" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={onChatKeyDown} placeholder="Digite sua solicitação. Enter envia, Shift+Enter quebra linha." disabled={aiLoading} />
-          <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => void runAi()} disabled={aiLoading || !chatInput.trim()} className="rounded-full bg-leaf-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{aiLoading ? "Enviando..." : "Enviar"}</button><button type="button" onClick={() => applySuggestion(latestStructuredData)} disabled={!latestStructuredData || aiLoading} className="rounded-full border border-leaf-300 px-4 py-2 text-sm font-semibold text-leaf-700 disabled:opacity-50">Aplicar no cadastro</button></div>
+          <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => void runAi()} disabled={aiLoading || !chatInput.trim()} className="rounded-full bg-leaf-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{aiLoading ? "Enviando..." : "Enviar"}</button><button type="button" onClick={() => applySuggestion(latestStructuredData)} disabled={!canApplyLatestStructuredData || aiLoading} className="rounded-full border border-leaf-300 px-4 py-2 text-sm font-semibold text-leaf-700 disabled:opacity-50">Aplicar no cadastro</button></div>
         </div>
       </aside>
 
       <form onSubmit={submit} className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft">
         <p className="mb-4 font-semibold text-[#123F2A]">Formulário técnico</p>
-        <div className="grid gap-4 md:grid-cols-2">{fields.map(([k, l]) => <label key={String(k)} className="text-sm">{l}<textarea rows={3} required={l.includes("*")} className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm" value={String(form[k] ?? "")} onChange={(e) => { setEditedFields((prev) => new Set([...prev, String(k)])); setForm((c) => ({ ...c, [k]: e.target.value })); }} /></label>)}
+        <div className="grid gap-4 md:grid-cols-2">{fields.map(([k, l]) => <label key={String(k)} className="text-sm">{l}<textarea rows={3} required={k === "common_name"} className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm" value={String(form[k] ?? "")} onChange={(e) => { setEditedFields((prev) => new Set([...prev, String(k)])); setForm((c) => ({ ...c, [k]: e.target.value })); }} /></label>)}
           <label className="text-sm">Cultura vinculada<select className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm" value={form.crop_id ?? ""} onChange={e => setForm((c) => ({ ...c, crop_id: e.target.value }))}><option value="">Não vinculada</option>{crops.map(c => <option key={c.id} value={c.id}>{c.display_name_pt || c.name}</option>)}</select></label>
         </div>
         <button disabled={saving} className="mt-4 w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Salvando cadastro..." : "Salvar cadastro"}</button>
