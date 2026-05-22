@@ -19,7 +19,7 @@ export function extractJsonObject(text: string) {
 }
 
 function escapeNewlinesInStrings(text: string): string {
-  let result = “”;
+  let result = "";
   let inString = false;
   let escaped = false;
   for (let i = 0; i < text.length; i++) {
@@ -27,16 +27,16 @@ function escapeNewlinesInStrings(text: string): string {
     if (escaped) {
       result += ch;
       escaped = false;
-    } else if (ch === “\\” && inString) {
+    } else if (ch === "\\" && inString) {
       result += ch;
       escaped = true;
-    } else if (ch === “\””) {
+    } else if (ch === "\"") {
       inString = !inString;
       result += ch;
-    } else if (inString && ch === “\n”) {
-      result += “\\n”;
-    } else if (inString && ch === “\r”) {
-      result += “\\r”;
+    } else if (inString && ch === "\n") {
+      result += "\\n";
+    } else if (inString && ch === "\r") {
+      result += "\\r";
     } else {
       result += ch;
     }
@@ -50,11 +50,11 @@ export function parseJsonObject<T>(text: string): T {
     return JSON.parse(raw) as T;
   } catch {
     const repaired = escapeNewlinesInStrings(raw)
-      .replace(/[“”]/g, “\””)
-      .replace(/[‘’]/g, “’”)
-      .replace(/,\s*([}\]])/g, “$1”)
-      .replace(/([\{\s,])([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, “$1\”$2\”:”)
-      .replace(/:\s*’([^’\\]*(?:\\.[^’\\]*)*)’/g, “: \”$1\””);
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/([\{\s,])([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, "$1\"$2\":")
+      .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, ": \"$1\"");
 
     return JSON.parse(repaired) as T;
   }
