@@ -146,3 +146,9 @@ Para uso real em produção agrícola, valide recomendações com análise de so
 - Usar LLM ou embeddings externos para melhorar o Q&A.
 - Exportar relatórios por propriedade/talhão.
 - Adicionar autenticação de usuários.
+---
+
+## 📄 Licença
+
+Este projeto está licenciado sob a **Apache License 2.0**. Consulte o arquivo [LICENSE](./LICENSE) para mais detalhes.
+
