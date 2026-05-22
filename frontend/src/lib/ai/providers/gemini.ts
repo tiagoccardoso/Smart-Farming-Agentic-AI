@@ -86,7 +86,10 @@ export class GeminiProvider implements AIProvider {
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error(payload?.error?.message || "Falha na chamada do Gemini.");
+      const err = new Error(payload?.error?.message || "Falha na chamada do Gemini.") as Error & { status: number; code?: string };
+      err.status = response.status;
+      err.code = payload?.error?.code || payload?.error?.status;
+      throw err;
     }
 
     const content = getText(payload);

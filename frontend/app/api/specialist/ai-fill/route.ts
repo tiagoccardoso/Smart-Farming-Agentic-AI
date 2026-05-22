@@ -161,8 +161,10 @@ function mapAiError(error: unknown): { status: number; error: string; code: stri
   if (errorName === "AbortError" || code === "ABORT_ERR" || msgLower.includes("aborted") || msgLower.includes("timeout") || msgLower.includes("timed out")) return { status: 504, error: "Tempo limite excedido ao consultar o serviço de IA.", code: "ai_timeout" };
   if (status === 400 || code === "unsupported_parameter" || code === "invalid_request_error") return { status: 502, error: "A requisição enviada ao modelo de IA é incompatível com o modelo configurado.", code: "ai_invalid_request" };
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
+  if (status && status >= 400) return { status: 502, error: "O provedor de IA recusou a requisição (código " + status + ").", code: "ai_request_rejected" };
   if (message.includes("JSON válido") || message.includes("formato inválido") || errorName === "SyntaxError") return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
   if (msgLower.includes("resposta vazia") || msgLower.includes("retornou uma resposta") || msgLower.includes("empty response")) return { status: 422, error: "O serviço de IA não retornou conteúdo. Reformule a consulta ou tente novamente.", code: "ai_empty_response" };
+  if (msgLower.includes("falha na chamada") || msgLower.includes("failed to fetch") || msgLower.includes("fetch failed") || msgLower.includes("network error") || errorName === "TypeError") return { status: 502, error: "Falha de conexão com o serviço de IA. Verifique a configuração e tente novamente.", code: "ai_connection_error" };
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
 }
 
