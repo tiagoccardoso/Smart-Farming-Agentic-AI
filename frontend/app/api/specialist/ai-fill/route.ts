@@ -167,6 +167,20 @@ function extractAssistantMessage(rawText: string) {
   return cleaned.slice(0, jsonStart).trim();
 }
 
+
+function extractSummaryAndJson(rawText: string) {
+  const text = stripMarkdownFence(rawText).trim();
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first < 0 || last <= first) {
+    return { summary: text, jsonText: "" };
+  }
+  return {
+    summary: text.slice(0, first).trim(),
+    jsonText: text.slice(first, last + 1).trim(),
+  };
+}
+
 function extractFallbackFieldsFromText(rawText: string) {
   const text = stripMarkdownFence(rawText);
   const result: Record<string, string> = {};
@@ -386,13 +400,13 @@ Regras obrigatórias:
 - O manejo químico deve sempre conter ressalva para validação com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro do produto para a cultura.
 
 Formato obrigatório da resposta:
-Responda em DUAS PARTES.
+Responda em DUAS PARTES e nesta ordem exata.
 
 PARTE 1:
-Um resumo textual curto, objetivo e técnico sobre a doença.
+Comece com a linha "RESUMO:" seguida de um resumo curto, objetivo e técnico sobre a doença.
 
 PARTE 2:
-Um JSON válido, sem comentários, sem markdown dentro do JSON, seguindo exatamente este formato:
+Na linha seguinte, retorne APENAS um JSON válido, sem markdown, sem comentários e sem texto adicional fora do JSON, seguindo exatamente este formato:
 
 {
   "nome_comum": "",
@@ -439,14 +453,20 @@ Doença pesquisada: "${name}"`;
     );
 
     let raw: Record<string, unknown> = {};
-    let parsedSource: AiParseResult["source"] | "text_only" = "text_only";
-    let rawTextResponse = typeof result.content === "string" ? result.content : "";
+    let parsedSource: AiParseResult["source"] | "json_extracted" | "text_only" = "text_only";
+    const rawTextResponse = typeof result.content === "string" ? result.content : "";
+    const extracted = extractSummaryAndJson(rawTextResponse);
 
     try {
       errorStage = "parse_json";
-      const parsed = parseAiPayload(result.content);
-      raw = parsed.payload;
-      parsedSource = parsed.source;
+      if (extracted.jsonText) {
+        raw = parseJsonObject<Record<string, unknown>>(extracted.jsonText);
+        parsedSource = "json_extracted";
+      } else {
+        const parsed = parseAiPayload(result.content);
+        raw = parsed.payload;
+        parsedSource = parsed.source;
+      }
     } catch {
       errorStage = "fallback_extract";
       raw = extractFallbackFieldsFromText(rawTextResponse);
@@ -498,7 +518,7 @@ Doença pesquisada: "${name}"`;
           ...extractFallbackFieldsFromText(rawTextResponse),
           ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
         };
-    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
+    const assistantMessage = cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extracted.summary) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
     let { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
 
     if (countStructuredDiseaseFields(suggestion) < diseaseRequiredFields.length) {
@@ -516,7 +536,7 @@ Doença pesquisada: "${name}"`;
       return NextResponse.json({
         success: false,
         error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.",
-        details: "ai_no_usable_data",
+        details: "fallback_extract:ai_no_usable_data",
         debug: { raw_text: rawTextResponse || undefined, warnings }
       }, { status: 422 });
     }
