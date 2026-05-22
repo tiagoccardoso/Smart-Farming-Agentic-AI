@@ -9,7 +9,7 @@ type Profile = { id: string; role: UserRole; status?: "active" | "inactive" | nu
 type FillType = "crop" | "disease";
 type ChatTurn = { role: "user" | "assistant"; content: string };
 type AiFillResponse<T> = { message: string; suggestion: T; assistant_message?: string; warnings?: string[]; has_usable_data?: boolean };
-type DiseaseAiApiResponse = { success: true; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
+type DiseaseAiApiResponse = { success: true; summary: string; data: { nome_comum: string; nome_cientifico: string; agente_causal: string; tipo_agente: string; sintomas_principais: string; condicoes_favoraveis: string; periodo_critico_ocorrencia: string; nivel_severidade: string; manejo_preventivo: string; controle_biologico_preventivo: string; manejo_curativo_quimico: string; observacoes_tecnicas?: string; }; debug?: { warnings?: string[]; raw_text?: string } } | { success: false; error: string; details?: string };
 type AiFillErrorStage = "provider_call" | "parse_json" | "fallback_extract" | "normalize" | "unknown";
 type DiseaseAiSuggestion = {
   common_name: string;
@@ -536,6 +536,7 @@ Doença pesquisada: "${name}"`;
         manejo_preventivo: suggestion.management_recommendations,
         controle_biologico_preventivo: suggestion.preventive_control,
         manejo_curativo_quimico: suggestion.curative_control,
+        observacoes_tecnicas: suggestion.technical_notes || undefined,
       },
       debug: {
         warnings: [...warnings, `Campos estruturados preenchidos: ${countStructuredDiseaseFields(suggestion)}/${diseaseRequiredFields.length}`],
