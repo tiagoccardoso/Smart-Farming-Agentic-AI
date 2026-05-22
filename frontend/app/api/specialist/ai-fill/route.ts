@@ -164,7 +164,7 @@ function stripMarkdownFence(value: string) {
 function extractAssistantMessage(rawText: string) {
   const cleaned = stripMarkdownFence(rawText);
   const jsonStart = cleaned.indexOf("{");
-  if (jsonStart <= 0) return cleaned.trim();
+  if (jsonStart < 0) return cleaned.trim();
   return cleaned.slice(0, jsonStart).trim();
 }
 
@@ -332,7 +332,7 @@ ${JSON.stringify(suggestion, null, 2)}`;
       { role: "system", content: "Você retorna somente JSON válido e técnico para cadastro agrícola." },
       { role: "user", content: completionPrompt },
     ],
-    { maxOutputTokens: 1000, promptType: "specialist_catalog_fill" },
+    { maxOutputTokens: 1500, promptType: "specialist_catalog_fill" },
   );
 
   const parsed = parseAiPayload(completion.content);
@@ -421,7 +421,8 @@ Um JSON válido, sem comentários, sem markdown dentro do JSON, seguindo exatame
   "nivel_severidade": "",
   "manejo_preventivo": "",
   "controle_biologico_preventivo": "",
-  "manejo_curativo_quimico": ""
+  "manejo_curativo_quimico": "",
+  "observacoes_tecnicas": ""
 }
 
 Instruções para preenchimento:
@@ -436,6 +437,7 @@ Instruções para preenchimento:
 - manejo_preventivo: medidas culturais, sanitárias e preventivas.
 - controle_biologico_preventivo: opções biológicas/preventivas quando existirem; se depender da cultura, informe.
 - manejo_curativo_quimico: opções gerais de controle químico apenas quando tecnicamente aplicável, sempre com ressalva obrigatória sobre validação com receituário agronômico, legislação local, bula e registro para a cultura.
+- observacoes_tecnicas: notas adicionais, variações regionais, resistência a fungicidas, alertas técnicos relevantes ou referências normativas (pode ficar vazio se não houver informação técnica adicional relevante).
 
 Doença pesquisada: "${name}"`;
 
@@ -451,7 +453,7 @@ Doença pesquisada: "${name}"`;
     ];
     const result = await generateTextWithFallback(
       messages,
-      { maxOutputTokens: 1200, promptType: "specialist_catalog_fill" },
+      { maxOutputTokens: 2500, promptType: "specialist_catalog_fill" },
     );
 
     let raw: Record<string, unknown> = {};

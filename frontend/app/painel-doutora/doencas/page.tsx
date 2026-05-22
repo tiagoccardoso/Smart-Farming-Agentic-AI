@@ -248,19 +248,17 @@ export default function Page() {
 
   // Apply AI data to form
   const applyAiData = useCallback((data: AiDiseaseData) => {
+    const updates: Partial<Record<MappableField, string>> = {};
     const filled = new Set<string>();
-    setForm((cur) => {
-      const next = { ...cur };
-      for (const [field, key] of AI_FIELD_MAP) {
-        if (editedFields.has(field)) continue;
-        const value = String(data[key] ?? "").trim();
-        if (value) {
-          (next as Record<string, unknown>)[field] = value;
-          filled.add(field);
-        }
+    for (const [field, key] of AI_FIELD_MAP) {
+      if (editedFields.has(field)) continue;
+      const value = String(data[key] ?? "").trim();
+      if (value) {
+        updates[field] = value;
+        filled.add(field);
       }
-      return next;
-    });
+    }
+    setForm((cur) => ({ ...cur, ...updates }));
     setAiFilledFields(filled);
   }, [editedFields]);
 
