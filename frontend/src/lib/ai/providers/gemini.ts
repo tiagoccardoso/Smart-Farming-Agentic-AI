@@ -76,7 +76,8 @@ export class GeminiProvider implements AIProvider {
           generationConfig: {
             temperature: options.temperature ?? 0.2,
             maxOutputTokens: options.maxOutputTokens ?? 1600,
-            responseMimeType: options.promptType?.includes("structured") ? "application/json" : undefined
+            responseMimeType: (options.responseSchema || options.promptType?.includes("structured")) ? "application/json" : undefined,
+            responseSchema: options.responseSchema ?? undefined,
           }
         })
       },

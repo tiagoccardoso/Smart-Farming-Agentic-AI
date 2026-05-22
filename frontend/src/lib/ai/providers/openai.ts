@@ -108,6 +108,19 @@ export class OpenAIProvider implements AIProvider {
       body.temperature = options.temperature;
     }
 
+    if (options.responseSchema) {
+      const schemaName = (options.promptType || "structured_output")
+        .toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 64);
+      body.text = {
+        format: {
+          type: "json_schema",
+          name: schemaName,
+          strict: true,
+          schema: options.responseSchema,
+        },
+      };
+    }
+
     const response = await fetchWithTimeout(
       "https://api.openai.com/v1/responses",
       {

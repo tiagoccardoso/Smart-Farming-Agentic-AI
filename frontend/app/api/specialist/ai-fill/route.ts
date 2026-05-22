@@ -60,6 +60,39 @@ const diseaseRequiredFields: Array<keyof DiseaseAiSuggestion> = [
 
 const diseaseFieldFallback = "";
 
+const DISEASE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "nome_comum",
+    "nome_cientifico",
+    "agente_causal",
+    "tipo_agente",
+    "sintomas_principais",
+    "condicoes_favoraveis",
+    "periodo_critico_ocorrencia",
+    "nivel_severidade",
+    "manejo_preventivo",
+    "controle_biologico_preventivo",
+    "manejo_curativo_quimico",
+    "observacoes_tecnicas",
+  ],
+  properties: {
+    nome_comum: { type: "string" },
+    nome_cientifico: { type: "string" },
+    agente_causal: { type: "string" },
+    tipo_agente: { type: "string" },
+    sintomas_principais: { type: "string" },
+    condicoes_favoraveis: { type: "string" },
+    periodo_critico_ocorrencia: { type: "string" },
+    nivel_severidade: { type: "string" },
+    manejo_preventivo: { type: "string" },
+    controle_biologico_preventivo: { type: "string" },
+    manejo_curativo_quimico: { type: "string" },
+    observacoes_tecnicas: { type: "string" },
+  },
+} as const;
+
 const diseaseFieldAliases: Record<keyof DiseaseAiSuggestion, string[]> = {
   common_name: ["common_name", "nome_comum", "nome", "doenca", "doença"],
   scientific_name: ["scientific_name", "nome_cientifico", "nome_científico"],
@@ -329,6 +362,33 @@ async function generateTextWithFallback(
   }
 }
 
+async function generateStructuredWithFallback<T>(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  options: { maxOutputTokens: number; promptType: string; responseSchema: unknown },
+): Promise<T> {
+  let openAiErr: unknown;
+  try {
+    const result = await openAIProvider.generateText(messages, options);
+    return parseJsonObject<T>(result.content);
+  } catch (err) {
+    openAiErr = err;
+    console.warn("[ai-fill] OpenAI structured falhou, tentando Gemini", {
+      message: err instanceof Error ? err.message : String(err),
+      status: (err as any)?.status,
+    });
+  }
+  try {
+    const result = await geminiProvider.generateText(messages, options);
+    return parseJsonObject<T>(result.content);
+  } catch (geminiErr) {
+    console.warn("[ai-fill] Gemini structured também falhou", {
+      message: geminiErr instanceof Error ? geminiErr.message : String(geminiErr),
+    });
+    const openAiStatus = (openAiErr as any)?.status;
+    throw openAiStatus !== undefined ? openAiErr : geminiErr;
+  }
+}
+
 async function enrichDiseaseSuggestion(name: string, suggestion: DiseaseAiSuggestion) {
   const missing = diseaseRequiredFields.filter((field) => !String(suggestion[field] ?? "").trim());
   if (missing.length === 0) return { suggestion, warnings: [] as string[] };
@@ -396,77 +456,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const prompt = type === "crop"
-      ? `Preencha um cadastro de cultura com base no nome "${name}".
+    if (type === "crop") {
+      const cropPrompt = `Preencha um cadastro de cultura com base no nome "${name}".
 Responda com APENAS um objeto JSON válido, sem markdown e sem texto extra.
 Não inclua campos fora desta lista: name,display_name_pt,display_name_en,slug,model_label,scientific_name,recommended_soil,ideal_climate,common_diseases,common_pests,growth_cycle,irrigation_notes,fertilization_notes,recommended_region,known_risks,management_notes,aliases,active.
 Regras:
 - aliases deve ser array de strings;
 - active deve ser boolean;
 - campos textuais devem ser string (use "" quando não souber).
-`
-      : `Pesquise informações técnicas agronômicas sobre a doença agrícola: "${name}".
+`;
 
-IMPORTANTE: Retorne SOMENTE um objeto JSON válido. Sem texto antes ou depois. Sem markdown. Sem comentários.
+      errorStage = "provider_call";
+      const cropMessages = [
+        {
+          role: "system" as const,
+          content: "Você é um assistente de cadastro técnico agrícola. Responda SEMPRE com um objeto JSON válido e nada mais — sem texto antes, sem markdown, sem comentários.",
+        },
+        ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+        { role: "user" as const, content: cropPrompt },
+      ];
+      const cropResult = await generateTextWithFallback(
+        cropMessages,
+        { maxOutputTokens: 2000, promptType: "specialist_catalog_fill" },
+      );
 
-Use exatamente estas chaves e forneça strings de linha única (sem quebras de linha dentro dos valores):
-
-{
-  "resumo": "2-3 frases técnicas objetivas sobre a doença",
-  "nome_comum": "nome popular mais usado",
-  "nome_cientifico": "nome científico do patógeno ou grupo, quando aplicável",
-  "agente_causal": "organismo causador detalhado",
-  "tipo_agente": "Fungo ou Bactéria ou Vírus ou Nematoide ou Fisiológico ou outro",
-  "sintomas_principais": "sintomas visíveis no campo, separados por ponto e vírgula",
-  "condicoes_favoraveis": "clima, umidade, temperatura e ambiente que favorecem a doença",
-  "periodo_critico_ocorrencia": "fase da cultura ou época de maior risco",
-  "nivel_severidade": "Baixa ou Média ou Alta, com justificativa curta",
-  "manejo_preventivo": "medidas culturais, sanitárias e preventivas separadas por ponto e vírgula",
-  "controle_biologico_preventivo": "opções biológicas e preventivas separadas por ponto e vírgula, ou string vazia se não houver",
-  "manejo_curativo_quimico": "opções de controle químico quando aplicável — OBRIGATÓRIO incluir: Validar com engenheiro agrônomo, receituário agronômico, legislação local, bula e registro para a cultura",
-  "observacoes_tecnicas": "notas adicionais, variações regionais, resistência a fungicidas ou alertas técnicos, ou string vazia"
-}
-
-Regras:
-- Responder em português do Brasil
-- Não inventar dados; se incerto, informar isso no próprio campo
-- NUNCA incluir quebras de linha dentro dos valores de string
-- Usar ponto e vírgula para separar itens de listas dentro de strings
-- Considerar variações de grafia: ex. "Antraquinose" pode ser "Antracnose"
-- Não incluir a chave "crop_id" na resposta
-
-Doença pesquisada: "${name}"`;
-
-    errorStage = "provider_call";
-    const messages = [
-      {
-        role: "system" as const,
-        content:
-          "Você é um assistente de cadastro técnico agrícola. Responda SEMPRE com um objeto JSON válido e nada mais — sem texto antes, sem markdown, sem comentários. Todos os valores devem ser strings de linha única sem quebras de linha.",
-      },
-      ...history.map((turn) => ({ role: turn.role, content: turn.content })),
-      { role: "user" as const, content: prompt },
-    ];
-    const result = await generateTextWithFallback(
-      messages,
-      { maxOutputTokens: 2500, promptType: "specialist_catalog_fill" },
-    );
-
-    let raw: Record<string, unknown> = {};
-    let parsedSource: AiParseResult["source"] | "text_only" = "text_only";
-    let rawTextResponse = typeof result.content === "string" ? result.content : "";
-
-    try {
-      errorStage = "parse_json";
-      const parsed = parseAiPayload(result.content);
-      raw = parsed.payload;
-      parsedSource = parsed.source;
-    } catch {
-      errorStage = "fallback_extract";
-      raw = extractFallbackFieldsFromText(rawTextResponse);
-    }
-
-    if (type === "crop") {
+      let raw: Record<string, unknown> = {};
+      try {
+        errorStage = "parse_json";
+        const parsed = parseAiPayload(cropResult.content);
+        raw = parsed.payload;
+      } catch {
+        errorStage = "fallback_extract";
+        raw = {};
+      }
       const suggestion = {
         name: normalizeNullable(raw.name) || name,
         display_name_pt: normalizeNullable(raw.display_name_pt) || name,
@@ -503,25 +525,80 @@ Doença pesquisada: "${name}"`;
       return NextResponse.json(response);
     }
 
+    // --- Disease: two-step pipeline ---
+
+    // Step 1: free-text research
+    errorStage = "provider_call";
+    const researchMessages = [
+      {
+        role: "system" as const,
+        content: "Você é um especialista em fitopatologia e agronomia. Realize pesquisas técnicas abrangentes sobre doenças agrícolas em português do Brasil com informações precisas e detalhadas.",
+      },
+      ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+      {
+        role: "user" as const,
+        content: `Pesquise detalhadamente a doença agrícola: "${name}". Inclua: agente causal e classificação taxonômica, sintomas visíveis no campo, condições climáticas e ambientais favoráveis, fase crítica da cultura, nível de severidade econômica, estratégias de manejo preventivo, opções de controle biológico, opções de controle químico e quaisquer observações técnicas relevantes. Responda com texto técnico em português do Brasil.`,
+      },
+    ];
+
+    const researchResult = await generateTextWithFallback(
+      researchMessages,
+      { maxOutputTokens: 1500, promptType: "disease_research" },
+    );
+    const researchText = researchResult.content;
+
+    // Step 2: structured extraction using JSON Schema
+    let diseaseRaw: Record<string, unknown> = {};
+    const warnings: string[] = [];
+
+    try {
+      errorStage = "parse_json";
+      const extractionMessages = [
+        {
+          role: "system" as const,
+          content: "Você é um sistema de extração de dados agrícolas estruturados. Com base no texto de pesquisa fornecido, preencha todos os campos do formulário de cadastro. Use português do Brasil. NUNCA use quebras de linha dentro dos valores — separe itens com ponto e vírgula.",
+        },
+        {
+          role: "user" as const,
+          content: `Com base na seguinte pesquisa técnica sobre "${name}":\n\n${researchText}\n\nPreencha o formulário de cadastro da doença "${name}". Todos os campos são obrigatórios. Para manejo_curativo_quimico, inclua SEMPRE ao final: "Consultar engenheiro agrônomo. Validar com receituário agronômico, legislação local, bula e registro para a cultura."`,
+        },
+      ];
+
+      diseaseRaw = await generateStructuredWithFallback<Record<string, unknown>>(
+        extractionMessages,
+        { maxOutputTokens: 1600, promptType: "disease_extraction", responseSchema: DISEASE_JSON_SCHEMA },
+      );
+    } catch (extractErr) {
+      // Fallback: extract from research text
+      errorStage = "fallback_extract";
+      warnings.push("Extração estruturada falhou; usando extração por texto.");
+      console.warn("[ai-fill] Step 2 falhou, usando fallback de texto", {
+        message: extractErr instanceof Error ? extractErr.message : String(extractErr),
+      });
+      try {
+        const parsed = parseAiPayload(researchText);
+        diseaseRaw = parsed.payload;
+      } catch {
+        diseaseRaw = extractFallbackFieldsFromText(researchText);
+      }
+    }
+
     errorStage = "normalize";
-    const aiObjectCandidate = isRecord(raw.dados) ? raw.dados : raw;
-    if (process.env.NODE_ENV !== "production") console.info("[specialist/ai-fill] parse source", parsedSource);
-    const aiObject = hasDiseaseShape(aiObjectCandidate)
-      ? (aiObjectCandidate as Record<string, unknown>)
-      : {
-          ...extractFallbackFieldsFromText(rawTextResponse),
-          ...(isRecord(aiObjectCandidate) ? aiObjectCandidate : {}),
-        };
-    const assistantMessage = cleanText(raw.resumo) || cleanText(raw.summary) || cleanText(raw.resposta_textual) || cleanText(raw.mensagem) || cleanText(extractAssistantMessage(rawTextResponse)) || null;
-    let { suggestion, warnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
+    const aiObject = hasDiseaseShape(diseaseRaw) ? diseaseRaw : {
+      ...extractFallbackFieldsFromText(researchText),
+      ...diseaseRaw,
+    };
+    const assistantMessage = cleanText(extractAssistantMessage(researchText)) || null;
+    let { suggestion, warnings: normWarnings } = normalizeDiseaseSuggestion(aiObject, name, validCropIds);
+    const allWarnings = [...warnings, ...normWarnings];
 
     if (countStructuredDiseaseFields(suggestion) < diseaseRequiredFields.length) {
       try {
         const enriched = await enrichDiseaseSuggestion(name, suggestion);
         suggestion = enriched.suggestion;
-        warnings = [...warnings, ...enriched.warnings];
+        allWarnings.push(...enriched.warnings);
       } catch {
-        warnings = [...warnings, "Não foi possível complementar automaticamente todos os campos ausentes."];
+        allWarnings.push("Não foi possível complementar automaticamente todos os campos ausentes.");
       }
     }
 
@@ -531,7 +608,7 @@ Doença pesquisada: "${name}"`;
         success: false,
         error: "A IA respondeu, mas não trouxe informações úteis para preenchimento automático. Você pode tentar outra descrição e preencher manualmente.",
         details: "ai_no_usable_data",
-        debug: { raw_text: rawTextResponse || undefined, warnings }
+        debug: { raw_text: researchText || undefined, warnings: allWarnings }
       }, { status: 422 });
     }
 
@@ -553,8 +630,8 @@ Doença pesquisada: "${name}"`;
         observacoes_tecnicas: suggestion.technical_notes || undefined,
       },
       debug: {
-        warnings: [...warnings, `Campos estruturados preenchidos: ${countStructuredDiseaseFields(suggestion)}/${diseaseRequiredFields.length}`],
-        raw_text: rawTextResponse || undefined
+        warnings: [...allWarnings, `Campos estruturados preenchidos: ${countStructuredDiseaseFields(suggestion)}/${diseaseRequiredFields.length}`],
+        raw_text: researchText || undefined
       }
     };
     return NextResponse.json(response);
