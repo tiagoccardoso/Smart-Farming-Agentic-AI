@@ -115,18 +115,21 @@ const normalizeNullable = (value: unknown) => normalizeToText(value) || "";
 function mapAiError(error: unknown): { status: number; error: string; code: string } {
   const e = error as OpenAIError;
   const message = e?.message || "Falha ao gerar sugestão por IA.";
+  const msgLower = message.toLowerCase();
   const status = e?.status;
   const code = e?.code;
+  const errorName = (error instanceof Error) ? error.name : "";
 
-  if (message.includes("OPENAI_API_KEY") || message.includes("OPENAI_CHAT_MODEL")) return { status: 503, error: "Configuração de IA ausente ou inválida no servidor.", code: "ai_configuration_error" };
+  if (message.includes("OPENAI_API_KEY") || message.includes("OPENAI_CHAT_MODEL") || message.includes("GEMINI_API_KEY") || message.includes("GOOGLE_API_KEY")) return { status: 503, error: "Configuração de IA ausente ou inválida no servidor.", code: "ai_configuration_error" };
   if (status === 401 || code === "invalid_api_key") return { status: 502, error: "Falha de autenticação com o provedor de IA.", code: "ai_auth_error" };
   if (status === 403) return { status: 502, error: "Acesso negado pelo provedor de IA para este modelo/chave.", code: "ai_forbidden" };
   if (status === 404 || code === "model_not_found") return { status: 502, error: "Modelo de IA configurado não encontrado ou indisponível.", code: "ai_model_not_found" };
   if (status === 429 || code === "insufficient_quota" || code === "rate_limit_exceeded") return { status: 429, error: "Limite de uso da IA atingido no momento. Tente novamente em instantes.", code: "ai_rate_limit" };
-  if (code === "ABORT_ERR" || message.toLowerCase().includes("aborted")) return { status: 504, error: "Tempo limite excedido ao consultar o serviço de IA.", code: "ai_timeout" };
+  if (errorName === "AbortError" || code === "ABORT_ERR" || msgLower.includes("aborted") || msgLower.includes("timeout") || msgLower.includes("timed out")) return { status: 504, error: "Tempo limite excedido ao consultar o serviço de IA.", code: "ai_timeout" };
   if (status === 400 || code === "unsupported_parameter" || code === "invalid_request_error") return { status: 502, error: "A requisição enviada ao modelo de IA é incompatível com o modelo configurado.", code: "ai_invalid_request" };
   if (status && status >= 500) return { status: 502, error: "Serviço de IA temporariamente indisponível.", code: "ai_provider_unavailable" };
-  if (message.includes("JSON válido")) return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
+  if (message.includes("JSON válido") || message.includes("formato inválido") || errorName === "SyntaxError") return { status: 422, error: "A IA retornou dados em formato inválido para preenchimento automático.", code: "ai_invalid_json" };
+  if (msgLower.includes("resposta vazia") || msgLower.includes("retornou uma resposta") || msgLower.includes("empty response")) return { status: 422, error: "O serviço de IA não retornou conteúdo. Reformule a consulta ou tente novamente.", code: "ai_empty_response" };
   return { status: 500, error: "Não foi possível gerar a sugestão com IA agora. Tente novamente em instantes.", code: "ai_unknown_error" };
 }
 
@@ -302,14 +305,27 @@ async function generateTextWithFallback(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   options: { maxOutputTokens: number; promptType: string },
 ) {
+  let openAiErr: unknown;
   try {
     return await openAIProvider.generateText(messages, options);
-  } catch (openAiErr) {
-    try {
-      return await geminiProvider.generateText(messages, options);
-    } catch {
-      throw openAiErr;
-    }
+  } catch (err) {
+    openAiErr = err;
+    console.warn("[ai-fill] OpenAI falhou, tentando Gemini", {
+      message: err instanceof Error ? err.message : String(err),
+      status: (err as any)?.status,
+      code: (err as any)?.code,
+    });
+  }
+
+  try {
+    return await geminiProvider.generateText(messages, options);
+  } catch (geminiErr) {
+    console.warn("[ai-fill] Gemini também falhou", {
+      message: geminiErr instanceof Error ? geminiErr.message : String(geminiErr),
+    });
+    // Throw whichever error has a status code (more informative for mapAiError)
+    const openAiStatus = (openAiErr as any)?.status;
+    throw openAiStatus !== undefined ? openAiErr : geminiErr;
   }
 }
 
@@ -366,14 +382,18 @@ export async function POST(request: NextRequest) {
 
     const validCropIds = new Set<string>();
     if (type === "disease") {
-      const cfg = adminCfgOrNull();
-      const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>(
-        "/rest/v1/crops?select=id,name,display_name_pt&active=eq.true&order=display_name_pt.asc",
-        { method: "GET" },
-        cfg?.anonKey ?? token,
-        cfg ?? undefined,
-      );
-      crops.forEach((crop) => validCropIds.add(crop.id));
+      try {
+        const cfg = adminCfgOrNull();
+        const crops = await supabaseRequest<Array<{ id: string; display_name_pt: string | null; name: string }>>(
+          "/rest/v1/crops?select=id,name,display_name_pt&order=display_name_pt.asc",
+          { method: "GET" },
+          cfg?.anonKey ?? token,
+          cfg ?? undefined,
+        );
+        if (Array.isArray(crops)) crops.forEach((crop) => validCropIds.add(crop.id));
+      } catch {
+        // crop IDs are optional — proceed without them; crop_id from AI will be discarded
+      }
     }
 
     const prompt = type === "crop"
@@ -566,11 +586,12 @@ Doença pesquisada: "${name}"`;
     const mapped = mapAiError(e);
     const detail = e instanceof Error ? e.message : "Falha ao gerar sugestão por IA.";
     console.error("[specialist/ai-fill] Falha ao gerar sugestão", {
-      type: "ai_fill",
+      errorName: e instanceof Error ? e.name : typeof e,
+      errorMessage: detail,
       status: (e as OpenAIError)?.status,
       code: (e as OpenAIError)?.code,
-      detail,
-      errorStage
+      mappedCode: mapped.code,
+      errorStage,
     });
     return NextResponse.json({ success: false, error: mapped.error, details: `${mapped.code}:${errorStage}` }, { status: mapped.status });
   }
