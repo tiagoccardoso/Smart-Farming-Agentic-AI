@@ -87,9 +87,9 @@ function getPaymentStatus(caseItem: HumanReviewListCase) {
 
 function InfoTile({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-soft">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
+    <div className="rounded-2xl border border-[#e7e2d9] bg-white p-4 shadow-soft">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#717973]">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-[#1d1c16]">{value}</p>
     </div>
   );
 }
@@ -118,16 +118,16 @@ function Timeline({ caseData, paymentStatus, logs }: { caseData: AgronomicCase; 
           <div key={step.label} className="flex gap-3">
             <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm ${step.done ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{step.done ? "✓" : "⌛"}</span>
             <div>
-              <p className="font-semibold text-slate-900">{step.label}</p>
-              {step.date && <p className="text-xs text-slate-500">{formatDate(step.date)}</p>}
+              <p className="font-semibold text-[#1d1c16]">{step.label}</p>
+              {step.date && <p className="text-xs text-[#717973]">{formatDate(step.date)}</p>}
             </div>
           </div>
         ))}
       </div>
       {logs.length > 0 && (
-        <div className="mt-6 border-t border-slate-100 pt-4">
-          <p className="text-sm font-bold text-slate-700">Histórico operacional</p>
-          <div className="mt-3 space-y-2 text-xs text-slate-600">
+        <div className="mt-6 border-t border-[#e7e2d9] pt-4">
+          <p className="text-sm font-bold text-[#414943]">Histórico operacional</p>
+          <div className="mt-3 space-y-2 text-xs text-[#414943]">
             {logs.slice(-8).map((log) => <p key={log.id}>• {formatDate(log.created_at)} — {log.action}</p>)}
           </div>
         </div>
@@ -325,24 +325,24 @@ function RevisaoHumanaContent() {
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft md:p-6">
+        <div className="rounded-3xl border border-[#e7e2d9] bg-white p-5 shadow-soft md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <SectionTitle title="Casos enviados para revisão humana" subtitle="Todos os registros enviados permanecem aqui até exclusão manual." />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por cultura, propriedade, resumo ou ID" className="rounded-full border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-300" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por cultura, propriedade, resumo ou ID" className="rounded-full border border-[#e7e2d9] px-4 py-3 text-sm outline-none focus:border-leaf-300" />
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
             {(Object.keys(filterLabels) as FilterKey[]).map((key) => (
-              <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-4 py-2 text-xs font-bold transition ${filter === key ? "bg-leaf-700 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{filterLabels[key]}</button>
+              <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-4 py-2 text-xs font-bold transition ${filter === key ? "bg-leaf-700 text-white" : "bg-[#f2ede4] text-[#414943] hover:bg-[#e7e2d9]"}`}>{filterLabels[key]}</button>
             ))}
           </div>
           <div className="mt-6 space-y-4">
             {loading && <><LoadingCard title="Carregando casos" /><LoadingCard title="Carregando casos" /></>}
-            {!loading && filteredCases.length === 0 && <div className="rounded-3xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-600">Nenhum caso encontrado neste filtro. Use “Localizar caso” para enviar uma análise de IA à revisão humana.</div>}
+            {!loading && filteredCases.length === 0 && <div className="rounded-3xl border border-dashed border-[#e7e2d9] p-8 text-center text-sm text-[#414943]">Nenhum caso encontrado neste filtro. Use “Localizar caso” para enviar uma análise de IA à revisão humana.</div>}
             {filteredCases.map((caseItem) => {
               const paymentStatus = getPaymentStatus(caseItem);
               const visualStatus = getVisualCaseStatus(caseItem);
               return (
-                <article key={caseItem.id} onClick={() => router.push(`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`)} className={`cursor-pointer rounded-3xl border p-5 shadow-soft transition hover:-translate-y-0.5 hover:border-leaf-200 ${selectedCaseId === caseItem.id ? "border-leaf-300 bg-leaf-50" : "border-slate-100 bg-white"}`}>
+                <article key={caseItem.id} onClick={() => router.push(`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`)} className={`cursor-pointer rounded-3xl border p-5 shadow-soft transition hover:-translate-y-0.5 hover:border-leaf-200 ${selectedCaseId === caseItem.id ? "border-leaf-300 bg-leaf-50" : "border-[#e7e2d9] bg-white"}`}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -351,10 +351,10 @@ function RevisaoHumanaContent() {
                         <StatusBadge status={visualStatus} label={caseStatusLabels[visualStatus] ?? visualStatus} />
                         <StatusBadge status={paymentStatus} label={`Pagamento: ${paymentStatusLabels[paymentStatus] ?? paymentStatus}`} />
                       </div>
-                      <p className="mt-2 text-sm text-slate-600">Propriedade: <strong>{caseItem.farm?.name || "Não informada"}</strong> · ID: {caseItem.id}</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{summarize(caseItem.ai_summary || caseItem.symptoms)}</p>
+                      <p className="mt-2 text-sm text-[#414943]">Propriedade: <strong>{caseItem.farm?.name || "Não informada"}</strong> · ID: {caseItem.id}</p>
+                      <p className="mt-2 text-sm leading-6 text-[#414943]">{summarize(caseItem.ai_summary || caseItem.symptoms)}</p>
                     </div>
-                    <div className="min-w-44 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+                    <div className="min-w-44 rounded-2xl bg-[#f8f3ea] p-4 text-sm text-[#414943]">
                       <p><strong>Análise:</strong> {formatDate(caseItem.created_at)}</p>
                       <p><strong>Atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                       <p><strong>Imagens:</strong> {caseItem.images_count ?? caseItem.images?.length ?? 0}</p>
@@ -362,9 +362,9 @@ function RevisaoHumanaContent() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                    {paymentStatus === "pending" && <button onClick={() => continuePayment(caseItem.id)} disabled={busyCaseId === caseItem.id} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{busyCaseId === caseItem.id ? "Abrindo..." : "Continuar pagamento"}</button>}
-                    <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa com IA</Link>
-                    <Link href={`/enviar-caso?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
+                    {paymentStatus === "pending" && <button onClick={() => continuePayment(caseItem.id)} disabled={busyCaseId === caseItem.id} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-[#c1c9c1]">{busyCaseId === caseItem.id ? "Abrindo..." : "Continuar pagamento"}</button>}
+                    <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Continuar conversa com IA</Link>
+                    <Link href={`/enviar-caso?caseId=${caseItem.id}`} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Enviar novas imagens</Link>
                     <button onClick={() => setDeleteCandidate(caseItem)} className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700">Excluir caso</button>
                     {caseItem.latestReport?.report_url && <a href={caseItem.latestReport.report_url} className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">Baixar relatório</a>}
                   </div>
@@ -376,34 +376,34 @@ function RevisaoHumanaContent() {
 
         <aside className="space-y-6">
           {loadingDetail && <LoadingCard title="Carregando detalhe" />}
-          {!selectedCaseId && !loadingDetail && <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center shadow-soft"><h3 className="text-xl font-black text-slate-950">Selecione um caso</h3><p className="mt-2 text-sm text-slate-600">Clique em um card para visualizar análise, perguntas, imagens, conversa, pagamento e timeline.</p></div>}
+          {!selectedCaseId && !loadingDetail && <div className="rounded-3xl border border-dashed border-[#e7e2d9] bg-white p-8 text-center shadow-soft"><h3 className="text-xl font-black text-slate-950">Selecione um caso</h3><p className="mt-2 text-sm text-[#414943]">Clique em um card para visualizar análise, perguntas, imagens, conversa, pagamento e timeline.</p></div>}
           {detailCase && !loadingDetail && (
             <>
-              <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+              <div className="rounded-3xl border border-[#e7e2d9] bg-white p-6 shadow-soft">
                 <div className="flex flex-wrap items-center gap-2">
                   <RiskBadge riskLevel={detailCase.risk_level} />
                   <StatusBadge status={getVisualCaseStatus(detailCase)} label={caseStatusLabels[getVisualCaseStatus(detailCase)] ?? getVisualCaseStatus(detailCase)} />
                   {detailPaymentStatus && <StatusBadge status={detailPaymentStatus} label={`Pagamento: ${paymentStatusLabels[detailPaymentStatus] ?? detailPaymentStatus}`} />}
                 </div>
                 <h2 className="mt-4 text-2xl font-black text-slate-950">{detailCase.crop}</h2>
-                <p className="mt-2 text-sm text-slate-600">{detailCase.farm?.name || "Propriedade não informada"} · atualizado em {formatDate(detailCase.updated_at)}</p>
+                <p className="mt-2 text-sm text-[#414943]">{detailCase.farm?.name || "Propriedade não informada"} · atualizado em {formatDate(detailCase.updated_at)}</p>
                 <div className="mt-5 grid gap-3 sm:grid-cols-2"><InfoTile label="Imagens" value={detailCase.images.length} /><InfoTile label="Perguntas respondidas" value={detailCase.pending_questions?.filter((q) => q.status === "answered").length ?? 0} /></div>
-                <h3 className="mt-6 text-sm font-black uppercase tracking-wide text-slate-500">Análise da IA</h3>
-                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{detailCase.ai_summary || "Análise da IA ainda não disponível."}</p>
+                <h3 className="mt-6 text-sm font-black uppercase tracking-wide text-[#717973]">Análise da IA</h3>
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#414943]">{detailCase.ai_summary || "Análise da IA ainda não disponível."}</p>
                 {detailCase.ai_recommendation && <p className="mt-3 rounded-2xl bg-leaf-50 p-4 text-sm leading-6 text-leaf-900">{detailCase.ai_recommendation}</p>}
               </div>
               <Timeline caseData={detailCase} paymentStatus={detailPaymentStatus} logs={detail?.activityLogs ?? []} />
-              <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+              <div className="rounded-3xl border border-[#e7e2d9] bg-white p-6 shadow-soft">
                 <h3 className="text-lg font-black text-slate-950">Perguntas, imagens e conversa</h3>
                 <div className="mt-4 space-y-3">
-                  {detailCase.pending_questions?.map((question) => <div key={question.id} className="rounded-2xl bg-slate-50 p-4 text-sm"><p className="font-bold text-slate-900">{question.question}</p><p className="mt-1 text-slate-600">{question.answer || "Pendente"}</p></div>)}
-                  {detailCase.images.length > 0 && <div className="grid grid-cols-2 gap-3">{detailCase.images.slice(0, 6).map((image) => <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50"><Image src={image.image_url} alt="Imagem do caso" width={220} height={120} unoptimized className="h-28 w-full object-cover" /><span className="block px-3 py-2 text-xs font-semibold text-leaf-700">{formatDate(image.created_at)}</span></a>)}</div>}
-                  {detailCase.chat_messages?.slice(-6).map((message) => <div key={message.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><strong>{message.role === "assistant" ? "IA" : "Você"}:</strong> {message.message_type === "audio" ? "Áudio anexado" : message.message}</div>)}
+                  {detailCase.pending_questions?.map((question) => <div key={question.id} className="rounded-2xl bg-[#f8f3ea] p-4 text-sm"><p className="font-bold text-[#1d1c16]">{question.question}</p><p className="mt-1 text-[#414943]">{question.answer || "Pendente"}</p></div>)}
+                  {detailCase.images.length > 0 && <div className="grid grid-cols-2 gap-3">{detailCase.images.slice(0, 6).map((image) => <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-2xl border border-[#e7e2d9] bg-[#f8f3ea]"><Image src={image.image_url} alt="Imagem do caso" width={220} height={120} unoptimized className="h-28 w-full object-cover" /><span className="block px-3 py-2 text-xs font-semibold text-leaf-700">{formatDate(image.created_at)}</span></a>)}</div>}
+                  {detailCase.chat_messages?.slice(-6).map((message) => <div key={message.id} className="rounded-2xl bg-[#f8f3ea] p-3 text-sm"><strong>{message.role === "assistant" ? "IA" : "Você"}:</strong> {message.message_type === "audio" ? "Áudio anexado" : message.message}</div>)}
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
                   {detailPaymentStatus === "pending" && <button onClick={() => continuePayment(detailCase.id)} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white">Continuar pagamento</button>}
-                  <Link href={`/consultoria-ia?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
-                  <Link href={`/enviar-caso?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
+                  <Link href={`/consultoria-ia?caseId=${detailCase.id}`} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Continuar conversa</Link>
+                  <Link href={`/enviar-caso?caseId=${detailCase.id}`} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Enviar novas imagens</Link>
                   <button onClick={() => cancelReview(detailCase.id)} disabled={busyCaseId === detailCase.id || !["pending_payment", "pending", "not_requested"].includes(detailCase.human_review_status ?? "")} className="rounded-full border border-amber-200 px-4 py-2 text-xs font-black text-amber-700 disabled:opacity-50">Cancelar solicitação</button>
                   <button onClick={() => setDeleteCandidate(detailCase)} disabled={busyCaseId === detailCase.id} className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50">Excluir caso</button>
                 </div>
@@ -418,25 +418,25 @@ function RevisaoHumanaContent() {
           <div className="max-h-[86vh] w-full max-w-6xl overflow-auto rounded-[2rem] bg-white p-6 shadow-soft">
             <div className="flex items-start justify-between gap-4">
               <SectionTitle title="Casos analisados pela IA" subtitle="Escolha um caso já analisado para ver análise, continuar conversa, complementar dados ou enviar à revisão humana." />
-              <button onClick={() => setShowLocator(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-black">Fechar</button>
+              <button onClick={() => setShowLocator(false)} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-sm font-black">Fechar</button>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               {aiCases.map((caseItem) => {
                 const visualStatus = getVisualCaseStatus(caseItem);
                 return (
-                  <article key={caseItem.id} className="rounded-3xl border border-slate-100 p-5 shadow-soft">
+                  <article key={caseItem.id} className="rounded-3xl border border-[#e7e2d9] p-5 shadow-soft">
                     <div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{caseItem.crop}</h3><RiskBadge riskLevel={caseItem.risk_level} /><StatusBadge status={visualStatus} label={caseStatusLabels[visualStatus] ?? visualStatus} /></div>
-                    <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <div className="mt-3 grid gap-2 text-xs text-[#414943] sm:grid-cols-2">
                       <p><strong>Propriedade:</strong> {caseItem.farm?.name || "Não informada"}</p>
                       <p><strong>Data da análise:</strong> {formatDate(caseItem.created_at)}</p>
                       <p><strong>Imagens:</strong> {caseItem.images_count ?? 0}</p>
                       <p><strong>Última atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-600"><strong>Resumo da IA:</strong> {summarize(caseItem.ai_summary, 220)}</p>
+                    <p className="mt-3 text-sm leading-6 text-[#414943]"><strong>Resumo da IA:</strong> {summarize(caseItem.ai_summary, 220)}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <button onClick={() => { setShowLocator(false); router.push(`/revisao-humana?caseId=${caseItem.id}`); }} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Ver análise</button>
-                      <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
-                      <button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{caseItem.human_review_requested ? "Já no painel" : "Enviar para revisão humana"}</button>
+                      <button onClick={() => { setShowLocator(false); router.push(`/revisao-humana?caseId=${caseItem.id}`); }} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Ver análise</button>
+                      <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-black text-[#414943]">Continuar conversa</Link>
+                      <button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-[#c1c9c1]">{caseItem.human_review_requested ? "Já no painel" : "Enviar para revisão humana"}</button>
                     </div>
                   </article>
                 );
@@ -451,12 +451,12 @@ function RevisaoHumanaContent() {
           <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-soft">
             <p className="text-sm font-bold uppercase tracking-wide text-red-600">Excluir caso</p>
             <h3 className="mt-2 text-2xl font-black text-slate-950">Esta ação não poderá ser desfeita.</h3>
-            <p className="mt-3 text-sm leading-6 text-slate-600">O caso <strong>{deleteCandidate.crop}</strong>, imagens, conversas, perguntas pendentes, análises, revisões humanas, relatórios, pedidos relacionados permitidos e uploads no storage serão removidos.</p>
-            <label className="mt-5 block text-sm font-semibold text-slate-700">Digite <span className="font-black text-red-700">EXCLUIR</span> para confirmar.</label>
-            <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-red-300" />
+            <p className="mt-3 text-sm leading-6 text-[#414943]">O caso <strong>{deleteCandidate.crop}</strong>, imagens, conversas, perguntas pendentes, análises, revisões humanas, relatórios, pedidos relacionados permitidos e uploads no storage serão removidos.</p>
+            <label className="mt-5 block text-sm font-semibold text-[#414943]">Digite <span className="font-black text-red-700">EXCLUIR</span> para confirmar.</label>
+            <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} className="mt-2 w-full rounded-2xl border border-[#e7e2d9] px-4 py-3 text-sm outline-none focus:border-red-300" />
             <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <button onClick={() => { setDeleteCandidate(null); setDeleteConfirmation(""); }} className="rounded-full border border-slate-200 px-5 py-2 text-sm font-black text-slate-700">Cancelar</button>
-              <button onClick={confirmDeleteCase} disabled={deleteConfirmation !== "EXCLUIR" || busyCaseId === deleteCandidate.id} className="rounded-full bg-red-600 px-5 py-2 text-sm font-black text-white disabled:bg-slate-300">Excluir definitivamente</button>
+              <button onClick={() => { setDeleteCandidate(null); setDeleteConfirmation(""); }} className="rounded-full border border-[#e7e2d9] px-5 py-2 text-sm font-black text-[#414943]">Cancelar</button>
+              <button onClick={confirmDeleteCase} disabled={deleteConfirmation !== "EXCLUIR" || busyCaseId === deleteCandidate.id} className="rounded-full bg-red-600 px-5 py-2 text-sm font-black text-white disabled:bg-[#c1c9c1]">Excluir definitivamente</button>
             </div>
           </div>
         </div>
@@ -467,7 +467,7 @@ function RevisaoHumanaContent() {
 
 export default function RevisaoHumanaPage() {
   return (
-    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando revisão humana...</section>}>
+    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-[#414943]">Carregando revisão humana...</section>}>
       <RevisaoHumanaContent />
     </Suspense>
   );

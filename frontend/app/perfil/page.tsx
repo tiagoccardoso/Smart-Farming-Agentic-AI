@@ -92,7 +92,7 @@ export default function PerfilPage() {
   }
 
   if (loading) {
-    return <div className="mx-auto max-w-4xl px-6 py-16 text-sm text-slate-600">Carregando perfil...</div>;
+    return <div className="mx-auto max-w-4xl px-6 py-16 text-sm text-[#414943]">Carregando perfil...</div>;
   }
 
   return (
@@ -105,7 +105,7 @@ export default function PerfilPage() {
       {success && <div className="rounded-2xl border border-leaf-200 bg-leaf-50 p-4 text-sm text-leaf-800">{success}</div>}
 
       <form onSubmit={handleProfileSubmit} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Dados cadastrais</h2>
+        <h2 className="mb-4 text-base font-semibold text-[#1d1c16]">Dados cadastrais</h2>
         <div className="grid gap-4 md:grid-cols-2">
           <InputField label="Nome completo" name="full_name" type="text" value={fullName} onChange={setFullName} required />
           <InputField label="Telefone" name="phone" type="tel" value={phone} onChange={setPhone} required />
@@ -116,13 +116,13 @@ export default function PerfilPage() {
       </form>
 
       <form onSubmit={handleCredentialsSubmit} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Acesso da conta</h2>
-        <p className="mb-4 text-sm text-slate-600">E-mail atual: {email || "não informado"}</p>
+        <h2 className="mb-4 text-base font-semibold text-[#1d1c16]">Acesso da conta</h2>
+        <p className="mb-4 text-sm text-[#414943]">E-mail atual: {email || "não informado"}</p>
         <div className="grid gap-4 md:grid-cols-2">
           <InputField label="Novo e-mail" name="email" type="email" value={newEmail} onChange={setNewEmail} />
           <InputField label="Nova senha" name="password" type="password" value={newPassword} onChange={setNewPassword} />
         </div>
-        <p className="mt-4 text-xs text-slate-500">
+        <p className="mt-4 text-xs text-[#717973]">
           Alterações de e-mail podem exigir confirmação por link enviado para sua caixa de entrada.
         </p>
         <button type="submit" disabled={savingCredentials} className="mt-6 rounded-full border border-leaf-200 px-5 py-3 text-sm font-semibold text-leaf-700 hover:bg-leaf-50 disabled:cursor-not-allowed disabled:opacity-60">

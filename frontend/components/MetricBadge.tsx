@@ -5,9 +5,9 @@ type Props = {
 
 export default function MetricBadge({ label, value }: Props) {
   return (
-    <div className="rounded-xl bg-white/70 px-4 py-3 shadow-soft">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="text-lg font-semibold text-leaf-800">{value}</p>
+    <div className="rounded-xl border border-[#e7e2d9] bg-white px-4 py-3 shadow-card">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold text-[#123f2a]">{value}</p>
     </div>
   );
 }

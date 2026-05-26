@@ -191,7 +191,7 @@ export default function PlanosPage() {
                 Plataforma profissional de apoio à decisão agronômica
               </p>
               <SectionTitle title="Planos" subtitle="Decisão agronômica assistida por IA, com revisão humana opcional." />
-              <p className="max-w-3xl text-base leading-7 text-slate-700">
+              <p className="max-w-3xl text-base leading-7 text-[#414943]">
                 Estruture informações da propriedade, imagens, análises e recomendações em um fluxo técnico organizado. A IA orientativa acelera a triagem e os especialistas podem revisar casos quando a decisão exigir validação profissional.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
@@ -204,9 +204,9 @@ export default function PlanosPage() {
             </div>
 
             <div className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-soft">
-              <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Estratégia híbrida</p>
-              <h2 className="mt-3 text-2xl font-bold text-slate-900">IA orientativa + análise técnica organizada</h2>
-              <div className="mt-5 grid gap-3 text-sm text-slate-700">
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#717973]">Estratégia híbrida</p>
+              <h2 className="mt-3 text-2xl font-bold text-[#1d1c16]">IA orientativa + análise técnica organizada</h2>
+              <div className="mt-5 grid gap-3 text-sm text-[#414943]">
                 {["Relatórios e histórico da propriedade", "Upload de fotos e análise de solo", "Suporte especializado e revisão humana opcional"].map((item) => (
                   <div key={item} className="flex items-start gap-3 rounded-2xl bg-leaf-50 p-3">
                     <CheckIcon />
@@ -222,7 +222,7 @@ export default function PlanosPage() {
         <div className="mt-8 flex flex-col gap-3 rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-leaf-700">Comparativo de planos</p>
-            <p className="text-sm text-slate-600">{planCountLabel}. Escolha conforme volume de análises, relatórios e necessidade de validação humana.</p>
+            <p className="text-sm text-[#414943]">{planCountLabel}. Escolha conforme volume de análises, relatórios e necessidade de validação humana.</p>
           </div>
           {feedback ? (
             <div
@@ -238,7 +238,7 @@ export default function PlanosPage() {
               {feedback.message}
             </div>
           ) : (
-            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Nenhuma solicitação iniciada.</p>
+            <p className="rounded-2xl border border-[#e7e2d9] bg-[#f8f3ea] px-4 py-3 text-sm text-[#414943]">Nenhuma solicitação iniciada.</p>
           )}
         </div>
 
@@ -261,13 +261,13 @@ export default function PlanosPage() {
                 )}
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">{plan.eyebrow}</p>
                 <h3 className="mt-3 text-2xl font-black text-slate-950">{plan.name}</h3>
-                <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{plan.audience}</p>
-                <div className="mt-5 rounded-3xl bg-slate-50 p-4">
+                <p className="mt-2 min-h-12 text-sm leading-6 text-[#414943]">{plan.audience}</p>
+                <div className="mt-5 rounded-3xl bg-[#f8f3ea] p-4">
                   <p className="text-3xl font-black text-slate-950">{plan.priceLabel}</p>
                 </div>
-                <p className="mt-5 text-sm leading-6 text-slate-700">{plan.description}</p>
+                <p className="mt-5 text-sm leading-6 text-[#414943]">{plan.description}</p>
 
-                <ul className="mt-6 flex-1 space-y-3 text-sm text-slate-700">
+                <ul className="mt-6 flex-1 space-y-3 text-sm text-[#414943]">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2">
                       <CheckIcon />
@@ -277,9 +277,9 @@ export default function PlanosPage() {
                 </ul>
 
                 {plan.exclusions && (
-                  <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Não inclui</p>
-                    <ul className="mt-2 space-y-2 text-xs text-slate-600">
+                  <div className="mt-5 rounded-2xl border border-[#e7e2d9] bg-[#f8f3ea] p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-[#717973]">Não inclui</p>
+                    <ul className="mt-2 space-y-2 text-xs text-[#414943]">
                       {plan.exclusions.map((item) => (
                         <li key={item}>• {item}</li>
                       ))}
@@ -311,11 +311,11 @@ export default function PlanosPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-leaf-700">Consultorias avulsas</p>
               <h2 className="mt-2 text-3xl font-black text-slate-950">Consultorias Especializadas</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#414943]">
                 Contrate validações pontuais quando precisar de uma análise revisada, um relatório técnico ou acompanhamento próximo da propriedade.
               </p>
             </div>
-            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">Solicitação com checkout seguro para cada serviço.</p>
+            <p className="rounded-2xl border border-[#e7e2d9] bg-[#f8f3ea] px-4 py-3 text-sm font-medium text-[#414943]">Solicitação com checkout seguro para cada serviço.</p>
           </div>
 
           <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -327,7 +327,7 @@ export default function PlanosPage() {
                 <article key={service.serviceType} className="flex min-h-full flex-col rounded-3xl border border-leaf-100 bg-gradient-to-b from-white to-leaf-50/70 p-5 shadow-soft">
                   <h3 className="text-lg font-bold text-slate-950">{service.name}</h3>
                   <p className="mt-3 text-2xl font-black text-leaf-800">{service.priceLabel}</p>
-                  <p className="mt-3 flex-1 text-sm leading-6 text-slate-600">{service.description}</p>
+                  <p className="mt-3 flex-1 text-sm leading-6 text-[#414943]">{service.description}</p>
                   <button
                     type="button"
                     onClick={() => handleCheckout({ type: "consulting", slug: service.serviceType, label: service.name })}

@@ -135,7 +135,7 @@ export default function CropPage() {
                 {catalog.map((crop) => (
                   <span
                     key={crop.id}
-                    className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-leaf-100"
+                    className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#414943] ring-1 ring-leaf-100"
                     title={crop.scientific_name || crop.name}
                   >
                     {crop.display_name_pt || crop.name}
@@ -143,11 +143,11 @@ export default function CropPage() {
                 ))}
               </div>
             ) : (
-              <div className="mt-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-4 text-sm text-slate-600">
+              <div className="mt-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-4 text-sm text-[#414943]">
                 Nenhuma cultura cadastrada no momento.
               </div>
             )}
-            <p className="mt-3 text-xs leading-5 text-slate-600">
+            <p className="mt-3 text-xs leading-5 text-[#414943]">
               Quando um caso usa uma cultura cadastrada, a consultoria IA
               considera clima, solo, ciclo, riscos, doenças, pragas e manejo
               registrados no Painel da Doutora.
@@ -156,14 +156,14 @@ export default function CropPage() {
           {result ? (
             <div className="space-y-5">
               <div>
-                <p className="text-sm text-slate-500">Cultura recomendada</p>
+                <p className="text-sm text-[#717973]">Cultura recomendada</p>
                 <h3 className="text-2xl font-semibold text-leaf-700">
                   {result?.recommended_crop ?? "Não identificada"}
                 </h3>
               </div>
               <ConfidenceBar value={result?.confidence ?? 0} />
               <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">
+                <p className="mb-2 text-sm font-semibold text-[#414943]">
                   Melhores alternativas
                 </p>
                 <TopKList
@@ -176,17 +176,17 @@ export default function CropPage() {
                 />
               </div>
               {result?.explanation && (
-                <div className="rounded-2xl bg-leaf-50 p-4 text-xs text-slate-700">
+                <div className="rounded-2xl bg-leaf-50 p-4 text-xs text-[#414943]">
                   {result.explanation}
                 </div>
               )}
-              <div className="rounded-2xl bg-sun-50 p-4 text-xs text-slate-700">
+              <div className="rounded-2xl bg-sun-50 p-4 text-xs text-[#414943]">
                 Dica: use análise de solo recente e dados climáticos locais para
                 melhorar a qualidade da recomendação.
               </div>
             </div>
           ) : (
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-[#717973]">
               Os resultados aparecerão aqui após o envio do formulário.
             </div>
           )}

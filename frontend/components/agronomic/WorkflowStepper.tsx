@@ -15,7 +15,7 @@ type WorkflowStepperProps = {
 const statusClasses = {
   done: "border-emerald-200 bg-emerald-50 text-emerald-800",
   current: "border-leaf-300 bg-leaf-50 text-leaf-800 ring-2 ring-leaf-100",
-  next: "border-slate-200 bg-white text-slate-600"
+  next: "border-[#e7e2d9] bg-white text-[#414943]"
 };
 
 const statusLabels = {
@@ -40,8 +40,8 @@ export default function WorkflowStepper({ steps, className = "" }: WorkflowStepp
                   {statusLabels[status]}
                 </span>
               </div>
-              <p className="mt-3 text-sm font-semibold text-slate-900">{step.title}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">{step.description}</p>
+              <p className="mt-3 text-sm font-semibold text-[#1d1c16]">{step.title}</p>
+              <p className="mt-1 text-xs leading-5 text-[#414943]">{step.description}</p>
             </div>
           );
 

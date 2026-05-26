@@ -4,14 +4,103 @@
 
 :root {
   color-scheme: light;
+
+  /* Stitch / Plantasã design tokens */
+  --color-primary: #002817;
+  --color-primary-container: #123f2a;
+  --color-secondary: #4d6700;
+  --color-secondary-container: #ccf078;
+  --color-tertiary: #735c00;
+  --color-tertiary-container: #cba72f;
+  --color-surface: #fef9f0;
+  --color-surface-container: #f2ede4;
+  --color-surface-container-low: #f8f3ea;
+  --color-on-surface: #1d1c16;
+  --color-on-surface-variant: #414943;
+  --color-outline: #717973;
+  --color-outline-variant: #c1c9c1;
+  --color-forest: #0f2f22;
+  --color-earth: #4b3d33;
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+
+  /* Typography scale */
+  --text-headline-xl: 3rem;       /* 48px */
+  --text-headline-lg: 2rem;       /* 32px */
+  --text-headline-md: 1.5rem;     /* 24px */
+  --text-body-lg: 1.125rem;       /* 18px */
+  --text-body-md: 1rem;           /* 16px */
+  --text-label-md: 0.875rem;      /* 14px */
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply bg-[#fef9f0] text-[#1d1c16] font-sans antialiased;
+}
+
+/* Hanken Grotesk typographic scale utilities */
+@layer components {
+  .headline-xl {
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 3.5rem;
+    letter-spacing: -0.02em;
+  }
+  .headline-lg {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 2.5rem;
+    letter-spacing: -0.01em;
+  }
+  .headline-md {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 2rem;
+  }
+  .body-lg {
+    font-size: 1.125rem;
+    font-weight: 400;
+    line-height: 1.75rem;
+  }
+  .body-md {
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5rem;
+  }
+  .label-md {
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    letter-spacing: 0.02em;
+  }
+
+  /* Card surface style */
+  .card-surface {
+    @apply rounded-2xl border border-[#e7e2d9] bg-white shadow-card;
+  }
+
+  /* Primary action button */
+  .btn-primary {
+    @apply rounded-full bg-[#123f2a] px-6 py-3 text-sm font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#002817] active:translate-y-0;
+  }
+
+  /* Secondary action button (lime) */
+  .btn-secondary {
+    @apply rounded-full bg-[#ccf078] px-6 py-3 text-sm font-semibold text-[#123f2a] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#b0d360] active:translate-y-0;
+  }
+
+  /* Ghost / outline button */
+  .btn-ghost {
+    @apply rounded-full border border-[#123f2a]/20 bg-white px-6 py-3 text-sm font-semibold text-[#123f2a] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123f2a]/50 active:translate-y-0;
+  }
+
+  /* Form input */
+  .input-field {
+    @apply w-full rounded-xl border border-[#c1c9c1] bg-white px-4 py-3 text-sm text-[#1d1c16] placeholder:text-[#717973] transition focus:border-[#123f2a] focus:outline-none focus:ring-2 focus:ring-[#123f2a]/15;
+  }
 }
 
 .gradient-card {
-  background: linear-gradient(135deg, rgba(50,185,101,0.08), rgba(242,169,0,0.10));
+  background: linear-gradient(135deg, rgba(190, 238, 207, 0.25), rgba(255, 224, 136, 0.20));
 }
 
 @keyframes submitProgress {

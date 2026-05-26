@@ -56,12 +56,12 @@ export default function ContactPage() {
   }
 
   return (
-    <div className="bg-[#F6F1E8] px-6 py-14">
+    <div className="bg-[#fef9f0] px-6 py-14">
       <div className="mx-auto max-w-6xl">
         <section className="rounded-[2rem] border border-[#123F2A]/10 bg-white p-7 shadow-soft md:p-10">
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#2E7D32]">Contato oficial Plantasã</p>
           <h1 className="mt-3 text-4xl font-bold text-[#123F2A]">Fale com a especialista</h1>
-          <p className="mt-4 max-w-3xl leading-7 text-slate-700">
+          <p className="mt-4 max-w-3xl leading-7 text-[#414943]">
             Envie sua necessidade de consultoria, revisão de caso agrícola ou avaliação para agricultura orgânica. O retorno será feito pelo canal informado para confirmar as informações.
           </p>
         </section>
@@ -73,7 +73,7 @@ export default function ContactPage() {
           <Field label="Cidade" required={isVisit} value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
           <Field label="Estado" required={isVisit} value={form.state} onChange={(value) => setForm({ ...form, state: value })} />
           <label className="block">
-            <span className="text-sm font-semibold text-slate-700">Tipo de solicitação</span>
+            <span className="text-sm font-semibold text-[#414943]">Tipo de solicitação</span>
             <select value={form.requestType} onChange={(event) => setForm({ ...form, requestType: event.target.value })} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100">
               <option value="consultoria_geral">Consultoria geral</option>
               <option value="revisao_caso_agricola">Revisão de caso agrícola</option>
@@ -84,7 +84,7 @@ export default function ContactPage() {
           <Field label="Data desejada" type="date" required={isVisit} value={form.preferredDate} onChange={(value) => setForm({ ...form, preferredDate: value })} />
           <Field label="Horário desejado" required={isVisit} value={form.preferredTime} onChange={(value) => setForm({ ...form, preferredTime: value })} />
           <label className="block md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Mensagem / descrição da necessidade</span>
+            <span className="text-sm font-semibold text-[#414943]">Mensagem / descrição da necessidade</span>
             <textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100" rows={5} placeholder="Descreva a cultura, propriedade, problema observado ou objetivo da consultoria." />
           </label>
 
@@ -115,7 +115,7 @@ export default function ContactPage() {
 function Field({ label, value, onChange, type = "text", required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean }) {
   return (
     <label className="block">
-      <span className="text-sm font-semibold text-slate-700">{label}{required ? " *" : ""}</span>
+      <span className="text-sm font-semibold text-[#414943]">{label}{required ? " *" : ""}</span>
       <input required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100" />
     </label>
   );

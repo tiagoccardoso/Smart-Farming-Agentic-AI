@@ -96,7 +96,7 @@ function getStatusLabel(status?: string | null) {
 
 function getRiskBadge(risk: RiskLevel | null) {
   if (!risk) {
-    return <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">Sem risco</span>;
+    return <span className="rounded-full border border-[#e7e2d9] bg-[#f8f3ea] px-3 py-1 text-xs font-semibold text-[#414943]">Sem risco</span>;
   }
 
   return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${riskStyles[risk]}`}>Risco {riskLabels[risk]}</span>;
@@ -171,7 +171,7 @@ export default function AdminOpportunitiesPage() {
           Comercial · sem disparos automáticos
         </p>
         <SectionTitle title="Painel de oportunidades" subtitle="Acompanhe casos com potencial de upsell para revisão humana, relatório técnico e acompanhamento mensal." />
-        <p className="max-w-3xl text-base leading-7 text-slate-700">
+        <p className="max-w-3xl text-base leading-7 text-[#414943]">
           Esta página apenas organiza sinais comerciais. Nenhuma mensagem é enviada automaticamente para os usuários.
         </p>
       </div>
@@ -185,22 +185,22 @@ export default function AdminOpportunitiesPage() {
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {metrics.map((metric) => (
               <article key={metric.label} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-                <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">{metric.label}</p>
+                <p className="text-sm font-semibold uppercase tracking-wide text-[#717973]">{metric.label}</p>
                 <p className={`mt-3 text-4xl font-bold ${metric.color}`}>{metric.value}</p>
               </article>
             ))}
           </div>
 
-          {generatedAt && <p className="mt-4 text-xs text-slate-500">Atualizado em {formatDate(generatedAt)}.</p>}
+          {generatedAt && <p className="mt-4 text-xs text-[#717973]">Atualizado em {formatDate(generatedAt)}.</p>}
 
           {error && <div className="mt-8 rounded-3xl border border-red-100 bg-red-50 p-5 text-sm text-red-700 shadow-soft">{error}</div>}
 
-          {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando oportunidades comerciais...</div>}
+          {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-[#414943] shadow-soft">Carregando oportunidades comerciais...</div>}
 
           {!loading && opportunities.length === 0 && !error && (
             <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-8 text-center shadow-soft">
-              <h2 className="text-xl font-semibold text-slate-900">Nenhuma oportunidade encontrada</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Quando houver casos com risco, plano gratuito, limite atingido, recorrência ou sem revisão humana, eles aparecerão aqui.</p>
+              <h2 className="text-xl font-semibold text-[#1d1c16]">Nenhuma oportunidade encontrada</h2>
+              <p className="mt-2 text-sm leading-6 text-[#414943]">Quando houver casos com risco, plano gratuito, limite atingido, recorrência ou sem revisão humana, eles aparecerão aqui.</p>
             </div>
           )}
 
@@ -208,7 +208,7 @@ export default function AdminOpportunitiesPage() {
             <div className="mt-8 overflow-hidden rounded-3xl border border-leaf-100 bg-white shadow-soft">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <thead className="bg-[#f8f3ea] text-xs uppercase tracking-wide text-[#717973]">
                     <tr>
                       <th className="px-5 py-4 font-semibold">Usuário</th>
                       <th className="px-5 py-4 font-semibold">Cultura</th>
@@ -223,23 +223,23 @@ export default function AdminOpportunitiesPage() {
                     {opportunities.map((opportunity) => (
                       <tr key={opportunity.id} className="align-top hover:bg-leaf-50/40">
                         <td className="px-5 py-4">
-                          <p className="font-semibold text-slate-900">{opportunity.userName}</p>
-                          <p className="mt-1 text-xs text-slate-500">{opportunity.farmName}</p>
-                          <p className="mt-1 text-xs text-slate-400">Caso {opportunity.caseId.slice(0, 8)} · {formatDate(opportunity.createdAt)}</p>
+                          <p className="font-semibold text-[#1d1c16]">{opportunity.userName}</p>
+                          <p className="mt-1 text-xs text-[#717973]">{opportunity.farmName}</p>
+                          <p className="mt-1 text-xs text-[#717973]">Caso {opportunity.caseId.slice(0, 8)} · {formatDate(opportunity.createdAt)}</p>
                         </td>
-                        <td className="px-5 py-4 font-medium text-slate-800">{opportunity.crop}</td>
+                        <td className="px-5 py-4 font-medium text-[#1d1c16]">{opportunity.crop}</td>
                         <td className="px-5 py-4">{getRiskBadge(opportunity.risk)}</td>
-                        <td className="px-5 py-4 text-slate-700">{opportunity.currentPlan}</td>
-                        <td className="px-5 py-4 text-slate-700">{getStatusLabel(opportunity.caseStatus)}</td>
+                        <td className="px-5 py-4 text-[#414943]">{opportunity.currentPlan}</td>
+                        <td className="px-5 py-4 text-[#414943]">{getStatusLabel(opportunity.caseStatus)}</td>
                         <td className="px-5 py-4">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${offerStyles[opportunity.suggestedOffer] ?? "bg-slate-50 text-slate-700 ring-slate-100"}`}>
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${offerStyles[opportunity.suggestedOffer] ?? "bg-[#f8f3ea] text-[#414943] ring-[#e7e2d9]"}`}>
                             {opportunity.suggestedOffer}
                           </span>
                         </td>
                         <td className="px-5 py-4">
                           <div className="flex max-w-sm flex-wrap gap-2">
                             {opportunity.reasons.map((reason) => (
-                              <span key={reason} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                              <span key={reason} className="rounded-full bg-[#f2ede4] px-3 py-1 text-xs font-semibold text-[#414943]">
                                 {reason}
                               </span>
                             ))}

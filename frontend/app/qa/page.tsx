@@ -68,7 +68,7 @@ export default function QAPage() {
       <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
         <div className="space-y-4">
           {chat.length === 0 && (
-            <div className="text-sm text-slate-500">As respostas aparecerão aqui.</div>
+            <div className="text-sm text-[#717973]">As respostas aparecerão aqui.</div>
           )}
           {chat.map((message, idx) => (
             <ChatBubble key={idx} role={message.role} text={message.text} />
@@ -94,28 +94,28 @@ export default function QAPage() {
       </div>
 
       <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-        <h4 className="text-sm font-semibold text-slate-900">Histórico de perguntas</h4>
-        <p className="mt-2 text-xs leading-5 text-slate-500">As perguntas respondidas ficam salvas mesmo no plano gratuito, sempre respeitando o limite mensal de uso.</p>
-        <div className="mt-4 space-y-3 text-sm text-slate-600">
+        <h4 className="text-sm font-semibold text-[#1d1c16]">Histórico de perguntas</h4>
+        <p className="mt-2 text-xs leading-5 text-[#717973]">As perguntas respondidas ficam salvas mesmo no plano gratuito, sempre respeitando o limite mensal de uso.</p>
+        <div className="mt-4 space-y-3 text-sm text-[#414943]">
           {history.length === 0 && <p>Nenhuma pergunta salva ainda.</p>}
           {history.map((item) => (
-            <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
-              <p className="font-semibold text-slate-800">{item.question}</p>
+            <div key={item.id} className="rounded-2xl bg-[#f8f3ea] p-4">
+              <p className="font-semibold text-[#1d1c16]">{item.question}</p>
               {item.answer && <p className="mt-2 line-clamp-3">{item.answer}</p>}
-              {item.created_at && <p className="mt-2 text-xs text-slate-400">{new Date(item.created_at).toLocaleString("pt-BR")}</p>}
+              {item.created_at && <p className="mt-2 text-xs text-[#717973]">{new Date(item.created_at).toLocaleString("pt-BR")}</p>}
             </div>
           ))}
         </div>
       </div>
 
       <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-        <h4 className="text-sm font-semibold text-slate-900">Conhecimento recuperado</h4>
-        <div className="mt-4 space-y-3 text-sm text-slate-600">
+        <h4 className="text-sm font-semibold text-[#1d1c16]">Conhecimento recuperado</h4>
+        <div className="mt-4 space-y-3 text-sm text-[#414943]">
           {sources.length === 0 && <p>Nenhuma fonte ainda. Faça uma pergunta para ver os trechos usados.</p>}
           {sources.map((doc, idx) => (
             <div key={idx} className="rounded-2xl bg-leaf-50 p-4">
-              <p className="text-xs text-slate-500">Relevância: {(doc.relevance_score * 100).toFixed(1)}%</p>
-              {doc.title && <p className="mt-1 font-semibold text-slate-800">{doc.title}</p>}
+              <p className="text-xs text-[#717973]">Relevância: {(doc.relevance_score * 100).toFixed(1)}%</p>
+              {doc.title && <p className="mt-1 font-semibold text-[#1d1c16]">{doc.title}</p>}
               <p className="mt-1">{doc.content}</p>
             </div>
           ))}

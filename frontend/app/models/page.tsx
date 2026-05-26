@@ -5,7 +5,7 @@ export default function ModelsPage() {
     <div className="mx-auto max-w-5xl px-6 py-14">
       <SectionTitle title="Modelos e dados" subtitle="Entenda como a versão leve gera as respostas." />
 
-      <div className="space-y-6 text-slate-700">
+      <div className="space-y-6 text-[#414943]">
         <div className="rounded-2xl border border-leaf-100 bg-white p-6 shadow-soft">
           <h3 className="text-lg font-semibold">Recomendação de culturas</h3>
           <p className="mt-2 text-sm">

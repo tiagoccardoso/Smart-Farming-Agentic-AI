@@ -171,7 +171,7 @@ function getBadgeClass(
   if (kind === "unlimited") {
     return value
       ? "bg-violet-50 text-violet-700 ring-violet-100"
-      : "bg-slate-50 text-slate-600 ring-slate-100";
+      : "bg-[#f8f3ea] text-[#414943] ring-[#e7e2d9]";
   }
 
   if (kind === "role") {
@@ -184,7 +184,7 @@ function getBadgeClass(
 
   return value
     ? "bg-sky-50 text-sky-700 ring-sky-100"
-    : "bg-slate-50 text-slate-600 ring-slate-100";
+    : "bg-[#f8f3ea] text-[#414943] ring-[#e7e2d9]";
 }
 
 function Badge({
@@ -214,8 +214,8 @@ function EmptyState({
 }) {
   return (
     <div className="rounded-3xl border border-dashed border-leaf-200 bg-white p-8 text-center shadow-soft">
-      <p className="text-lg font-semibold text-slate-900">{title}</p>
-      <p className="mt-2 text-sm text-slate-600">{description}</p>
+      <p className="text-lg font-semibold text-[#1d1c16]">{title}</p>
+      <p className="mt-2 text-sm text-[#414943]">{description}</p>
     </div>
   );
 }
@@ -501,7 +501,7 @@ export default function UsuariosPainelDoutoraPage() {
         className="mt-8 grid gap-4 rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft md:grid-cols-2 xl:grid-cols-6 xl:items-end"
       >
         <label className="block xl:col-span-2">
-          <span className="text-sm font-semibold text-slate-700">
+          <span className="text-sm font-semibold text-[#414943]">
             Buscar por nome
           </span>
           <input
@@ -512,7 +512,7 @@ export default function UsuariosPainelDoutoraPage() {
           />
         </label>
         <label className="block xl:col-span-2">
-          <span className="text-sm font-semibold text-slate-700">
+          <span className="text-sm font-semibold text-[#414943]">
             Buscar por e-mail
           </span>
           <input
@@ -524,7 +524,7 @@ export default function UsuariosPainelDoutoraPage() {
           />
         </label>
         <label className="block">
-          <span className="text-sm font-semibold text-slate-700">Role</span>
+          <span className="text-sm font-semibold text-[#414943]">Role</span>
           <select
             value={filters.role}
             onChange={(event) => updateFilter("role", event.target.value)}
@@ -537,7 +537,7 @@ export default function UsuariosPainelDoutoraPage() {
           </select>
         </label>
         <label className="block">
-          <span className="text-sm font-semibold text-slate-700">Status</span>
+          <span className="text-sm font-semibold text-[#414943]">Status</span>
           <select
             value={filters.status}
             onChange={(event) => updateFilter("status", event.target.value)}
@@ -549,7 +549,7 @@ export default function UsuariosPainelDoutoraPage() {
           </select>
         </label>
         <label className="block xl:col-span-2">
-          <span className="text-sm font-semibold text-slate-700">Plano</span>
+          <span className="text-sm font-semibold text-[#414943]">Plano</span>
           <select
             value={filters.plan}
             onChange={(event) => updateFilter("plan", event.target.value)}
@@ -596,17 +596,17 @@ export default function UsuariosPainelDoutoraPage() {
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">
                   Editar usuário
                 </p>
-                <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                <h2 className="mt-2 text-2xl font-bold text-[#1d1c16]">
                   {editingUser.full_name || editingUser.email || "Usuário"}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-[#717973]">
                   Validações sensíveis também são aplicadas no backend.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closeEditUser}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="rounded-full border border-[#e7e2d9] px-4 py-2 text-sm font-semibold text-[#414943] hover:bg-[#f8f3ea]"
               >
                 Cancelar edição
               </button>
@@ -614,12 +614,12 @@ export default function UsuariosPainelDoutoraPage() {
 
             <div className="mt-6 grid gap-5 lg:grid-cols-3">
               <section className="rounded-3xl border border-leaf-100 bg-leaf-50/40 p-5 lg:col-span-2">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[#414943]">
                   Perfil
                 </h3>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <label className="block md:col-span-2">
-                    <span className="text-sm font-semibold text-slate-700">
+                    <span className="text-sm font-semibold text-[#414943]">
                       Nome completo *
                     </span>
                     <input
@@ -632,7 +632,7 @@ export default function UsuariosPainelDoutoraPage() {
                     />
                   </label>
                   <label className="block">
-                    <span className="text-sm font-semibold text-slate-700">
+                    <span className="text-sm font-semibold text-[#414943]">
                       Telefone *
                     </span>
                     <input
@@ -645,7 +645,7 @@ export default function UsuariosPainelDoutoraPage() {
                     />
                   </label>
                   <label className="block">
-                    <span className="text-sm font-semibold text-slate-700">
+                    <span className="text-sm font-semibold text-[#414943]">
                       E-mail *
                     </span>
                     <input
@@ -661,12 +661,12 @@ export default function UsuariosPainelDoutoraPage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">
+              <section className="rounded-3xl border border-[#e7e2d9] bg-white p-5 shadow-soft">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[#414943]">
                   Permissões
                 </h3>
                 <label className="mt-4 block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Role
                   </span>
                   <select
@@ -684,7 +684,7 @@ export default function UsuariosPainelDoutoraPage() {
                   </select>
                 </label>
                 <label className="mt-4 block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Status
                   </span>
                   <select
@@ -714,11 +714,11 @@ export default function UsuariosPainelDoutoraPage() {
               </section>
 
               <section className="rounded-3xl border border-sky-100 bg-sky-50/50 p-5 lg:col-span-2">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[#414943]">
                   Plano
                 </h3>
                 <label className="mt-4 block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Plano atual, se aplicável
                   </span>
                   <select
@@ -738,11 +738,11 @@ export default function UsuariosPainelDoutoraPage() {
                 </label>
               </section>
 
-              <section className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">
+              <section className="rounded-3xl border border-[#e7e2d9] bg-[#f8f3ea] p-5">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[#414943]">
                   Uso da plataforma
                 </h3>
-                <div className="mt-4 space-y-3 text-sm text-slate-700">
+                <div className="mt-4 space-y-3 text-sm text-[#414943]">
                   <p>
                     <strong>{editingUser.cases_count}</strong> casos enviados
                   </p>
@@ -762,14 +762,14 @@ export default function UsuariosPainelDoutoraPage() {
                 type="button"
                 onClick={closeEditUser}
                 disabled={savingEdit}
-                className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                className="rounded-full border border-[#e7e2d9] px-5 py-3 text-sm font-semibold text-[#414943] hover:bg-[#f8f3ea] disabled:opacity-60"
               >
                 Cancelar edição
               </button>
               <button
                 type="submit"
                 disabled={savingEdit}
-                className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
               >
                 {savingEdit ? "Salvando alterações..." : "Salvar alterações"}
               </button>
@@ -797,7 +797,7 @@ export default function UsuariosPainelDoutoraPage() {
           <div className="overflow-hidden rounded-3xl border border-leaf-100 bg-white shadow-soft">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
-                <thead className="bg-leaf-50 text-xs uppercase tracking-wide text-slate-600">
+                <thead className="bg-leaf-50 text-xs uppercase tracking-wide text-[#414943]">
                   <tr>
                     <th className="px-4 py-3">Usuário</th>
                     <th className="px-4 py-3">Role</th>
@@ -816,23 +816,23 @@ export default function UsuariosPainelDoutoraPage() {
                     return (
                       <tr
                         key={user.id}
-                        className={`${selectedUser?.id === user.id ? "bg-leaf-50/70" : ""} ${inactive ? "bg-red-50/50 text-slate-500" : ""} ${unlimited ? "outline outline-1 outline-violet-100" : ""}`}
+                        className={`${selectedUser?.id === user.id ? "bg-leaf-50/70" : ""} ${inactive ? "bg-red-50/50 text-[#717973]" : ""} ${unlimited ? "outline outline-1 outline-violet-100" : ""}`}
                       >
                         <td className="px-4 py-4 align-top">
                           <button
                             type="button"
                             onClick={() => setSelectedUserId(user.id)}
-                            className="text-left font-semibold text-slate-900 hover:text-leaf-700"
+                            className="text-left font-semibold text-[#1d1c16] hover:text-leaf-700"
                           >
                             {user.full_name || "Sem nome"}
                           </button>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-[#717973]">
                             {user.email || "E-mail indisponível"}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-[#717973]">
                             {user.phone || "Telefone não informado"}
                           </p>
-                          <p className="mt-1 text-xs text-slate-400">
+                          <p className="mt-1 text-xs text-[#717973]">
                             Cadastro: {formatDate(user.created_at)}
                           </p>
                         </td>
@@ -858,13 +858,13 @@ export default function UsuariosPainelDoutoraPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-4 align-top font-semibold text-slate-700">
+                        <td className="px-4 py-4 align-top font-semibold text-[#414943]">
                           {user.cases_count}
                         </td>
-                        <td className="px-4 py-4 align-top font-semibold text-slate-700">
+                        <td className="px-4 py-4 align-top font-semibold text-[#414943]">
                           {user.human_reviews_count}
                         </td>
-                        <td className="px-4 py-4 align-top text-xs text-slate-600">
+                        <td className="px-4 py-4 align-top text-xs text-[#414943]">
                           {formatDate(user.last_sign_in_at)}
                         </td>
                         <td className="px-4 py-4 align-top">
@@ -921,10 +921,10 @@ export default function UsuariosPainelDoutoraPage() {
                   <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">
                     Detalhe do usuário
                   </p>
-                  <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                  <h2 className="mt-2 text-2xl font-bold text-[#1d1c16]">
                     {selectedUser.full_name || "Sem nome"}
                   </h2>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-[#717973]">
                     {selectedUser.email || "E-mail indisponível"}
                   </p>
                 </div>
@@ -934,35 +934,35 @@ export default function UsuariosPainelDoutoraPage() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase text-slate-500">
+                <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                  <p className="text-xs font-bold uppercase text-[#717973]">
                     Telefone
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                  <p className="mt-1 text-sm font-semibold text-[#1d1c16]">
                     {selectedUser.phone || "Não informado"}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase text-slate-500">
+                <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                  <p className="text-xs font-bold uppercase text-[#717973]">
                     Plano atual
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                  <p className="mt-1 text-sm font-semibold text-[#1d1c16]">
                     {selectedUser.current_plan?.name || "Sem plano"}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase text-slate-500">
+                <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                  <p className="text-xs font-bold uppercase text-[#717973]">
                     Cadastro
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                  <p className="mt-1 text-sm font-semibold text-[#1d1c16]">
                     {formatDate(selectedUser.created_at)}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase text-slate-500">
+                <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                  <p className="text-xs font-bold uppercase text-[#717973]">
                     Último acesso
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                  <p className="mt-1 text-sm font-semibold text-[#1d1c16]">
                     {formatDate(selectedUser.last_sign_in_at)}
                   </p>
                 </div>
@@ -970,7 +970,7 @@ export default function UsuariosPainelDoutoraPage() {
 
               {currentRole === "admin" && (
                 <label className="mt-5 block rounded-2xl border border-leaf-100 bg-leaf-50/60 p-4">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Alterar role
                   </span>
                   <select
@@ -996,7 +996,7 @@ export default function UsuariosPainelDoutoraPage() {
                   empty="Nenhuma propriedade cadastrada."
                 >
                   {selectedUser.details.farms.map((farm) => (
-                    <li key={farm.id} className="rounded-2xl bg-slate-50 p-3">
+                    <li key={farm.id} className="rounded-2xl bg-[#f8f3ea] p-3">
                       <strong>{farm.name || "Propriedade sem nome"}</strong>
                       <br />
                       {[farm.city, farm.state].filter(Boolean).join("/") ||
@@ -1010,7 +1010,7 @@ export default function UsuariosPainelDoutoraPage() {
                   {selectedUser.details.cases.map((caseData) => (
                     <li
                       key={caseData.id}
-                      className="rounded-2xl bg-slate-50 p-3"
+                      className="rounded-2xl bg-[#f8f3ea] p-3"
                     >
                       <strong>
                         {caseData.crop || "Cultura não informada"}
@@ -1030,7 +1030,7 @@ export default function UsuariosPainelDoutoraPage() {
                   empty="Nenhum relatório gerado."
                 >
                   {selectedUser.details.reports.map((report) => (
-                    <li key={report.id} className="rounded-2xl bg-slate-50 p-3">
+                    <li key={report.id} className="rounded-2xl bg-[#f8f3ea] p-3">
                       <strong>{report.report_type || "Relatório"}</strong>
                       <br />
                       Caso: {report.case_id || "não vinculado"} ·{" "}
@@ -1045,7 +1045,7 @@ export default function UsuariosPainelDoutoraPage() {
                   {selectedUser.details.subscriptions.map((subscription) => (
                     <li
                       key={subscription.id}
-                      className="rounded-2xl bg-slate-50 p-3"
+                      className="rounded-2xl bg-[#f8f3ea] p-3"
                     >
                       <strong>
                         {subscription.plans?.name || "Plano sem nome"}
@@ -1063,7 +1063,7 @@ export default function UsuariosPainelDoutoraPage() {
                   {selectedUser.details.payments.map((payment) => (
                     <li
                       key={payment.id}
-                      className="rounded-2xl bg-slate-50 p-3"
+                      className="rounded-2xl bg-[#f8f3ea] p-3"
                     >
                       <strong>{payment.service_type || "Serviço"}</strong> ·{" "}
                       {formatMoney(payment.price_cents)}
@@ -1078,7 +1078,7 @@ export default function UsuariosPainelDoutoraPage() {
                   empty="Nenhum uso registrado."
                 >
                   {selectedUser.details.usage_events.map((usage) => (
-                    <li key={usage.id} className="rounded-2xl bg-slate-50 p-3">
+                    <li key={usage.id} className="rounded-2xl bg-[#f8f3ea] p-3">
                       <strong>{usage.event_type || "recurso"}</strong> ·{" "}
                       {usage.count ?? 0} uso(s)
                       <br />
@@ -1111,13 +1111,13 @@ function DetailList({
 
   return (
     <section>
-      <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">
+      <h3 className="text-sm font-bold uppercase tracking-wide text-[#414943]">
         {title}
       </h3>
       {hasItems ? (
-        <ul className="mt-3 space-y-2 text-sm text-slate-700">{children}</ul>
+        <ul className="mt-3 space-y-2 text-sm text-[#414943]">{children}</ul>
       ) : (
-        <p className="mt-2 rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
+        <p className="mt-2 rounded-2xl bg-[#f8f3ea] p-3 text-sm text-[#717973]">
           {empty}
         </p>
       )}

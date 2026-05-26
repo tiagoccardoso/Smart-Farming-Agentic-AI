@@ -30,7 +30,7 @@ export default function Page() {
 
   return <div className='mx-auto max-w-6xl px-6 py-10'>
     <h1 className='text-3xl font-bold text-[#123F2A]'>Agendamentos</h1>
-    <p className="mt-2 max-w-3xl text-slate-600">Gerencie solicitações recebidas pelo formulário de contato. Apenas especialistas e administradores têm acesso a esta área.</p>
+    <p className="mt-2 max-w-3xl text-[#414943]">Gerencie solicitações recebidas pelo formulário de contato. Apenas especialistas e administradores têm acesso a esta área.</p>
     <div className='mt-4 grid gap-3 md:grid-cols-4'>
       <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className='rounded-2xl border border-leaf-100 p-3'><option value='todos'>Todos os status</option>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
       <input value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} placeholder='Filtrar por cidade' className='rounded-2xl border border-leaf-100 p-3' />
@@ -39,7 +39,7 @@ export default function Page() {
     </div>
     {message && <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</p>}
     {error && <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
-    <div className='mt-6 space-y-4'>{items.length === 0 ? <div className="rounded-3xl border bg-white p-6 text-slate-600">Nenhum agendamento encontrado.</div> : items.map((item) => <Card key={item.id} item={item} onSaved={(text) => { setMessage(text); setError(""); load(); }} onDeleted={(text) => { setMessage(text); setError(""); setItems((current) => current.filter((row) => row.id !== item.id)); }} onError={(text) => { setError(text); setMessage(""); }} />)}</div>
+    <div className='mt-6 space-y-4'>{items.length === 0 ? <div className="rounded-3xl border bg-white p-6 text-[#414943]">Nenhum agendamento encontrado.</div> : items.map((item) => <Card key={item.id} item={item} onSaved={(text) => { setMessage(text); setError(""); load(); }} onDeleted={(text) => { setMessage(text); setError(""); setItems((current) => current.filter((row) => row.id !== item.id)); }} onError={(text) => { setError(text); setMessage(""); }} />)}</div>
   </div>;
 }
 
@@ -95,8 +95,8 @@ function Card({ item, onSaved, onDeleted, onError }: { item: any; onSaved: (mess
     <div className='mt-4 grid gap-2 md:grid-cols-[180px_1fr_auto_auto]'>
       <select value={status} onChange={(e) => setStatus(e.target.value)} className='rounded-2xl border border-leaf-100 p-2'>{statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}</select>
       <input value={notes} onChange={(e) => setNotes(e.target.value)} className='rounded-2xl border border-leaf-100 p-2' placeholder='Observações internas' />
-      <button onClick={save} disabled={saving} aria-busy={saving} className='rounded-full bg-[#2E7D32] px-4 py-2 text-white disabled:bg-slate-300'>{saving ? "Salvando..." : "Salvar"}</button>
-      <button onClick={remove} disabled={deleting} aria-busy={deleting} className='rounded-full border border-red-200 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:text-slate-400'>{deleting ? "Excluindo..." : "Excluir"}</button>
+      <button onClick={save} disabled={saving} aria-busy={saving} className='rounded-full bg-[#2E7D32] px-4 py-2 text-white disabled:bg-[#c1c9c1]'>{saving ? "Salvando..." : "Salvar"}</button>
+      <button onClick={remove} disabled={deleting} aria-busy={deleting} className='rounded-full border border-red-200 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:text-[#717973]'>{deleting ? "Excluindo..." : "Excluir"}</button>
     </div>
   </div>;
 }

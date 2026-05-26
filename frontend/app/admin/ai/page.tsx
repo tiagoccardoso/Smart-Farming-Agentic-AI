@@ -121,23 +121,23 @@ export default function AdminAIPage() {
           IA agronômica · monitoramento server-side
         </p>
         <SectionTitle title="Monitoramento da IA" subtitle="Acompanhe OpenAI como cérebro principal, Gemini como fallback e uso operacional da plataforma." />
-        <p className="max-w-3xl text-base leading-7 text-slate-700">
+        <p className="max-w-3xl text-base leading-7 text-[#414943]">
           Este painel não expõe chaves de API e mostra apenas métricas consolidadas e logs técnicos recentes para administradores.
         </p>
       </div>
 
       {accessDenied && <div className="mt-8 rounded-3xl border border-red-100 bg-red-50 p-6 text-sm text-red-700 shadow-soft">Faça login com uma conta administradora para visualizar o monitoramento de IA.</div>}
       {error && <div className="mt-8 rounded-3xl border border-red-100 bg-red-50 p-6 text-sm text-red-700 shadow-soft">{error}</div>}
-      {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-slate-600 shadow-soft">Carregando métricas de IA...</div>}
+      {loading && <div className="mt-8 rounded-3xl border border-leaf-100 bg-white p-6 text-sm text-[#414943] shadow-soft">Carregando métricas de IA...</div>}
 
       {data && !loading && (
         <>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {metrics.map((metric) => (
               <article key={metric.label} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{metric.label}</p>
-                <p className="mt-3 break-words text-3xl font-bold text-slate-900">{metric.value}</p>
-                <p className="mt-2 text-sm text-slate-500">{metric.detail}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">{metric.label}</p>
+                <p className="mt-3 break-words text-3xl font-bold text-[#1d1c16]">{metric.value}</p>
+                <p className="mt-2 text-sm text-[#717973]">{metric.detail}</p>
               </article>
             ))}
           </div>
@@ -147,27 +147,27 @@ export default function AdminAIPage() {
               <article key={item.provider} className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Provider</p>
-                    <h2 className="mt-2 text-2xl font-bold text-slate-900">{item.provider}</h2>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">Provider</p>
+                    <h2 className="mt-2 text-2xl font-bold text-[#1d1c16]">{item.provider}</h2>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.configured ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                     {item.configured ? "Configurado" : "Pendente"}
                   </span>
                 </div>
-                <p className="mt-4 text-sm text-slate-600">Modelo: {item.model || "não informado"}</p>
-                <p className="mt-1 text-sm text-slate-600">{item.message}</p>
+                <p className="mt-4 text-sm text-[#414943]">Modelo: {item.model || "não informado"}</p>
+                <p className="mt-1 text-sm text-[#414943]">{item.message}</p>
               </article>
             ))}
           </div>
 
           <div className="mt-8 overflow-hidden rounded-3xl border border-leaf-100 bg-white shadow-soft">
-            <div className="border-b border-slate-100 p-6">
-              <h2 className="text-xl font-semibold text-slate-900">Logs recentes</h2>
-              <p className="mt-1 text-sm text-slate-500">Atualizado em {formatDate(data.generatedAt)}.</p>
+            <div className="border-b border-[#e7e2d9] p-6">
+              <h2 className="text-xl font-semibold text-[#1d1c16]">Logs recentes</h2>
+              <p className="mt-1 text-sm text-[#717973]">Atualizado em {formatDate(data.generatedAt)}.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="bg-[#f8f3ea] text-xs uppercase tracking-wide text-[#717973]">
                   <tr>
                     <th className="px-5 py-4 font-semibold">Data</th>
                     <th className="px-5 py-4 font-semibold">Provider</th>
@@ -182,13 +182,13 @@ export default function AdminAIPage() {
                 <tbody className="divide-y divide-slate-100">
                   {data.recentLogs.map((log) => (
                     <tr key={log.id} className="align-top">
-                      <td className="px-5 py-4 text-slate-600">{formatDate(log.created_at)}</td>
-                      <td className="px-5 py-4 font-semibold text-slate-900">{log.provider}</td>
-                      <td className="px-5 py-4 text-slate-600">{log.model}</td>
-                      <td className="px-5 py-4 text-slate-600">{log.prompt_type}</td>
-                      <td className="px-5 py-4 text-slate-600">{Number(log.tokens_input ?? 0) + Number(log.tokens_output ?? 0)}</td>
-                      <td className="px-5 py-4 text-slate-600">{formatCurrency(Number(log.estimated_cost ?? 0))}</td>
-                      <td className="px-5 py-4 text-slate-600">{log.response_time_ms ?? 0}ms</td>
+                      <td className="px-5 py-4 text-[#414943]">{formatDate(log.created_at)}</td>
+                      <td className="px-5 py-4 font-semibold text-[#1d1c16]">{log.provider}</td>
+                      <td className="px-5 py-4 text-[#414943]">{log.model}</td>
+                      <td className="px-5 py-4 text-[#414943]">{log.prompt_type}</td>
+                      <td className="px-5 py-4 text-[#414943]">{Number(log.tokens_input ?? 0) + Number(log.tokens_output ?? 0)}</td>
+                      <td className="px-5 py-4 text-[#414943]">{formatCurrency(Number(log.estimated_cost ?? 0))}</td>
+                      <td className="px-5 py-4 text-[#414943]">{log.response_time_ms ?? 0}ms</td>
                       <td className="px-5 py-4">
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${log.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
                           {log.success ? "Sucesso" : "Falha"}{log.fallback_used ? " · fallback" : ""}

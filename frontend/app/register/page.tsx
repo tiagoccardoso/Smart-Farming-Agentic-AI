@@ -62,7 +62,7 @@ export default function RegisterPage() {
           Novo produtor
         </p>
         <SectionTitle title="Criar conta" subtitle="Cadastre-se para salvar casos e relatórios agrícolas." />
-        <p className="text-base leading-7 text-slate-700">
+        <p className="text-base leading-7 text-[#414943]">
           O cadastro cria automaticamente seu perfil com papel de cliente. Especialistas e administradores devem ter o papel ajustado no Supabase por um admin.
         </p>
       </div>
@@ -81,12 +81,12 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-6 w-full rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-6 w-full rounded-full bg-[#123f2a] px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-[#002817] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Criando conta..." : "Criar conta"}
         </button>
 
-        <p className="mt-5 text-center text-sm text-slate-600">
+        <p className="mt-5 text-center text-sm text-[#414943]">
           Já tem conta?{" "}
           <Link href="/login" className="font-semibold text-leaf-700 hover:text-leaf-800">
             Entrar

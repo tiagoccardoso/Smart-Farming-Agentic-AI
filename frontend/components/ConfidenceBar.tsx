@@ -6,7 +6,7 @@ export default function ConfidenceBar({ value }: Props) {
   const percent = Math.max(0, Math.min(100, Math.round(value * 100)));
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+      <div className="mb-2 flex items-center justify-between text-xs text-[#717973]">
         <span>Confiança</span>
         <span>{percent}%</span>
       </div>

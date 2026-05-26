@@ -77,7 +77,7 @@ function LoginContent() {
           title="Entrar"
           subtitle="Acesse sua consultoria agrícola com e-mail e senha."
         />
-        <p className="text-base leading-7 text-slate-700">
+        <p className="text-base leading-7 text-[#414943]">
           Faça login para enviar casos, acompanhar relatórios, solicitar revisão
           humana e consultar a IA usando seus dados protegidos pelo Supabase
           Auth.
@@ -121,12 +121,12 @@ function LoginContent() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-6 w-full rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-6 w-full rounded-full bg-[#123f2a] px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-[#002817] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Entrando..." : "Entrar"}
         </button>
 
-        <div className="mt-5 space-y-3 text-center text-sm text-slate-600">
+        <div className="mt-5 space-y-3 text-center text-sm text-[#414943]">
           <button
             type="button"
             onClick={handlePasswordRecovery}
@@ -156,7 +156,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">
+        <div className="mx-auto max-w-6xl px-6 py-14 text-sm text-[#414943]">
           Carregando login...
         </div>
       }

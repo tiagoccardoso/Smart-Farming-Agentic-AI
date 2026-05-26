@@ -208,12 +208,12 @@ export default function CulturasPainelDoutoraPage() {
       <div className="mt-8 grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
         <form
           onSubmit={handleSubmit}
-          className="rounded-[2rem] border border-slate-200/70 bg-gradient-to-b from-white to-slate-50/70 p-6 shadow-soft md:p-8"
+          className="rounded-[2rem] border border-[#e7e2d9]/70 bg-gradient-to-b from-white to-slate-50/70 p-6 shadow-soft md:p-8"
         >
-          <h2 className="text-2xl font-black tracking-tight text-slate-900">
+          <h2 className="text-2xl font-black tracking-tight text-[#1d1c16]">
             {form.id ? "Editar cultura" : "Cadastrar cultura"}
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-[#414943]">
             Preencha os dados técnicos da cultura para manter o catálogo padronizado, atualizado e pronto para uso em fluxos internos.
           </p>
           <div className="mt-4 rounded-2xl border border-leaf-100 bg-leaf-50/70 p-4 text-sm text-leaf-900">
@@ -225,7 +225,7 @@ export default function CulturasPainelDoutoraPage() {
                 key={field}
                 className={field === "management_notes" ? "md:col-span-2" : ""}
               >
-                <span className="text-sm font-semibold text-slate-700">
+                <span className="text-sm font-semibold text-[#414943]">
                   {label}
                   {required ? " *" : ""}
                 </span>
@@ -234,12 +234,12 @@ export default function CulturasPainelDoutoraPage() {
                   rows={field === "management_notes" ? 4 : 2}
                   value={String(form[field] ?? "")}
                   onChange={(event) => updateForm(field, event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
+                  className="mt-2 w-full rounded-2xl border border-[#e7e2d9] bg-white px-4 py-3 text-sm text-[#414943] shadow-sm outline-none transition placeholder:text-[#717973] focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
                 />
               </label>
             ))}
             <label className="md:col-span-2">
-              <span className="text-sm font-semibold text-slate-700">Aliases (um por linha ou separados por vírgula)</span>
+              <span className="text-sm font-semibold text-[#414943]">Aliases (um por linha ou separados por vírgula)</span>
               <textarea
                 rows={3}
                 value={(form.aliases ?? []).join("\n")}
@@ -252,7 +252,7 @@ export default function CulturasPainelDoutoraPage() {
                       .filter(Boolean),
                   )
                 }
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
+                className="mt-2 w-full rounded-2xl border border-[#e7e2d9] bg-white px-4 py-3 text-sm text-[#414943] shadow-sm outline-none transition placeholder:text-[#717973] focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
               />
             </label>
           </div>
@@ -267,7 +267,7 @@ export default function CulturasPainelDoutoraPage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="inline-flex items-center gap-2 rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
             >
               {saving ? (
                 <>
@@ -286,8 +286,8 @@ export default function CulturasPainelDoutoraPage() {
           </div>
         </form>
 
-        <div className="rounded-[2rem] border border-slate-200/70 bg-white p-6 shadow-soft md:p-7">
-          <h2 className="text-xl font-bold text-slate-900">
+        <div className="rounded-[2rem] border border-[#e7e2d9]/70 bg-white p-6 shadow-soft md:p-7">
+          <h2 className="text-xl font-bold text-[#1d1c16]">
             Culturas cadastradas
           </h2>
           {loading ? (
@@ -303,25 +303,25 @@ export default function CulturasPainelDoutoraPage() {
                 <button
                   key={crop.id}
                   onClick={() => editCrop(crop)}
-                  className="w-full rounded-2xl border border-slate-100 p-4 text-left hover:border-leaf-200 hover:bg-leaf-50"
+                  className="w-full rounded-2xl border border-[#e7e2d9] p-4 text-left hover:border-leaf-200 hover:bg-leaf-50"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <strong>{crop.display_name_pt || crop.name}</strong>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-[#717973]">
                         Label ML: {crop.model_label || "não suportada pelo modelo"} · Slug: {crop.slug}
                       </p>
                     </div>
                     <span
-                      className={`rounded-full px-3 py-1 text-xs font-bold ${crop.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${crop.active ? "bg-emerald-50 text-emerald-700" : "bg-[#f2ede4] text-[#414943]"}`}
                     >
                       {crop.active ? "Ativa" : "Inativa"}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs text-slate-600 line-clamp-2">
+                  <p className="mt-2 text-xs text-[#414943] line-clamp-2">
                     Aliases: {(crop.aliases ?? []).join(", ") || "sem aliases"}
                   </p>
-                  <p className="mt-2 text-sm text-slate-600 line-clamp-2">
+                  <p className="mt-2 text-sm text-[#414943] line-clamp-2">
                     {crop.ideal_climate || crop.management_notes || "Sem detalhes"}
                   </p>
                 </button>

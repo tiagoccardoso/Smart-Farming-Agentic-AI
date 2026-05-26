@@ -153,10 +153,10 @@ function EmptyState({ hasCases }: { hasCases: boolean }) {
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-leaf-50 text-2xl" aria-hidden>
         📋
       </div>
-      <h3 className="mt-5 text-xl font-semibold text-slate-900">
+      <h3 className="mt-5 text-xl font-semibold text-[#1d1c16]">
         {hasCases ? "Nenhum caso encontrado para este filtro." : "Você ainda não enviou nenhum caso agronômico."}
       </h3>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#414943]">
         {hasCases
           ? "Altere o filtro para visualizar outros estágios de análise, revisão humana ou conclusão."
           : "Envie sintomas, cultura, propriedade e anexos para iniciar a pré-análise com IA e acompanhar tudo por aqui."}
@@ -187,26 +187,26 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
             <StatusBadge status={caseItem.status} label={getStatusLabel(caseItem.status)} />
             <RiskBadge riskLevel={riskLevel} />
           </div>
-          <h3 className="mt-4 text-2xl font-semibold text-slate-900">{caseItem.crop || "Cultura não informada"}</h3>
+          <h3 className="mt-4 text-2xl font-semibold text-[#1d1c16]">{caseItem.crop || "Cultura não informada"}</h3>
           <div className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${hasHumanReview ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <p className="font-semibold">{reportResponsibilityLabel}</p>
             {!hasHumanReview && <p className="mt-1">Solicite revisão humana antes de usar este conteúdo como base para decisões técnicas, defensivos ou recomendações com responsabilidade profissional.</p>}
           </div>
-          <dl className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+          <dl className="mt-4 grid gap-3 text-sm text-[#414943] sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <dt className="font-semibold text-slate-900">Propriedade</dt>
+              <dt className="font-semibold text-[#1d1c16]">Propriedade</dt>
               <dd className="mt-1">{getFarmLabel(caseItem.farm)}</dd>
             </div>
             <div>
-              <dt className="font-semibold text-slate-900">Data</dt>
+              <dt className="font-semibold text-[#1d1c16]">Data</dt>
               <dd className="mt-1">{formatDate(caseItem.created_at)}</dd>
             </div>
             <div>
-              <dt className="font-semibold text-slate-900">Revisão humana</dt>
+              <dt className="font-semibold text-[#1d1c16]">Revisão humana</dt>
               <dd className="mt-1">{hasHumanReview ? "Possui revisão" : getHumanReviewStatusLabel(caseItem.human_review_status)}</dd>
             </div>
             <div>
-              <dt className="font-semibold text-slate-900">Relatório PDF</dt>
+              <dt className="font-semibold text-[#1d1c16]">Relatório PDF</dt>
               <dd className="mt-1">{hasPdfReport ? "Disponível" : reportInPreparation ? "Em preparação" : "Não disponível"}</dd>
             </div>
           </dl>
@@ -221,11 +221,11 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
           Pagar revisão humana
         </Link>
         {hasHumanReview ? (
-          <Link href={`#revisao-${caseItem.id}`} className="rounded-full border border-slate-200 bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700">
+          <Link href={`#revisao-${caseItem.id}`} className="rounded-full border border-[#e7e2d9] bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700">
             Ver parecer humano
           </Link>
         ) : (
-          <button type="button" disabled className="rounded-full border border-slate-200 bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-400">
+          <button type="button" disabled className="rounded-full border border-[#e7e2d9] bg-[#f2ede4] px-5 py-3 text-sm font-semibold text-[#717973]">
             Ver parecer humano
           </button>
         )}
@@ -234,7 +234,7 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
             Baixar relatório final
           </a>
         ) : (
-          <button type="button" disabled className="rounded-full border border-slate-200 bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-400">
+          <button type="button" disabled className="rounded-full border border-[#e7e2d9] bg-[#f2ede4] px-5 py-3 text-sm font-semibold text-[#717973]">
             Baixar relatório final
           </button>
         )}
@@ -243,18 +243,18 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
       {caseItem.latestHumanReview && (
         <div id={`revisao-${caseItem.id}`} className="mt-6 rounded-2xl border border-leaf-100 bg-leaf-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h4 className="font-semibold text-slate-900">Revisão humana mais recente</h4>
+            <h4 className="font-semibold text-[#1d1c16]">Revisão humana mais recente</h4>
             <p className="basis-full text-sm leading-6 text-leaf-900">Este relatório foi revisado por especialista e complementa a triagem automatizada inicial.</p>
             <Pill className="bg-white text-leaf-700">{getHumanReviewStatusLabel(caseItem.latestHumanReview.status)}</Pill>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Parecer técnico</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">{caseItem.latestHumanReview.review_text ?? "Parecer ainda não registrado."}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">Parecer técnico</p>
+              <p className="mt-2 text-sm leading-6 text-[#414943]">{caseItem.latestHumanReview.review_text ?? "Parecer ainda não registrado."}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recomendação técnica</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">{caseItem.latestHumanReview.technical_recommendation ?? "Recomendação ainda não registrada."}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">Recomendação técnica</p>
+              <p className="mt-2 text-sm leading-6 text-[#414943]">{caseItem.latestHumanReview.technical_recommendation ?? "Recomendação ainda não registrada."}</p>
             </div>
           </div>
         </div>
@@ -301,7 +301,7 @@ export default function MeusRelatoriosPage() {
           Histórico do produtor
         </p>
         <SectionTitle title="Meus Relatórios" subtitle="Acompanhe seus casos, pré-análises da IA, revisões humanas e relatórios." />
-        <p className="max-w-3xl text-base leading-7 text-slate-700">
+        <p className="max-w-3xl text-base leading-7 text-[#414943]">
           Veja o andamento de cada caso agronômico enviado, filtre por etapa e acesse rapidamente a análise da IA, a solicitação de revisão humana e o download do relatório quando estiver disponível.
         </p>
         <SafetyDisclaimer className="mt-5 max-w-3xl bg-white/90" />

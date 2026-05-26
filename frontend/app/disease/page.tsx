@@ -75,7 +75,7 @@ const riskStyles: Record<string, string> = {
 
 function Badge({ label, value }: { label: string; value: string }) {
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${riskStyles[value] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${riskStyles[value] ?? "border-[#e7e2d9] bg-[#f8f3ea] text-[#414943]"}`}>
       {label}
     </span>
   );
@@ -84,8 +84,8 @@ function Badge({ label, value }: { label: string; value: string }) {
 function CardList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-      <h4 className="font-semibold text-slate-900">{title}</h4>
-      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+      <h4 className="font-semibold text-[#1d1c16]">{title}</h4>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-[#414943]">
         {items.map((item) => (
           <li key={item} className="flex gap-2">
             <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />
@@ -384,7 +384,7 @@ export default function DiseasePage() {
               subtitle="Envie foto, cultura, sintomas e localização para abrir um caso agronômico com IA contextualizada."
             />
             <SafetyDisclaimer className="mt-5" />
-            <div className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-3">
+            <div className="mt-6 grid gap-3 text-sm text-[#414943] sm:grid-cols-3">
               <div className="rounded-2xl bg-white/85 p-4 shadow-soft">Imagem + sintomas + cultura</div>
               <div className="rounded-2xl bg-white/85 p-4 shadow-soft">Base crops + specialist_knowledge</div>
               <div className="rounded-2xl bg-white/85 p-4 shadow-soft">Chat com foto e áudio</div>
@@ -399,7 +399,7 @@ export default function DiseasePage() {
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={handleDrop}
-              className={`rounded-[2rem] border-2 border-dashed p-5 text-center transition ${dragging ? "border-leaf-500 bg-leaf-50" : "border-leaf-200 bg-slate-50"}`}
+              className={`rounded-[2rem] border-2 border-dashed p-5 text-center transition ${dragging ? "border-leaf-500 bg-leaf-50" : "border-leaf-200 bg-[#f8f3ea]"}`}
             >
               <input
                 ref={fileInputRef}
@@ -416,8 +416,8 @@ export default function DiseasePage() {
               ) : (
                 <div className="py-12">
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-leaf-100 text-3xl">📷</div>
-                  <p className="mt-4 font-semibold text-slate-900">Arraste a foto da planta aqui</p>
-                  <p className="mt-1 text-sm text-slate-500">JPG, PNG ou WEBP até 10MB</p>
+                  <p className="mt-4 font-semibold text-[#1d1c16]">Arraste a foto da planta aqui</p>
+                  <p className="mt-1 text-sm text-[#717973]">JPG, PNG ou WEBP até 10MB</p>
                 </div>
               )}
               <button
@@ -430,7 +430,7 @@ export default function DiseasePage() {
             </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Cultura
                 <input
                   value={crop}
@@ -445,36 +445,36 @@ export default function DiseasePage() {
                   ))}
                 </datalist>
               </label>
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Estágio da cultura
                 <input value={growthStage} onChange={(event) => setGrowthStage(event.target.value)} placeholder="Vegetativo, florescimento..." className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
               </label>
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Cidade
                 <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Município" className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
               </label>
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Estado
                 <input value={state} onChange={(event) => setState(event.target.value)} placeholder="UF ou estado" className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
               </label>
             </div>
-            <label className="mt-4 block text-sm font-semibold text-slate-700">
+            <label className="mt-4 block text-sm font-semibold text-[#414943]">
               Sintomas observados
               <textarea value={symptoms} onChange={(event) => setSymptoms(event.target.value)} rows={4} placeholder="Manchas, coloração, necrose, deformações, pragas visíveis, início dos sintomas..." className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
             </label>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Solo
                 <input value={soilType} onChange={(event) => setSoilType(event.target.value)} placeholder="Argiloso, arenoso, drenagem..." className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
               </label>
-              <label className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-semibold text-[#414943]">
                 Histórico recente
                 <input value={history} onChange={(event) => setHistory(event.target.value)} placeholder="Chuva, irrigação, pulverização..." className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400" />
               </label>
             </div>
 
             {selectedCrop && (
-              <div className="mt-5 rounded-2xl bg-leaf-50 p-4 text-xs leading-5 text-slate-700">
+              <div className="mt-5 rounded-2xl bg-leaf-50 p-4 text-xs leading-5 text-[#414943]">
                 <p className="font-bold text-leaf-800">Contexto automático da cultura</p>
                 <p>Doenças comuns: {selectedCrop.common_diseases || "não cadastradas"}</p>
                 <p>Pragas: {selectedCrop.common_pests || "não cadastradas"}</p>
@@ -486,7 +486,7 @@ export default function DiseasePage() {
               type="button"
               onClick={handleSubmit}
               disabled={loading}
-              className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-4 text-sm font-bold uppercase tracking-wide text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-4 text-sm font-bold uppercase tracking-wide text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
             >
               {loading ? "Analisando imagem, cultura e contexto..." : "Iniciar triagem inteligente"}
             </button>
@@ -500,7 +500,7 @@ export default function DiseasePage() {
               <span className="h-4 w-4 animate-ping rounded-full bg-leaf-500" />
               <div>
                 <p className="font-bold">IA multimodal em análise</p>
-                <p className="text-sm text-slate-600">Cruzando imagem, cultura, sintomas, clima/solo cadastrado, histórico e conhecimento especialista.</p>
+                <p className="text-sm text-[#414943]">Cruzando imagem, cultura, sintomas, clima/solo cadastrado, histórico e conhecimento especialista.</p>
               </div>
             </div>
           </div>
@@ -513,14 +513,14 @@ export default function DiseasePage() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">Diagnóstico inicial</p>
-                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">Análise agrícola contextualizada</h3>
+                    <h3 className="mt-2 text-2xl font-semibold text-[#1d1c16]">Análise agrícola contextualizada</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge label={riskLabels[analysis.riskLevel] ?? analysis.riskLevel} value={analysis.riskLevel} />
                     <Badge label={confidenceLabels[analysis.confidenceLevel] ?? analysis.confidenceLevel} value={analysis.confidenceLevel} />
                   </div>
                 </div>
-                <p className="mt-5 text-sm leading-7 text-slate-700">{analysis.initialDiagnosis}</p>
+                <p className="mt-5 text-sm leading-7 text-[#414943]">{analysis.initialDiagnosis}</p>
                 {imageUrl && (
                   <a href={imageUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex text-sm font-bold text-leaf-700 hover:text-leaf-800">
                     Abrir imagem salva no caso
@@ -530,12 +530,12 @@ export default function DiseasePage() {
 
               <div className="grid gap-5 md:grid-cols-2">
                 <div className="rounded-2xl bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">Hipóteses prováveis</h4>
+                  <h4 className="font-semibold text-[#1d1c16]">Hipóteses prováveis</h4>
                   <div className="mt-3 space-y-3">
                     {analysis.probableDiseases.map((item) => (
                       <div key={item.name} className="rounded-2xl border border-leaf-100 bg-leaf-50 p-4">
                         <p className="font-semibold text-leaf-800">{item.name}</p>
-                        {item.evidence && <p className="mt-1 text-xs leading-5 text-slate-600">{item.evidence}</p>}
+                        {item.evidence && <p className="mt-1 text-xs leading-5 text-[#414943]">{item.evidence}</p>}
                       </div>
                     ))}
                   </div>
@@ -558,8 +558,8 @@ export default function DiseasePage() {
 
               {needsHumanReview && (
                 <div className="rounded-3xl border border-red-200 bg-white p-6 shadow-soft">
-                  <h3 className="text-xl font-semibold text-slate-900">Solicitar revisão da Doutora em Agronomia</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">Recomendado para risco médio/alto, baixa confiança, conflito de hipóteses, sintomas graves ou possível perda econômica.</p>
+                  <h3 className="text-xl font-semibold text-[#1d1c16]">Solicitar revisão da Doutora em Agronomia</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#414943]">Recomendado para risco médio/alto, baixa confiança, conflito de hipóteses, sintomas graves ou possível perda econômica.</p>
                   <div className="mt-5 flex flex-wrap gap-3">
                     <Link href={caseId ? `/revisao-humana?caseId=${encodeURIComponent(caseId)}` : "/revisao-humana"} className="rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-soft">Revisão humana</Link>
                     <Link href={caseId ? `/consultoria-ia?caseId=${encodeURIComponent(caseId)}` : "/consultoria-ia"} className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-bold text-leaf-700 shadow-soft">Gerar relatório técnico</Link>
@@ -573,14 +573,14 @@ export default function DiseasePage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">Converse com a IA sobre este caso</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-900">Atendimento progressivo</h3>
+                  <h3 className="mt-2 text-xl font-semibold text-[#1d1c16]">Atendimento progressivo</h3>
                 </div>
-                {caseId && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">Caso salvo</span>}
+                {caseId && <span className="rounded-full bg-[#f2ede4] px-3 py-1 text-xs font-semibold text-[#414943]">Caso salvo</span>}
               </div>
-              <div className="mt-5 max-h-[34rem] space-y-4 overflow-y-auto rounded-[1.5rem] bg-slate-50 p-4">
+              <div className="mt-5 max-h-[34rem] space-y-4 overflow-y-auto rounded-[1.5rem] bg-[#f8f3ea] p-4">
                 {chatMessages.map((message, index) => (
                   <div key={message.id ?? index} className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}>
-                    <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-6 shadow-sm ${message.role === "assistant" ? "bg-white text-slate-700" : "bg-leaf-600 text-white"}`}>
+                    <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-6 shadow-sm ${message.role === "assistant" ? "bg-white text-[#414943]" : "bg-leaf-600 text-white"}`}>
                       {message.fileUrl && message.messageType === "image" && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={message.fileUrl} alt="Imagem enviada no chat" className="mb-3 max-h-48 rounded-xl object-contain" />
@@ -600,9 +600,9 @@ export default function DiseasePage() {
                 <input ref={chatImageInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleChatImage} className="hidden" />
                 <textarea value={chatText} onChange={(event) => setChatText(event.target.value)} rows={4} placeholder="Responda à pergunta atual, descreva evolução ou acrescente detalhes do talhão." className="w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-400" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => chatImageInputRef.current?.click()} disabled={chatLoading} className="rounded-full border border-leaf-200 bg-white px-4 py-3 text-sm font-bold text-leaf-700 disabled:bg-slate-100">Enviar nova foto</button>
-                  <button type="button" onClick={recording ? stopRecording : startRecording} disabled={chatLoading} className={`rounded-full px-4 py-3 text-sm font-bold disabled:bg-slate-100 ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}>{recording ? `Parar ${recordingSeconds}s` : "Gravar áudio"}</button>
-                  <button type="submit" disabled={chatLoading || !chatText.trim()} className="ml-auto rounded-full bg-leaf-600 px-6 py-3 text-sm font-bold text-white disabled:bg-slate-300">Enviar</button>
+                  <button type="button" onClick={() => chatImageInputRef.current?.click()} disabled={chatLoading} className="rounded-full border border-leaf-200 bg-white px-4 py-3 text-sm font-bold text-leaf-700 disabled:bg-[#f2ede4]">Enviar nova foto</button>
+                  <button type="button" onClick={recording ? stopRecording : startRecording} disabled={chatLoading} className={`rounded-full px-4 py-3 text-sm font-bold disabled:bg-[#f2ede4] ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}>{recording ? `Parar ${recordingSeconds}s` : "Gravar áudio"}</button>
+                  <button type="submit" disabled={chatLoading || !chatText.trim()} className="ml-auto rounded-full bg-leaf-600 px-6 py-3 text-sm font-bold text-white disabled:bg-[#c1c9c1]">Enviar</button>
                 </div>
               </form>
 
@@ -619,7 +619,7 @@ export default function DiseasePage() {
                   ) : null}
                 </div>
               )}
-              <p className="mt-4 text-xs leading-5 text-slate-500">{analysis.disclaimer} A IA não emite laudo definitivo, não receita defensivos controlados e não substitui agrônomo responsável.</p>
+              <p className="mt-4 text-xs leading-5 text-[#717973]">{analysis.disclaimer} A IA não emite laudo definitivo, não receita defensivos controlados e não substitui agrônomo responsável.</p>
             </div>
           </div>
         )}

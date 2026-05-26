@@ -247,7 +247,7 @@ function EnviarCasoContent() {
             title={isEditingExistingCase ? "Atualizar caso existente" : "Enviar Caso"}
             subtitle={isEditingExistingCase ? "Edite informações, complemente histórico e anexe novas imagens sem criar outro caso." : "Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."}
           />
-          <p className="text-base leading-7 text-slate-700">
+          <p className="text-base leading-7 text-[#414943]">
             {isEditingExistingCase ? "Você está atualizando o mesmo caseId. As imagens e conversas anteriores serão preservadas e a IA fará nova análise após salvar." : "O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela."}
           </p>
           <SafetyDisclaimer className="mt-5 bg-white/90" />
@@ -274,8 +274,8 @@ function EnviarCasoContent() {
       <form onSubmit={handleSubmit} className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
           <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-            <h3 className="text-lg font-semibold text-slate-900">Dados da propriedade e cultura</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <h3 className="text-lg font-semibold text-[#1d1c16]">Dados da propriedade e cultura</h3>
+            <p className="mt-2 text-sm leading-6 text-[#414943]">
               Campos marcados com * são obrigatórios. Em modo de edição, o registro existente é atualizado sem gerar novo caseId.
             </p>
 
@@ -298,9 +298,9 @@ function EnviarCasoContent() {
           </div>
 
           <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-            <h3 className="text-lg font-semibold text-slate-900">Sintomas e manejo</h3>
+            <h3 className="text-lg font-semibold text-[#1d1c16]">Sintomas e manejo</h3>
             <div className="mt-6 grid gap-4">
-              <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <label className="flex flex-col gap-2 text-sm text-[#414943]">
                 Sintomas observados *
                 <textarea
                   name="symptoms"
@@ -308,12 +308,12 @@ function EnviarCasoContent() {
                   onChange={(event) => handleChange("symptoms", event.target.value)}
                   rows={6}
                   placeholder="Descreva manchas, amarelecimento, pragas, falhas de desenvolvimento, talhões afetados e quando o problema começou."
-                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-[#1d1c16] shadow-soft focus:border-leaf-400 focus:outline-none"
                 />
               </label>
               {errors.symptoms && <p className="text-sm text-red-600">{errors.symptoms}</p>}
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700">
+              <label className="flex flex-col gap-2 text-sm text-[#414943]">
                 Histórico de manejo
                 <textarea
                   name="managementHistory"
@@ -321,7 +321,7 @@ function EnviarCasoContent() {
                   onChange={(event) => handleChange("managementHistory", event.target.value)}
                   rows={5}
                   placeholder="Informe irrigação, adubação, defensivos aplicados, chuva recente e mudanças importantes no manejo."
-                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-[#1d1c16] shadow-soft focus:border-leaf-400 focus:outline-none"
                 />
               </label>
             </div>
@@ -330,30 +330,30 @@ function EnviarCasoContent() {
 
         <aside className="space-y-6">
           <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-            <h3 className="text-lg font-semibold text-slate-900">Fotos e documentos</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <h3 className="text-lg font-semibold text-[#1d1c16]">Fotos e documentos</h3>
+            <p className="mt-2 text-sm leading-6 text-[#414943]">
               Os uploads estão preparados para o bucket Supabase Storage <strong>{STORAGE_BUCKET}</strong>.
             </p>
 
             <div className="mt-6 space-y-5">
-              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                <span className="font-semibold text-slate-900">Upload de fotos</span>
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-[#414943]">
+                <span className="font-semibold text-[#1d1c16]">Upload de fotos</span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                   multiple
                   onChange={handlePhotosChange}
                 />
-                <span className="text-xs text-slate-500">Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de {MAX_FILE_SIZE_LABEL} por arquivo.</span>
+                <span className="text-xs text-[#717973]">Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de {MAX_FILE_SIZE_LABEL} por arquivo.</span>
                 {attachmentErrors.photos && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.photos}</span>}
                 {existingImages.length > 0 && (
                   <div>
-                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Imagens já anexadas</p>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#717973]">Imagens já anexadas</p>
                     <div className="grid grid-cols-2 gap-3">
                       {existingImages.map((image) => (
-                        <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                        <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-xl border border-[#e7e2d9] bg-[#f8f3ea]">
                           <Image src={image.image_url} alt="Imagem anterior do caso" width={240} height={112} unoptimized className="h-28 w-full object-cover" />
-                          <span className="block truncate px-3 py-2 text-xs text-slate-700">Imagem anterior</span>
+                          <span className="block truncate px-3 py-2 text-xs text-[#414943]">Imagem anterior</span>
                         </a>
                       ))}
                     </div>
@@ -364,31 +364,31 @@ function EnviarCasoContent() {
                     {photoPreviews.map((preview) => (
                       <figure key={`${preview.name}-${preview.url}`} className="overflow-hidden rounded-xl border border-leaf-100 bg-leaf-50">
                         <Image src={preview.url} alt={`Prévia de ${preview.name}`} width={240} height={112} unoptimized className="h-28 w-full object-cover" />
-                        <figcaption className="truncate px-3 py-2 text-xs text-slate-700">{preview.name}</figcaption>
+                        <figcaption className="truncate px-3 py-2 text-xs text-[#414943]">{preview.name}</figcaption>
                       </figure>
                     ))}
                   </div>
                 )}
               </label>
 
-              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                <span className="font-semibold text-slate-900">Upload de análise de solo em PDF ou imagem</span>
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-[#414943]">
+                <span className="font-semibold text-[#1d1c16]">Upload de análise de solo em PDF ou imagem</span>
                 <input
                   type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
                   onChange={handleSoilAnalysisChange}
                 />
-                <span className="text-xs text-slate-500">Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de {MAX_FILE_SIZE_LABEL}.</span>
+                <span className="text-xs text-[#717973]">Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de {MAX_FILE_SIZE_LABEL}.</span>
                 {attachmentErrors.soilAnalysis && <span className="rounded-xl bg-red-50 p-3 text-red-700">{attachmentErrors.soilAnalysis}</span>}
-                {existingSoilAnalysisUrl && <a href={existingSoilAnalysisUrl} target="_blank" className="rounded-xl bg-slate-50 p-3 text-leaf-700">Ver análise de solo anterior</a>}
-                {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">Arquivo selecionado: {soilAnalysis.name}</span>}
+                {existingSoilAnalysisUrl && <a href={existingSoilAnalysisUrl} target="_blank" className="rounded-xl bg-[#f8f3ea] p-3 text-leaf-700">Ver análise de solo anterior</a>}
+                {soilAnalysis && <span className="rounded-xl bg-leaf-50 p-3 text-[#414943]">Arquivo selecionado: {soilAnalysis.name}</span>}
               </label>
             </div>
           </div>
 
           <div className="rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
-            <h3 className="text-lg font-semibold text-slate-900">Próxima etapa</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
+            <h3 className="text-lg font-semibold text-[#1d1c16]">Próxima etapa</h3>
+            <p className="mt-2 text-sm leading-6 text-[#414943]">
               {isEditingExistingCase ? "Depois de salvar, a IA reprocessa o mesmo caso usando dados antigos e novos, e você volta para a revisão humana." : "Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL. A análise técnica fica para a próxima etapa."}
             </p>
           </div>
@@ -412,7 +412,7 @@ function EnviarCasoContent() {
 
 export default function EnviarCasoPage() {
   return (
-    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando envio de caso...</section>}>
+    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-[#414943]">Carregando envio de caso...</section>}>
       <EnviarCasoContent />
     </Suspense>
   );

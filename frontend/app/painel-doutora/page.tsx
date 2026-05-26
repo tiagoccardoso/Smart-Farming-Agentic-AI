@@ -303,10 +303,10 @@ function InfoItem({
 }) {
   return (
     <div className="rounded-2xl border border-leaf-100 bg-white p-4 shadow-soft">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#717973]">
         {label}
       </p>
-      <p className="mt-2 text-sm font-medium text-slate-900">
+      <p className="mt-2 text-sm font-medium text-[#1d1c16]">
         {displayValue(value)}
       </p>
     </div>
@@ -322,8 +322,8 @@ function DetailBlock({
 }) {
   return (
     <article className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
-      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-      <div className="mt-4 text-sm leading-6 text-slate-700">{children}</div>
+      <h3 className="text-lg font-semibold text-[#1d1c16]">{title}</h3>
+      <div className="mt-4 text-sm leading-6 text-[#414943]">{children}</div>
     </article>
   );
 }
@@ -672,7 +672,7 @@ export default function PainelDoutoraPage() {
       value: String(
         cases.filter((caseData) => Boolean(caseData.soil_analysis_url)).length,
       ),
-      color: "text-slate-900",
+      color: "text-[#1d1c16]",
     },
   ];
 
@@ -686,7 +686,7 @@ export default function PainelDoutoraPage() {
           title="Painel da Doutora"
           subtitle="Revise casos pagos que aguardam validação humana."
         />
-        <p className="max-w-3xl text-base leading-7 text-slate-700">
+        <p className="max-w-3xl text-base leading-7 text-[#414943]">
           Acompanhe a fila de casos com pagamento confirmado, confira a
           pré-análise da IA e registre a recomendação técnica final antes da
           emissão do relatório.
@@ -753,13 +753,13 @@ export default function PainelDoutoraPage() {
                 key={metric.label}
                 className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft"
               >
-                <p className="text-sm font-medium text-slate-500">
+                <p className="text-sm font-medium text-[#717973]">
                   {metric.label}
                 </p>
                 <p className={`mt-3 text-4xl font-bold ${metric.color}`}>
                   {metric.value}
                 </p>
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-[#717973]">
                   Fila filtrada por human_review_requested=true e
                   waiting_review.
                 </p>
@@ -784,10 +784,10 @@ export default function PainelDoutoraPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">
                   Materiais da especialista
                 </p>
-                <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                <h2 className="mt-2 text-2xl font-bold text-[#1d1c16]">
                   Base de Conhecimento
                 </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-[#414943]">
                   Cadastre protocolos, artigos, aulas, FAQs e demais conteúdos
                   técnicos para consulta interna. Embeddings e uso direto pela
                   IA ficarão para uma próxima etapa.
@@ -797,7 +797,7 @@ export default function PainelDoutoraPage() {
                 <button
                   type="button"
                   onClick={resetKnowledgeForm}
-                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-full border border-[#e7e2d9] px-4 py-2 text-sm font-semibold text-[#414943] hover:bg-[#f8f3ea]"
                 >
                   Cancelar edição
                 </button>
@@ -810,7 +810,7 @@ export default function PainelDoutoraPage() {
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Título
                   </span>
                   <input
@@ -824,7 +824,7 @@ export default function PainelDoutoraPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Categoria
                   </span>
                   <select
@@ -845,7 +845,7 @@ export default function PainelDoutoraPage() {
                   </select>
                 </label>
                 <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     Cultura
                   </span>
                   <input
@@ -858,7 +858,7 @@ export default function PainelDoutoraPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">
+                  <span className="text-sm font-semibold text-[#414943]">
                     URL do arquivo
                   </span>
                   <input
@@ -872,7 +872,7 @@ export default function PainelDoutoraPage() {
                   />
                 </label>
                 <div className="block">
-                  <span className="text-sm font-semibold text-slate-700">Upload de arquivo local</span>
+                  <span className="text-sm font-semibold text-[#414943]">Upload de arquivo local</span>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <input
                       type="file"
@@ -882,7 +882,7 @@ export default function PainelDoutoraPage() {
                         setSelectedKnowledgeFile(file);
                         setUploadStatus(file ? `Arquivo selecionado: ${file.name}` : "Nenhum arquivo enviado.");
                       }}
-                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-leaf-100 file:px-4 file:py-2 file:font-semibold file:text-leaf-700"
+                      className="block w-full text-sm text-[#414943] file:mr-3 file:rounded-full file:border-0 file:bg-leaf-100 file:px-4 file:py-2 file:font-semibold file:text-leaf-700"
                     />
                     <button
                       type="button"
@@ -893,11 +893,11 @@ export default function PainelDoutoraPage() {
                       {uploadingKnowledgeFile ? "Enviando..." : "Enviar arquivo"}
                     </button>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">{uploadStatus}</p>
+                  <p className="mt-2 text-xs text-[#717973]">{uploadStatus}</p>
                 </div>
               </div>
               <label className="block">
-                <span className="text-sm font-semibold text-slate-700">
+                <span className="text-sm font-semibold text-[#414943]">
                   Conteúdo técnico
                 </span>
                 <textarea
@@ -911,7 +911,7 @@ export default function PainelDoutoraPage() {
                 />
               </label>
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#414943]">
                   <input
                     type="checkbox"
                     checked={knowledgeForm.active}
@@ -925,7 +925,7 @@ export default function PainelDoutoraPage() {
                 <button
                   type="submit"
                   disabled={knowledgeSubmitting}
-                  className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
                 >
                   {knowledgeSubmitting
                     ? "Salvando..."
@@ -938,10 +938,10 @@ export default function PainelDoutoraPage() {
 
             <form
               onSubmit={handleKnowledgeFilter}
-              className="mt-6 grid gap-4 rounded-3xl border border-slate-100 bg-slate-50 p-5 md:grid-cols-[1fr_1fr_auto] md:items-end"
+              className="mt-6 grid gap-4 rounded-3xl border border-[#e7e2d9] bg-[#f8f3ea] p-5 md:grid-cols-[1fr_1fr_auto] md:items-end"
             >
               <label className="block">
-                <span className="text-sm font-semibold text-slate-700">
+                <span className="text-sm font-semibold text-[#414943]">
                   Filtrar por cultura
                 </span>
                 <input
@@ -952,12 +952,12 @@ export default function PainelDoutoraPage() {
                       crop: event.target.value,
                     }))
                   }
-                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  className="mt-2 w-full rounded-2xl border border-[#e7e2d9] px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
                   placeholder="Digite uma cultura"
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-semibold text-slate-700">
+                <span className="text-sm font-semibold text-[#414943]">
                   Filtrar por categoria
                 </span>
                 <select
@@ -969,7 +969,7 @@ export default function PainelDoutoraPage() {
                         .value as KnowledgeFilters["category"],
                     }))
                   }
-                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
+                  className="mt-2 w-full rounded-2xl border border-[#e7e2d9] px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100"
                 >
                   <option value="">Todas</option>
                   {knowledgeCategories.map((category) => (
@@ -989,11 +989,11 @@ export default function PainelDoutoraPage() {
 
             <div className="mt-6 space-y-4">
               {knowledgeLoading ? (
-                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-slate-600">
+                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-[#414943]">
                   Carregando conteúdos técnicos...
                 </div>
               ) : knowledgeMaterials.length === 0 ? (
-                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-slate-600">
+                <div className="rounded-2xl border border-leaf-100 bg-white p-5 text-sm text-[#414943]">
                   Nenhum conteúdo encontrado para os filtros selecionados.
                 </div>
               ) : (
@@ -1008,19 +1008,19 @@ export default function PainelDoutoraPage() {
                           <span className="rounded-full bg-leaf-100 px-3 py-1 text-xs font-semibold text-leaf-800">
                             {getCategoryLabel(material.category)}
                           </span>
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                          <span className="rounded-full bg-[#f2ede4] px-3 py-1 text-xs font-semibold text-[#414943]">
                             {material.crop || "Cultura geral"}
                           </span>
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${material.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${material.active ? "bg-emerald-100 text-emerald-800" : "bg-[#e7e2d9] text-[#414943]"}`}
                           >
                             {material.active ? "Ativo" : "Inativo"}
                           </span>
                         </div>
-                        <h3 className="mt-3 text-lg font-semibold text-slate-900">
+                        <h3 className="mt-3 text-lg font-semibold text-[#1d1c16]">
                           {material.title || "Sem título"}
                         </h3>
-                        <p className="mt-2 text-xs text-slate-500">
+                        <p className="mt-2 text-xs text-[#717973]">
                           Criado em {formatDate(material.created_at)}
                         </p>
                       </div>
@@ -1036,7 +1036,7 @@ export default function PainelDoutoraPage() {
                           type="button"
                           onClick={() => handleKnowledgeToggle(material)}
                           disabled={knowledgeStatusId === material.id}
-                          className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded-full border border-[#e7e2d9] px-4 py-2 text-xs font-semibold text-[#414943] hover:bg-[#f8f3ea] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {knowledgeStatusId === material.id
                             ? "Alterando..."
@@ -1047,7 +1047,7 @@ export default function PainelDoutoraPage() {
                       </div>
                     </div>
                     {material.content && (
-                      <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-slate-700">
+                      <p className="mt-4 line-clamp-4 whitespace-pre-line text-sm leading-6 text-[#414943]">
                         {material.content}
                       </p>
                     )}
@@ -1085,10 +1085,10 @@ export default function PainelDoutoraPage() {
               >
                 🩺
               </div>
-              <h2 className="mt-5 text-xl font-semibold text-slate-900">
+              <h2 className="mt-5 text-xl font-semibold text-[#1d1c16]">
                 Nenhum caso aguardando revisão
               </h2>
-              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
+              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#414943]">
                 Quando o usuário pagar uma revisão, o caso aparecerá aqui com
                 status de fila e orientações para finalizar a análise.
               </p>
@@ -1114,13 +1114,13 @@ export default function PainelDoutoraPage() {
                           <p className="text-xs font-semibold uppercase tracking-wide text-leaf-700">
                             {caseData.crop}
                           </p>
-                          <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                          <h2 className="mt-1 text-lg font-semibold text-[#1d1c16]">
                             {formatLocation(caseData)}
                           </h2>
                         </div>
                         <RiskBadge riskLevel={riskLevel} />
                       </div>
-                      <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                      <div className="mt-4 grid gap-2 text-sm text-[#414943]">
                         <span>Envio: {formatDate(caseData.created_at)}</span>
                         <span className="inline-flex">
                           <StatusBadge
@@ -1169,11 +1169,11 @@ export default function PainelDoutoraPage() {
                   <DetailBlock title="Sintomas e histórico">
                     <div className="grid gap-4">
                       <div className="rounded-2xl bg-leaf-50 p-4">
-                        <p className="font-semibold text-slate-900">Sintomas</p>
+                        <p className="font-semibold text-[#1d1c16]">Sintomas</p>
                         <p className="mt-2">{selectedCase.symptoms}</p>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 p-4">
-                        <p className="font-semibold text-slate-900">
+                      <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                        <p className="font-semibold text-[#1d1c16]">
                           Histórico
                         </p>
                         <p className="mt-2">
@@ -1192,7 +1192,7 @@ export default function PainelDoutoraPage() {
                             href={image.image_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="overflow-hidden rounded-2xl border border-leaf-100 bg-slate-50"
+                            className="overflow-hidden rounded-2xl border border-leaf-100 bg-[#f8f3ea]"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element -- URLs vêm do storage do Supabase e não têm domínio fixo para next/image. */}
                             <img
@@ -1200,7 +1200,7 @@ export default function PainelDoutoraPage() {
                               alt={`Imagem do caso ${selectedCase.crop}`}
                               className="h-44 w-full object-cover"
                             />
-                            <span className="block px-4 py-3 text-xs font-medium text-slate-600">
+                            <span className="block px-4 py-3 text-xs font-medium text-[#414943]">
                               {image.image_type ?? "Imagem anexada"}
                             </span>
                           </a>
@@ -1211,7 +1211,7 @@ export default function PainelDoutoraPage() {
                     )}
 
                     <div className="mt-5 rounded-2xl border border-leaf-100 bg-white p-4">
-                      <p className="font-semibold text-slate-900">
+                      <p className="font-semibold text-[#1d1c16]">
                         Análise de solo
                       </p>
                       {selectedCase.soil_analysis_url ? (
@@ -1231,16 +1231,16 @@ export default function PainelDoutoraPage() {
 
                   <DetailBlock title="Pré-análise da IA">
                     <div className="grid gap-4">
-                      <div className="rounded-2xl bg-slate-50 p-4">
-                        <p className="font-semibold text-slate-900">
+                      <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                        <p className="font-semibold text-[#1d1c16]">
                           Diagnóstico inicial
                         </p>
                         <p className="mt-2">
                           {displayValue(selectedCase.ai_summary)}
                         </p>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 p-4">
-                        <p className="font-semibold text-slate-900">
+                      <div className="rounded-2xl bg-[#f8f3ea] p-4">
+                        <p className="font-semibold text-[#1d1c16]">
                           Recomendação inicial
                         </p>
                         <p className="mt-2">
@@ -1264,12 +1264,12 @@ export default function PainelDoutoraPage() {
                   </DetailBlock>
 
                   <article className="rounded-3xl border border-sun-200 bg-white p-6 shadow-soft">
-                    <h3 className="text-lg font-semibold text-slate-900">
+                    <h3 className="text-lg font-semibold text-[#1d1c16]">
                       Formulário da especialista
                     </h3>
                     <div className="mt-5 grid gap-5">
                       <label className="block">
-                        <span className="text-sm font-semibold text-slate-700">
+                        <span className="text-sm font-semibold text-[#414943]">
                           Revisão técnica
                         </span>
                         <textarea
@@ -1283,7 +1283,7 @@ export default function PainelDoutoraPage() {
                         />
                       </label>
                       <label className="block">
-                        <span className="text-sm font-semibold text-slate-700">
+                        <span className="text-sm font-semibold text-[#414943]">
                           Recomendação técnica
                         </span>
                         <textarea
@@ -1300,7 +1300,7 @@ export default function PainelDoutoraPage() {
                         />
                       </label>
                       <label className="block">
-                        <span className="text-sm font-semibold text-slate-700">
+                        <span className="text-sm font-semibold text-[#414943]">
                           Observações finais
                         </span>
                         <textarea
@@ -1330,7 +1330,7 @@ export default function PainelDoutoraPage() {
                         type="button"
                         onClick={() => handleReviewAction("finalize")}
                         disabled={Boolean(submitting)}
-                        className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        className="rounded-full bg-leaf-600 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
                       >
                         {submitting === "finalize"
                           ? "Finalizando análise..."
@@ -1340,7 +1340,7 @@ export default function PainelDoutoraPage() {
                         type="button"
                         onClick={() => handleReviewAction("generate_report")}
                         disabled={Boolean(submitting)}
-                        className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-[#c1c9c1]"
                       >
                         {submitting === "generate_report"
                           ? "Preparando relatório..."

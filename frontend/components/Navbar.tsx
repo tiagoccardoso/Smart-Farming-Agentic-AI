@@ -71,7 +71,9 @@ function NavLink({ link, pathname, onClick }: { link: NavigationLink; pathname: 
       href={link.href}
       onClick={onClick}
       className={`rounded-full px-3 py-2 transition ${
-        active ? "bg-leaf-50 text-leaf-800" : "hover:bg-leaf-50 hover:text-leaf-700"
+        active
+          ? "bg-[#f2ede4] text-[#123f2a]"
+          : "text-[#414943] hover:bg-[#f2ede4] hover:text-[#123f2a]"
       }`}
     >
       {link.label}
@@ -132,23 +134,23 @@ export default function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-leaf-100 bg-white/90 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-6">
-        <Link href="/" className="flex items-center gap-3 font-semibold text-leaf-900">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-leaf-100 to-sun-100 text-leaf-800 shadow-soft">🌿</span>
+    <header className="sticky top-0 z-50 border-b border-[#e7e2d9] bg-[#fef9f0]/95 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-5 py-3.5 lg:px-10">
+        <Link href="/" className="flex items-center gap-3 font-semibold text-[#002817]">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#beeecf] to-[#ffe088] text-[#123f2a] shadow-soft">🌿</span>
           <span className="text-lg tracking-tight">Plantasã</span>
         </Link>
 
-        <nav className="hidden flex-1 flex-wrap justify-center gap-1 text-xs font-semibold text-slate-700 lg:flex xl:text-sm">
+        <nav className="hidden flex-1 flex-wrap justify-center gap-0.5 text-xs font-semibold text-[#414943] lg:flex xl:text-sm">
           {publicLinks.map((link) => (
             <NavLink key={link.href} link={link} pathname={pathname} />
           ))}
-          {visibleAccountLinks.length > 0 && <span className="mx-1 h-8 w-px bg-leaf-100" aria-hidden="true" />}
+          {visibleAccountLinks.length > 0 && <span className="mx-2 h-8 w-px bg-[#e7e2d9]" aria-hidden="true" />}
           {visibleAccountLinks.map((link) => (
             <div key={link.href} className="group relative">
               <NavLink link={link} pathname={pathname} />
               {link.children && link.children.length > 0 && (
-                <div className="invisible absolute left-0 top-full z-50 mt-1 min-w-44 rounded-2xl border border-leaf-100 bg-white p-2 opacity-0 shadow-soft transition group-hover:visible group-hover:opacity-100">
+                <div className="invisible absolute left-0 top-full z-50 mt-1 min-w-44 rounded-2xl border border-[#e7e2d9] bg-white p-2 opacity-0 shadow-card transition group-hover:visible group-hover:opacity-100">
                   {link.children.map((child) => (
                     <NavLink key={child.href} link={child} pathname={pathname} />
                   ))}
@@ -161,16 +163,16 @@ export default function Navbar() {
         <div className="hidden flex-wrap items-center gap-3 lg:flex">
           {profile ? (
             <>
-              <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
+              <span className="rounded-full bg-[#f2ede4] px-3 py-2 text-xs font-semibold text-[#123f2a]">
                 {profile.full_name || "Conta"} · {profile.role}
               </span>
-              <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+              <button type="button" onClick={handleLogout} className="rounded-full border border-[#c1c9c1] px-4 py-2 text-sm font-semibold text-[#414943] transition hover:border-[#123f2a]/40 hover:bg-[#f2ede4] hover:text-[#123f2a]">
                 Sair
               </button>
             </>
           ) : (
             !loadingSession && (
-              <Link href="/login" className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+              <Link href="/login" className="rounded-full bg-[#123f2a] px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-[#002817]">
                 Entrar
               </Link>
             )
@@ -179,7 +181,7 @@ export default function Navbar() {
 
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-leaf-100 text-leaf-800 lg:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#e7e2d9] text-[#123f2a] transition hover:bg-[#f2ede4] lg:hidden"
           aria-label={mobileOpen ? "Fechar menu" : "Abrir menu"}
           aria-expanded={mobileOpen}
           onClick={() => setMobileOpen((open) => !open)}
@@ -189,17 +191,17 @@ export default function Navbar() {
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-leaf-100 bg-white px-5 py-4 lg:hidden">
-          <nav className="grid gap-2 text-sm font-semibold text-slate-700">
+        <div className="border-t border-[#e7e2d9] bg-[#fef9f0] px-5 py-4 lg:hidden">
+          <nav className="grid gap-1 text-sm font-semibold text-[#414943]">
             {publicLinks.map((link) => (
               <NavLink key={link.href} link={link} pathname={pathname} onClick={() => setMobileOpen(false)} />
             ))}
-            {visibleAccountLinks.length > 0 && <div className="my-2 h-px bg-leaf-100" />}
+            {visibleAccountLinks.length > 0 && <div className="my-2 h-px bg-[#e7e2d9]" />}
             {visibleAccountLinks.map((link) => (
-              <div key={link.href} className="grid gap-2">
+              <div key={link.href} className="grid gap-1">
                 <NavLink link={link} pathname={pathname} onClick={() => setMobileOpen(false)} />
                 {link.children?.length ? (
-                  <div className="ml-4 grid gap-1 border-l border-leaf-100 pl-2">
+                  <div className="ml-4 grid gap-1 border-l border-[#e7e2d9] pl-3">
                     {link.children.map((child) => (
                       <NavLink key={child.href} link={child} pathname={pathname} onClick={() => setMobileOpen(false)} />
                     ))}
@@ -211,16 +213,16 @@ export default function Navbar() {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {profile ? (
               <>
-                <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
+                <span className="rounded-full bg-[#f2ede4] px-3 py-2 text-xs font-semibold text-[#123f2a]">
                   {profile.full_name || "Conta"} · {profile.role}
                 </span>
-                <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+                <button type="button" onClick={handleLogout} className="rounded-full border border-[#c1c9c1] px-4 py-2 text-sm font-semibold text-[#414943] hover:bg-[#f2ede4]">
                   Sair
                 </button>
               </>
             ) : (
               !loadingSession && (
-                <Link href="/login" className="rounded-full border border-leaf-200 px-4 py-2 text-sm font-semibold text-leaf-700 hover:bg-leaf-50">
+                <Link href="/login" className="rounded-full bg-[#123f2a] px-5 py-2 text-sm font-semibold text-white shadow-soft">
                   Entrar
                 </Link>
               )
