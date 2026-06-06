@@ -92,11 +92,11 @@ export default function PerfilPage() {
   }
 
   if (loading) {
-    return <div className="mx-auto max-w-4xl px-6 py-16 text-sm text-slate-600">Carregando perfil...</div>;
+    return <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 md:py-16 text-sm text-slate-600">Carregando perfil...</div>;
   }
 
   return (
-    <section className="mx-auto grid max-w-4xl gap-6 px-6 py-12">
+    <section className="mx-auto grid max-w-4xl gap-6 px-4 py-8 sm:px-6 md:py-12">
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-8">
         <SectionTitle title="Perfil" subtitle="Gerencie seus dados cadastrais e credenciais com segurança." />
       </div>

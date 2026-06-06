@@ -62,7 +62,7 @@ export default function QAPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-14">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 md:py-14">
       <SectionTitle title="Perguntas agrícolas" subtitle="Faça perguntas práticas e receba orientação com uma base local em português." />
 
       <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">

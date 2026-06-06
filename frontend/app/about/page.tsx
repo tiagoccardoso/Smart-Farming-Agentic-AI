@@ -2,7 +2,7 @@ import SectionTitle from "../../components/SectionTitle";
 
 export default function AboutPage() {
   return (
-    <div className="mx-auto max-w-5xl px-6 py-14">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 md:py-14">
       <SectionTitle title="Sobre a Plantasã" subtitle="Tecnologia, agronomia e revisão humana especializada para apoiar decisões no campo." />
 
       <div className="space-y-6 text-slate-700">

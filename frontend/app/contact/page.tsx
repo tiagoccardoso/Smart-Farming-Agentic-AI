@@ -56,11 +56,11 @@ export default function ContactPage() {
   }
 
   return (
-    <div className="bg-[#F6F1E8] px-6 py-14">
+    <div className="bg-[#F6F1E8] px-4 py-8 sm:px-6 md:py-14">
       <div className="mx-auto max-w-6xl">
-        <section className="rounded-[2rem] border border-[#123F2A]/10 bg-white p-7 shadow-soft md:p-10">
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#2E7D32]">Contato oficial Plantasã</p>
-          <h1 className="mt-3 text-4xl font-bold text-[#123F2A]">Fale com a especialista</h1>
+        <section className="rounded-[2rem] border border-[#123F2A]/10 bg-white p-5 shadow-soft sm:p-7 md:p-10">
+          <p className="text-sm font-bold uppercase tracking-[0.12em] sm:tracking-[0.18em] text-[#2E7D32]">Contato oficial Plantasã</p>
+          <h1 className="mt-3 text-3xl font-bold text-[#123F2A] sm:text-4xl">Fale com a especialista</h1>
           <p className="mt-4 max-w-3xl leading-7 text-slate-700">
             Envie sua necessidade de consultoria, revisão de caso agrícola ou avaliação para agricultura orgânica. O retorno será feito pelo canal informado para confirmar as informações.
           </p>

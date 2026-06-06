@@ -169,7 +169,7 @@ export default function CulturasPainelDoutoraPage() {
   ];
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-12">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
       <div className="mb-6 flex flex-wrap gap-3">
         <Link
           href="/configuracoes"
@@ -264,7 +264,7 @@ export default function CulturasPainelDoutoraPage() {
             />{" "}
             Cultura ativa
           </label>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
             <button
               disabled={saving}
               className="inline-flex items-center gap-2 rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"

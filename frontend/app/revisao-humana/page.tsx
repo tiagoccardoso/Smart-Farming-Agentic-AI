@@ -299,17 +299,17 @@ function RevisaoHumanaContent() {
   const detailPaymentStatus = selectedListCase ? getPaymentStatus(selectedListCase) : undefined;
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-10 md:py-14">
-      <div className="rounded-[2rem] bg-gradient-to-br from-leaf-900 via-leaf-800 to-emerald-700 p-8 text-white shadow-soft md:p-10">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14">
+      <div className="rounded-[2rem] bg-gradient-to-br from-leaf-900 via-leaf-800 to-emerald-700 p-5 text-white shadow-soft sm:p-8 md:p-10">
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.3em] text-leaf-100">Revisão Humana</p>
-            <h1 className="mt-3 text-3xl font-black md:text-5xl">Painel persistente de consultorias agrícolas</h1>
+            <p className="text-sm font-bold uppercase tracking-[0.16em] sm:tracking-[0.3em] text-leaf-100">Revisão Humana</p>
+            <h1 className="mt-3 text-2xl font-black sm:text-3xl md:text-5xl">Painel persistente de consultorias agrícolas</h1>
             <p className="mt-4 max-w-3xl text-sm leading-6 text-leaf-50 md:text-base">Localize análises feitas pela IA, envie para revisão humana, retome pagamentos, complemente imagens e acompanhe o histórico sem perder continuidade.</p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2 md:flex md:flex-wrap">
             <button onClick={() => setShowLocator(true)} className="rounded-full bg-white px-5 py-3 text-sm font-black text-leaf-800 shadow-soft hover:bg-leaf-50">Localizar caso</button>
-            <Link href="/enviar-caso" className="rounded-full border border-white/40 px-5 py-3 text-sm font-black text-white hover:bg-white/10">Enviar caso</Link>
+            <Link href="/enviar-caso" className="rounded-full border border-white/40 px-5 py-3 text-center text-sm font-black text-white hover:bg-white/10">Enviar caso</Link>
           </div>
         </div>
       </div>
@@ -317,22 +317,22 @@ function RevisaoHumanaContent() {
       {(toast || error) && <div className={`mt-6 rounded-2xl border p-4 text-sm font-semibold ${error ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{error || toast}</div>}
       <div className="mt-6"><SafetyDisclaimer /></div>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-4">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <InfoTile label="Casos no painel" value={cases.length} />
         <InfoTile label="Pagamentos pendentes" value={cases.filter((caseItem) => getPaymentStatus(caseItem) === "pending").length} />
         <InfoTile label="Aguardando especialista" value={cases.filter((caseItem) => ["waiting_review", "waiting_human_review"].includes(getVisualCaseStatus(caseItem))).length} />
         <InfoTile label="Relatórios disponíveis" value={cases.filter((caseItem) => Boolean(caseItem.latestReport?.report_url)).length} />
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft md:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <SectionTitle title="Casos enviados para revisão humana" subtitle="Todos os registros enviados permanecem aqui até exclusão manual." />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por cultura, propriedade, resumo ou ID" className="rounded-full border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-300" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por cultura, propriedade, resumo ou ID" className="w-full rounded-full border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-300 md:max-w-sm" />
           </div>
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-5 flex gap-2 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {(Object.keys(filterLabels) as FilterKey[]).map((key) => (
-              <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-4 py-2 text-xs font-bold transition ${filter === key ? "bg-leaf-700 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{filterLabels[key]}</button>
+              <button key={key} onClick={() => setFilter(key)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${filter === key ? "bg-leaf-700 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{filterLabels[key]}</button>
             ))}
           </div>
           <div className="mt-6 space-y-4">
@@ -351,17 +351,17 @@ function RevisaoHumanaContent() {
                         <StatusBadge status={visualStatus} label={caseStatusLabels[visualStatus] ?? visualStatus} />
                         <StatusBadge status={paymentStatus} label={`Pagamento: ${paymentStatusLabels[paymentStatus] ?? paymentStatus}`} />
                       </div>
-                      <p className="mt-2 text-sm text-slate-600">Propriedade: <strong>{caseItem.farm?.name || "Não informada"}</strong> · ID: {caseItem.id}</p>
+                      <p className="mt-2 break-words text-sm text-slate-600">Propriedade: <strong>{caseItem.farm?.name || "Não informada"}</strong> · ID: <span className="break-all">{caseItem.id}</span></p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">{summarize(caseItem.ai_summary || caseItem.symptoms)}</p>
                     </div>
-                    <div className="min-w-44 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+                    <div className="w-full rounded-2xl bg-slate-50 p-4 text-sm text-slate-700 md:w-auto md:min-w-44">
                       <p><strong>Análise:</strong> {formatDate(caseItem.created_at)}</p>
                       <p><strong>Atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                       <p><strong>Imagens:</strong> {caseItem.images_count ?? caseItem.images?.length ?? 0}</p>
                       <p><strong>Valor:</strong> {formatCurrency(caseItem.review_price_cents)}</p>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                  <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap" onClick={(event) => event.stopPropagation()}>
                     {paymentStatus === "pending" && <button onClick={() => continuePayment(caseItem.id)} disabled={busyCaseId === caseItem.id} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{busyCaseId === caseItem.id ? "Abrindo..." : "Continuar pagamento"}</button>}
                     <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa com IA</Link>
                     <Link href={`/enviar-caso?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
@@ -379,13 +379,13 @@ function RevisaoHumanaContent() {
           {!selectedCaseId && !loadingDetail && <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center shadow-soft"><h3 className="text-xl font-black text-slate-950">Selecione um caso</h3><p className="mt-2 text-sm text-slate-600">Clique em um card para visualizar análise, perguntas, imagens, conversa, pagamento e timeline.</p></div>}
           {detailCase && !loadingDetail && (
             <>
-              <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+              <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
                 <div className="flex flex-wrap items-center gap-2">
                   <RiskBadge riskLevel={detailCase.risk_level} />
                   <StatusBadge status={getVisualCaseStatus(detailCase)} label={caseStatusLabels[getVisualCaseStatus(detailCase)] ?? getVisualCaseStatus(detailCase)} />
                   {detailPaymentStatus && <StatusBadge status={detailPaymentStatus} label={`Pagamento: ${paymentStatusLabels[detailPaymentStatus] ?? detailPaymentStatus}`} />}
                 </div>
-                <h2 className="mt-4 text-2xl font-black text-slate-950">{detailCase.crop}</h2>
+                <h2 className="mt-4 text-xl font-black text-slate-950 sm:text-2xl">{detailCase.crop}</h2>
                 <p className="mt-2 text-sm text-slate-600">{detailCase.farm?.name || "Propriedade não informada"} · atualizado em {formatDate(detailCase.updated_at)}</p>
                 <div className="mt-5 grid gap-3 sm:grid-cols-2"><InfoTile label="Imagens" value={detailCase.images.length} /><InfoTile label="Perguntas respondidas" value={detailCase.pending_questions?.filter((q) => q.status === "answered").length ?? 0} /></div>
                 <h3 className="mt-6 text-sm font-black uppercase tracking-wide text-slate-500">Análise da IA</h3>
@@ -393,14 +393,14 @@ function RevisaoHumanaContent() {
                 {detailCase.ai_recommendation && <p className="mt-3 rounded-2xl bg-leaf-50 p-4 text-sm leading-6 text-leaf-900">{detailCase.ai_recommendation}</p>}
               </div>
               <Timeline caseData={detailCase} paymentStatus={detailPaymentStatus} logs={detail?.activityLogs ?? []} />
-              <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+              <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
                 <h3 className="text-lg font-black text-slate-950">Perguntas, imagens e conversa</h3>
                 <div className="mt-4 space-y-3">
                   {detailCase.pending_questions?.map((question) => <div key={question.id} className="rounded-2xl bg-slate-50 p-4 text-sm"><p className="font-bold text-slate-900">{question.question}</p><p className="mt-1 text-slate-600">{question.answer || "Pendente"}</p></div>)}
-                  {detailCase.images.length > 0 && <div className="grid grid-cols-2 gap-3">{detailCase.images.slice(0, 6).map((image) => <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50"><Image src={image.image_url} alt="Imagem do caso" width={220} height={120} unoptimized className="h-28 w-full object-cover" /><span className="block px-3 py-2 text-xs font-semibold text-leaf-700">{formatDate(image.created_at)}</span></a>)}</div>}
+                  {detailCase.images.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{detailCase.images.slice(0, 6).map((image) => <a key={image.id} href={image.image_url} target="_blank" className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50"><Image src={image.image_url} alt="Imagem do caso" width={220} height={120} unoptimized className="h-28 w-full object-cover" /><span className="block px-3 py-2 text-xs font-semibold text-leaf-700">{formatDate(image.created_at)}</span></a>)}</div>}
                   {detailCase.chat_messages?.slice(-6).map((message) => <div key={message.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><strong>{message.role === "assistant" ? "IA" : "Você"}:</strong> {message.message_type === "audio" ? "Áudio anexado" : message.message}</div>)}
                 </div>
-                <div className="mt-5 flex flex-wrap gap-2">
+                <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
                   {detailPaymentStatus === "pending" && <button onClick={() => continuePayment(detailCase.id)} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white">Continuar pagamento</button>}
                   <Link href={`/consultoria-ia?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
                   <Link href={`/enviar-caso?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
@@ -414,9 +414,9 @@ function RevisaoHumanaContent() {
       </div>
 
       {showLocator && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="max-h-[86vh] w-full max-w-6xl overflow-auto rounded-[2rem] bg-white p-6 shadow-soft">
-            <div className="flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4">
+          <div className="max-h-[88vh] w-full max-w-6xl overflow-auto rounded-[2rem] bg-white p-4 shadow-soft sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <SectionTitle title="Casos analisados pela IA" subtitle="Escolha um caso já analisado para ver análise, continuar conversa, complementar dados ou enviar à revisão humana." />
               <button onClick={() => setShowLocator(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-black">Fechar</button>
             </div>
@@ -433,7 +433,7 @@ function RevisaoHumanaContent() {
                       <p><strong>Última atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                     </div>
                     <p className="mt-3 text-sm leading-6 text-slate-600"><strong>Resumo da IA:</strong> {summarize(caseItem.ai_summary, 220)}</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
                       <button onClick={() => { setShowLocator(false); router.push(`/revisao-humana?caseId=${caseItem.id}`); }} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Ver análise</button>
                       <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
                       <button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{caseItem.human_review_requested ? "Já no painel" : "Enviar para revisão humana"}</button>
@@ -447,14 +447,14 @@ function RevisaoHumanaContent() {
       )}
 
       {deleteCandidate && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-soft">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4">
+          <div className="w-full max-w-lg rounded-[2rem] bg-white p-4 shadow-soft sm:p-6">
             <p className="text-sm font-bold uppercase tracking-wide text-red-600">Excluir caso</p>
-            <h3 className="mt-2 text-2xl font-black text-slate-950">Esta ação não poderá ser desfeita.</h3>
+            <h3 className="mt-2 text-xl font-black text-slate-950 sm:text-2xl">Esta ação não poderá ser desfeita.</h3>
             <p className="mt-3 text-sm leading-6 text-slate-600">O caso <strong>{deleteCandidate.crop}</strong>, imagens, conversas, perguntas pendentes, análises, revisões humanas, relatórios, pedidos relacionados permitidos e uploads no storage serão removidos.</p>
             <label className="mt-5 block text-sm font-semibold text-slate-700">Digite <span className="font-black text-red-700">EXCLUIR</span> para confirmar.</label>
             <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-red-300" />
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <div className="mt-5 grid gap-3 sm:flex sm:flex-wrap sm:justify-end">
               <button onClick={() => { setDeleteCandidate(null); setDeleteConfirmation(""); }} className="rounded-full border border-slate-200 px-5 py-2 text-sm font-black text-slate-700">Cancelar</button>
               <button onClick={confirmDeleteCase} disabled={deleteConfirmation !== "EXCLUIR" || busyCaseId === deleteCandidate.id} className="rounded-full bg-red-600 px-5 py-2 text-sm font-black text-white disabled:bg-slate-300">Excluir definitivamente</button>
             </div>
@@ -467,7 +467,7 @@ function RevisaoHumanaContent() {
 
 export default function RevisaoHumanaPage() {
   return (
-    <Suspense fallback={<section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">Carregando revisão humana...</section>}>
+    <Suspense fallback={<section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14 text-sm text-slate-600">Carregando revisão humana...</section>}>
       <RevisaoHumanaContent />
     </Suspense>
   );

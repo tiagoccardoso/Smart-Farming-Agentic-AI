@@ -3,7 +3,7 @@ import ResultCard from "../../components/ResultCard";
 
 export default function DashboardPage() {
   return (
-    <div className="mx-auto max-w-6xl px-6 py-14">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14">
       <SectionTitle title="Painel de resultados" subtitle="Resumo demonstrativo das orientações e registros da plataforma." />
 
       <div className="grid gap-6 md:grid-cols-2">

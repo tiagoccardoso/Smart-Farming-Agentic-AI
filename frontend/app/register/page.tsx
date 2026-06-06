@@ -56,8 +56,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-8 px-6 py-14 md:py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-      <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
+    <section className="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:px-6 sm:py-14 md:py-20 xl:grid-cols-[0.95fr_1.05fr] xl:items-center">
+      <div className="rounded-3xl bg-hero-gradient p-5 shadow-soft sm:p-6 md:p-10">
         <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
           Novo produtor
         </p>
@@ -67,7 +67,7 @@ export default function RegisterPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
+      <form onSubmit={handleSubmit} noValidate className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft sm:p-6 md:p-8">
         <div className="space-y-5">
           <InputField label="Nome completo" name="fullName" type="text" value={fullName} onChange={(value) => setFullName(value)} required />
           <InputField label="E-mail" name="email" type="email" value={email} onChange={(value) => setEmail(value)} required />

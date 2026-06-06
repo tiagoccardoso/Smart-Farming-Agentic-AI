@@ -6,7 +6,7 @@ type LoadingCardProps = {
 
 export default function LoadingCard({ title, description, rows = 3 }: LoadingCardProps) {
   return (
-    <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-6 shadow-soft" role="status" aria-live="polite">
+    <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft sm:p-6" role="status" aria-live="polite">
       <div className="flex items-center gap-3">
         <span className="relative flex h-4 w-4" aria-hidden>
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-leaf-400 opacity-60" />

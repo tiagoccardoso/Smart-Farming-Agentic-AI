@@ -185,7 +185,7 @@ export default function PlanosPage() {
     <main className="bg-gradient-to-b from-leaf-50 via-white to-soil-50/60">
       <section className="mx-auto max-w-7xl px-5 py-12 sm:px-6 md:py-20 lg:px-8">
         <div className="overflow-hidden rounded-[2rem] border border-white/80 bg-hero-gradient shadow-soft">
-          <div className="grid gap-8 p-6 md:p-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div className="grid gap-8 p-6 md:p-10 xl:grid-cols-[1.1fr_0.9fr] xl:items-center">
             <div>
               <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-leaf-700 shadow-sm">
                 Plataforma profissional de apoio à decisão agronômica
@@ -194,7 +194,7 @@ export default function PlanosPage() {
               <p className="max-w-3xl text-base leading-7 text-slate-700">
                 Estruture informações da propriedade, imagens, análises e recomendações em um fluxo técnico organizado. A IA orientativa acelera a triagem e os especialistas podem revisar casos quando a decisão exigir validação profissional.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
+              <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
                 {valuePhrases.map((phrase) => (
                   <span key={phrase} className="rounded-full border border-leaf-200 bg-white/85 px-4 py-2 text-sm font-semibold text-leaf-800 shadow-sm">
                     {phrase}
@@ -260,10 +260,10 @@ export default function PlanosPage() {
                   </span>
                 )}
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">{plan.eyebrow}</p>
-                <h3 className="mt-3 text-2xl font-black text-slate-950">{plan.name}</h3>
+                <h3 className="mt-3 text-xl font-black text-slate-950 sm:text-2xl">{plan.name}</h3>
                 <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{plan.audience}</p>
                 <div className="mt-5 rounded-3xl bg-slate-50 p-4">
-                  <p className="text-3xl font-black text-slate-950">{plan.priceLabel}</p>
+                  <p className="text-2xl font-black sm:text-3xl text-slate-950">{plan.priceLabel}</p>
                 </div>
                 <p className="mt-5 text-sm leading-6 text-slate-700">{plan.description}</p>
 
@@ -310,7 +310,7 @@ export default function PlanosPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-leaf-700">Consultorias avulsas</p>
-              <h2 className="mt-2 text-3xl font-black text-slate-950">Consultorias Especializadas</h2>
+              <h2 className="mt-2 text-2xl font-black sm:text-3xl text-slate-950">Consultorias Especializadas</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
                 Contrate validações pontuais quando precisar de uma análise revisada, um relatório técnico ou acompanhamento próximo da propriedade.
               </p>

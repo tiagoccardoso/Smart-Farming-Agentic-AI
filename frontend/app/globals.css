@@ -105,3 +105,102 @@ input[type="file"]::file-selector-button:hover {
   55% { width: 82%; }
   100% { width: 96%; }
 }
+
+/* Mobile-first safety layer: keeps dense operational screens usable on small devices. */
+:where(main, section, article, aside, header, footer, nav, div, form) {
+  min-width: 0;
+}
+
+:where(img, video, canvas, svg) {
+  max-width: 100%;
+}
+
+:where(input, textarea, select, button) {
+  max-width: 100%;
+}
+
+:where(a, button, input, textarea, select) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 640px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(162, 209, 180, 0.16), transparent 22rem),
+      radial-gradient(circle at bottom right, rgba(212, 175, 55, 0.12), transparent 22rem),
+      var(--surface);
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  input[type="file"]::file-selector-button {
+    margin-bottom: 0.5rem;
+  }
+
+  table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [class*="rounded-[2rem]"] {
+    border-radius: 1.5rem;
+  }
+
+  .px-6,
+  .px-7,
+  .px-8 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .p-6,
+  .p-7,
+  .p-8,
+  .p-10,
+  .p-11,
+  .p-12 {
+    padding: 1.25rem;
+  }
+
+  .py-12,
+  .py-14,
+  .py-16,
+  .py-20 {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
+
+  .text-5xl,
+  .text-6xl {
+    font-size: 2rem;
+    line-height: 2.35rem;
+  }
+
+  .text-4xl {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+
+  :where(button, a, input, select, textarea) {
+    min-width: 0;
+  }
+
+  :where(button, a[href], input, select) {
+    min-height: 44px;
+  }
+
+  :where(.overflow-x-auto, .overflow-auto) {
+    -webkit-overflow-scrolling: touch;
+  }
+}

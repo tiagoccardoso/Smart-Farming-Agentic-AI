@@ -295,7 +295,7 @@ export default function MeusRelatoriosPage() {
   const filteredCases = useMemo(() => cases.filter((caseItem) => matchesFilter(caseItem, selectedFilter)), [cases, selectedFilter]);
 
   return (
-    <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
+    <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
         <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
           Histórico do produtor

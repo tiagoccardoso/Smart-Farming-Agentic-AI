@@ -445,7 +445,7 @@ export default function UsuariosPainelDoutoraPage() {
 
   if (accessDenied) {
     return (
-      <section className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 md:py-16">
         <EmptyState
           title="Acesso restrito"
           description="Entre com uma conta specialist/admin ativa para gerenciar usuários."
@@ -455,7 +455,7 @@ export default function UsuariosPainelDoutoraPage() {
   }
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-12">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
       <div className="mb-6 flex flex-wrap gap-3">
         <Link
           href="/configuracoes"

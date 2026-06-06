@@ -677,7 +677,7 @@ export default function PainelDoutoraPage() {
   ];
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-14 md:py-20">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
         <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
           Área técnica da especialista
@@ -693,7 +693,7 @@ export default function PainelDoutoraPage() {
         </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
         <Link
           href="/painel-doutora"
           className="rounded-full bg-leaf-600 px-4 py-2 text-sm font-semibold text-white shadow-soft"
@@ -756,7 +756,7 @@ export default function PainelDoutoraPage() {
                 <p className="text-sm font-medium text-slate-500">
                   {metric.label}
                 </p>
-                <p className={`mt-3 text-4xl font-bold ${metric.color}`}>
+                <p className={`mt-3 text-3xl font-bold sm:text-4xl ${metric.color}`}>
                   {metric.value}
                 </p>
                 <p className="mt-3 text-sm text-slate-500">
@@ -1315,7 +1315,7 @@ export default function PainelDoutoraPage() {
                       </label>
                     </div>
 
-                    <div className="mt-6 flex flex-wrap gap-3">
+                    <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
                       <button
                         type="button"
                         onClick={() => handleReviewAction("draft")}

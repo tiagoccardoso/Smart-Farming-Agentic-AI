@@ -387,7 +387,7 @@ function EnviarCasoContent() {
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-16">
-      <div className="rounded-[2rem] border border-paper-200 bg-hero-gradient p-6 shadow-soft md:p-10">
+      <div className="rounded-[2rem] border border-paper-200 bg-hero-gradient p-5 shadow-soft sm:p-6 md:p-10">
         <div className="max-w-3xl">
           <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-800 ring-1 ring-leaf-100">
             Preparação do atendimento
@@ -462,7 +462,7 @@ function EnviarCasoContent() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]"
+        className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] lg:gap-8"
       >
         <div className="space-y-6">
           <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
@@ -640,7 +640,7 @@ function EnviarCasoContent() {
                     <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
                       Imagens já anexadas
                     </p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {existingImages.map((image) => (
                         <a
                           key={image.id}
@@ -726,8 +726,8 @@ function EnviarCasoContent() {
                   </a>
                 )}
                 {soilAnalysis && (
-                  <span className="flex items-center justify-between gap-3 rounded-xl bg-leaf-50 p-3 text-slate-700">
-                    <span className="truncate">Arquivo selecionado: {soilAnalysis.name}</span>
+                  <span className="flex flex-col gap-3 rounded-xl bg-leaf-50 p-3 text-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="break-all sm:truncate">Arquivo selecionado: {soilAnalysis.name}</span>
                     <button
                       type="button"
                       onClick={handleRemoveSoilAnalysis}
@@ -793,7 +793,7 @@ export default function EnviarCasoPage() {
   return (
     <Suspense
       fallback={
-        <section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">
+        <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14 text-sm text-slate-600">
           Carregando envio de caso...
         </section>
       }

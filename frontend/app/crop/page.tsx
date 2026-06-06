@@ -63,7 +63,7 @@ export default function CropPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-14">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14">
       <SectionTitle
         title="Recomendação de culturas"
         subtitle="Consulte todas as culturas cadastradas na base e use dados de solo e clima para receber uma recomendação inicial."

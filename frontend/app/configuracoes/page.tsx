@@ -33,7 +33,7 @@ export default function ConfiguracoesPage() {
 
   if (!loading && visibleLinks.length === 0) {
     return (
-      <section className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 md:py-16">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-900 shadow-soft">
           <h2 className="text-lg font-semibold">Acesso negado</h2>
           <p className="mt-2 text-sm leading-6">Você não possui permissões para acessar os itens de configurações disponíveis.</p>
@@ -43,7 +43,7 @@ export default function ConfiguracoesPage() {
   }
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-14 md:py-20">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
       <p className="mb-4 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">⚙️ Área administrativa</p>
       <SectionTitle
         title="Configurações"

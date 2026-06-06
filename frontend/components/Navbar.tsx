@@ -70,7 +70,7 @@ function NavLink({ link, pathname, onClick }: { link: NavigationLink; pathname: 
     <Link
       href={link.href}
       onClick={onClick}
-      className={`rounded-full px-3 py-2 transition ${
+      className={`block rounded-full px-3 py-2 transition ${
         active ? "bg-leaf-100 text-moss-800" : "hover:bg-leaf-50 hover:text-leaf-700"
       }`}
     >
@@ -133,10 +133,10 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-paper-200 bg-paper-100/90 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-6">
-        <Link href="/" className="flex items-center gap-3 font-semibold text-moss-900">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:py-4 lg:px-6">
+        <Link href="/" className="flex min-w-0 items-center gap-3 font-semibold text-moss-900">
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-leaf-100 to-gold-100 text-moss-800 shadow-soft">🌿</span>
-          <span className="text-lg tracking-tight">Plantasã</span>
+          <span className="truncate text-lg tracking-tight">Plantasã</span>
         </Link>
 
         <nav className="hidden flex-1 flex-wrap justify-center gap-1 text-xs font-semibold text-slate-700 lg:flex xl:text-sm">
@@ -164,13 +164,13 @@ export default function Navbar() {
               <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
                 {profile.full_name || "Conta"} · {profile.role}
               </span>
-              <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
+              <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-center text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
                 Sair
               </button>
             </>
           ) : (
             !loadingSession && (
-              <Link href="/login" className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
+              <Link href="/login" className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-center text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
                 Entrar
               </Link>
             )
@@ -189,7 +189,7 @@ export default function Navbar() {
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-paper-200 bg-paper-100 px-5 py-4 lg:hidden">
+        <div className="max-h-[calc(100vh-4.25rem)] overflow-y-auto border-t border-paper-200 bg-paper-100 px-4 py-4 shadow-soft lg:hidden">
           <nav className="grid gap-2 text-sm font-semibold text-slate-700">
             {publicLinks.map((link) => (
               <NavLink key={link.href} link={link} pathname={pathname} onClick={() => setMobileOpen(false)} />
@@ -208,19 +208,19 @@ export default function Navbar() {
               </div>
             ))}
           </nav>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="mt-4 grid gap-3 sm:flex sm:flex-wrap sm:items-center">
             {profile ? (
               <>
                 <span className="rounded-full bg-leaf-50 px-3 py-2 text-xs font-semibold text-leaf-800">
                   {profile.full_name || "Conta"} · {profile.role}
                 </span>
-                <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
+                <button type="button" onClick={handleLogout} className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-center text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
                   Sair
                 </button>
               </>
             ) : (
               !loadingSession && (
-                <Link href="/login" className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
+                <Link href="/login" className="rounded-full border border-leaf-200 bg-white/70 px-4 py-2 text-center text-sm font-semibold text-leaf-800 transition hover:bg-leaf-50">
                   Entrar
                 </Link>
               )

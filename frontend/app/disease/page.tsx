@@ -373,8 +373,8 @@ export default function DiseasePage() {
 
   return (
     <div className="bg-hero-gradient">
-      <section className="mx-auto max-w-7xl px-6 py-14 md:py-20">
-        <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
+        <div className="grid gap-10 xl:grid-cols-[0.95fr_1.05fr] xl:items-start">
           <div>
             <p className="mb-4 inline-flex rounded-full bg-leaf-100 px-4 py-2 text-xs font-bold uppercase tracking-wide text-leaf-700">
               Consulta agrícola inteligente

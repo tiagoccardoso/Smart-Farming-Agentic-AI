@@ -68,8 +68,8 @@ function LoginContent() {
   }
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-8 px-6 py-14 md:py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-      <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
+    <section className="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:px-6 sm:py-14 md:py-20 xl:grid-cols-[0.95fr_1.05fr] xl:items-center">
+      <div className="rounded-3xl bg-hero-gradient p-5 shadow-soft sm:p-6 md:p-10">
         <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
           Área segura
         </p>
@@ -86,7 +86,7 @@ function LoginContent() {
 
       <form
         onSubmit={handleSubmit}
-        className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8"
+        className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft sm:p-6 md:p-8"
       >
         <div className="space-y-5">
           <InputField
@@ -156,7 +156,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14 text-sm text-slate-600">
           Carregando login...
         </div>
       }

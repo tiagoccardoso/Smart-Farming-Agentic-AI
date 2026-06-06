@@ -36,28 +36,28 @@ export default async function HomePage() {
         <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-[#A7C957]/25 blur-3xl" />
         <div className="absolute bottom-8 right-8 h-80 w-80 rounded-full bg-[#D7A84A]/15 blur-3xl" />
 
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-24">
+        <div className="relative mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 sm:py-16 xl:grid-cols-[1.05fr_0.95fr] xl:items-center lg:py-24">
           <div>
-            <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#A7C957]/50 bg-white/85 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#123F2A] shadow-soft">
+            <p className="mb-5 inline-flex max-w-full items-center gap-2 rounded-full border border-[#A7C957]/50 bg-white/85 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-[#123F2A] shadow-soft sm:tracking-[0.12em] sm:tracking-[0.18em]">
               🌿 Agricultura orgânica • IA • revisão humana
             </p>
-            <h1 className="max-w-4xl text-4xl font-bold leading-tight text-[#123F2A] md:text-6xl">
+            <h1 className="max-w-4xl text-3xl font-bold leading-tight text-[#123F2A] sm:text-4xl md:text-6xl">
               {heroTitle}
             </h1>
-            <p className="mt-6 max-w-3xl text-lg leading-8 text-[#1F2933]/80">
+            <p className="mt-6 max-w-3xl text-base leading-7 text-[#1F2933]/80 sm:text-lg sm:leading-8">
               {heroSubtitle}
             </p>
             <p className="mt-5 max-w-3xl leading-7 text-[#1F2933]/72">
               {heroText}
             </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <Link href={content.primaryButtonUrl || "/agricultura-organica"} className="rounded-full bg-[#123F2A] px-7 py-3 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#0F3322]">
+            <div className="mt-8 grid gap-3 sm:flex sm:flex-wrap sm:gap-4">
+              <Link href={content.primaryButtonUrl || "/agricultura-organica"} className="rounded-full bg-[#123F2A] px-7 py-3 text-center text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#0F3322]">
                 {content.primaryButtonText || "Conhecer consultoria orgânica"}
               </Link>
-              <Link href={content.secondaryButtonUrl || "/consultoria-ia"} className="rounded-full bg-[#A7C957] px-7 py-3 text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#94B94B]">
+              <Link href={content.secondaryButtonUrl || "/consultoria-ia"} className="rounded-full bg-[#A7C957] px-7 py-3 text-center text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#94B94B]">
                 {content.secondaryButtonText || "Iniciar consultoria com IA"}
               </Link>
-              <Link href="/contact?requestType=conversao_propriedade_organica" className="rounded-full border border-[#123F2A]/20 bg-white px-7 py-3 text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123F2A]/50">
+              <Link href="/contact?requestType=conversao_propriedade_organica" className="rounded-full border border-[#123F2A]/20 bg-white px-7 py-3 text-center text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123F2A]/50">
                 Falar com especialista
               </Link>
             </div>
@@ -74,7 +74,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 py-14">
+      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-14">
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {premiumCards.map((card) => (
             <article key={card.title} className="rounded-3xl border border-[#123F2A]/10 bg-white/90 p-6 shadow-soft transition hover:-translate-y-1">
@@ -86,11 +86,11 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="grid gap-8 rounded-[2rem] border border-[#123F2A]/10 bg-white p-7 shadow-soft lg:grid-cols-[0.9fr_1.1fr] lg:p-10">
+      <section className="mx-auto max-w-7xl px-4 pb-14 sm:px-6 sm:pb-16">
+        <div className="grid gap-8 rounded-[2rem] border border-[#123F2A]/10 bg-white p-5 shadow-soft sm:p-7 xl:grid-cols-[0.9fr_1.1fr] lg:p-10">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#2E7D32]">Agricultura orgânica primeiro</p>
-            <h2 className="mt-3 text-3xl font-bold text-[#123F2A]">Da triagem digital ao plano de manejo sustentável</h2>
+            <p className="text-sm font-bold uppercase tracking-[0.12em] sm:tracking-[0.18em] text-[#2E7D32]">Agricultura orgânica primeiro</p>
+            <h2 className="mt-3 text-xl font-bold text-[#123F2A] sm:text-3xl">Da triagem digital ao plano de manejo sustentável</h2>
             <p className="mt-4 leading-7 text-slate-700">
               O foco inicial é apoiar produtores interessados em sistemas orgânicos, hortaliças saudáveis, solo fértil e manejo integrado de pragas e doenças, sem perder a agilidade da tecnologia.
             </p>
@@ -110,17 +110,17 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 pb-20">
-        <div className="rounded-[2rem] bg-[#123F2A] p-7 text-white shadow-soft md:p-10">
+      <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 sm:pb-20">
+        <div className="rounded-[2rem] bg-[#123F2A] p-5 text-white shadow-soft sm:p-7 md:p-10">
           <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#A7C957]">Próximo passo</p>
-              <h2 className="mt-2 text-3xl font-bold">Organize seu caso e receba orientação com mais clareza.</h2>
+              <p className="text-sm font-bold uppercase tracking-[0.12em] sm:tracking-[0.18em] text-[#A7C957]">Próximo passo</p>
+              <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Organize seu caso e receba orientação com mais clareza.</h2>
               <p className="mt-3 max-w-3xl leading-7 text-white/75">
                 As recomendações da IA são orientativas e não substituem avaliação agronômica presencial quando necessária. Casos críticos podem ser encaminhados para revisão humana especializada.
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row md:flex-col">
+            <div className="grid gap-3 sm:flex sm:flex-row md:flex-col">
               <Link href="/consultoria-ia" className="rounded-full bg-[#A7C957] px-6 py-3 text-center text-sm font-bold text-[#123F2A]">
                 Iniciar consultoria com IA
               </Link>

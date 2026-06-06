@@ -28,10 +28,10 @@ export default function Page() {
 
   useEffect(() => { load(); }, [load]);
 
-  return <div className='mx-auto max-w-6xl px-6 py-10'>
-    <h1 className='text-3xl font-bold text-[#123F2A]'>Agendamentos</h1>
+  return <div className='mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-10'>
+    <h1 className='text-xl font-bold text-[#123F2A] sm:text-3xl'>Agendamentos</h1>
     <p className="mt-2 max-w-3xl text-slate-600">Gerencie solicitações recebidas pelo formulário de contato. Apenas especialistas e administradores têm acesso a esta área.</p>
-    <div className='mt-4 grid gap-3 md:grid-cols-4'>
+    <div className='mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
       <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className='rounded-2xl border border-leaf-100 p-3'><option value='todos'>Todos os status</option>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
       <input value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} placeholder='Filtrar por cidade' className='rounded-2xl border border-leaf-100 p-3' />
       <input value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} placeholder='Filtrar por estado' className='rounded-2xl border border-leaf-100 p-3' />

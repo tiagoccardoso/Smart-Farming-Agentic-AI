@@ -33,13 +33,13 @@ export default function AcompanhamentoPage() {
 
   const hasAccess = useMemo(() => ["admin", "specialist"].includes(profile?.role ?? ""), [profile?.role]);
 
-  if (loading) return <div className="mx-auto max-w-7xl px-6 py-12"><p className="animate-pulse rounded-2xl border border-leaf-100 bg-white p-4 text-sm text-slate-500">Carregando acompanhamento...</p></div>;
-  if (!hasAccess) return <div className="mx-auto max-w-7xl px-6 py-12"><div className="rounded-3xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">Acesso restrito a administradores e especialistas.</div></div>;
+  if (loading) return <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12"><p className="animate-pulse rounded-2xl border border-leaf-100 bg-white p-4 text-sm text-slate-500">Carregando acompanhamento...</p></div>;
+  if (!hasAccess) return <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12"><div className="rounded-3xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">Acesso restrito a administradores e especialistas.</div></div>;
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-12">
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
       <p className="inline-flex rounded-full bg-leaf-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">🌱 Hub técnico agronômico</p>
-      <h1 className="mt-4 text-4xl font-bold text-[#123F2A]">Acompanhamento</h1>
+      <h1 className="mt-4 text-3xl font-bold text-[#123F2A] sm:text-4xl">Acompanhamento</h1>
       <p className="mt-3 max-w-4xl text-slate-600">Acesse rapidamente as telas da rotina de assistência técnica com foco em velocidade de uso no campo, histórico visual simples e base pronta para evolução offline/sincronização.</p>
       <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {acompanhamentoModules.map((module) => (
