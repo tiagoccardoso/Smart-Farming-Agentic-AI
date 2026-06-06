@@ -8,9 +8,17 @@ type Props = {
   required?: boolean;
 };
 
-export default function InputField({ label, name, type = "number", placeholder, value, onChange, required = false }: Props) {
+export default function InputField({
+  label,
+  name,
+  type = "number",
+  placeholder,
+  value,
+  onChange,
+  required = false,
+}: Props) {
   return (
-    <label className="flex flex-col gap-2 text-sm text-slate-700">
+    <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
       {label}
       <input
         name={name}
@@ -19,7 +27,7 @@ export default function InputField({ label, name, type = "number", placeholder, 
         value={value}
         required={required}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-xl border border-leaf-100 bg-white px-4 py-2 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+        className="rounded-2xl border border-paper-200 bg-paper-50 px-4 py-3 text-slate-900 shadow-inner-soft outline-none transition placeholder:text-slate-400 focus:border-leaf-500 focus:bg-white focus:ring-4 focus:ring-leaf-100"
       />
     </label>
   );

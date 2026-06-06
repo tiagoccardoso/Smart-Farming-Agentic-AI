@@ -6,6 +6,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Image from "next/image";
@@ -24,7 +25,6 @@ import {
 } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
-const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_SIZE_LABEL = "10MB";
 const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -35,8 +35,10 @@ const ACCEPTED_SOIL_ANALYSIS_TYPES = [
 ];
 
 type PhotoPreview = {
+  id: string;
   name: string;
   url: string;
+  index: number;
 };
 
 const initialForm = {
@@ -66,6 +68,40 @@ const requiredLabels: Record<RequiredField, string> = {
   symptoms: "Descreva os sintomas observados.",
 };
 
+function fileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function getFriendlySubmitError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    if (error.code === "AUTH_REQUIRED") {
+      return "Sua sessão expirou ou não está ativa. Faça login novamente e tente enviar o caso.";
+    }
+
+    if (error.code === "PLAN_LIMIT_REACHED") {
+      return "Seu plano atual não permite esta ação. Remova o anexo ou atualize o plano para continuar.";
+    }
+
+    if (error.code === "DATABASE_PERMISSION_DENIED") {
+      return "Sua conta não tem permissão para salvar este caso. Entre novamente ou fale com o suporte.";
+    }
+
+    if (error.code === "SERVER_CONFIGURATION_ERROR") {
+      return "O envio de casos está indisponível por configuração do servidor. Avise o suporte.";
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof TypeError || /fetch|network|conex/i.test(String(error))) {
+    return "Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.";
+  }
+
+  return error instanceof Error
+    ? error.message
+    : "Não foi possível enviar o caso. Tente novamente em instantes.";
+}
+
 function EnviarCasoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,12 +122,16 @@ function EnviarCasoContent() {
   const [existingSoilAnalysisUrl, setExistingSoilAnalysisUrl] = useState<
     string | null
   >(null);
+  const photosInputRef = useRef<HTMLInputElement | null>(null);
+  const soilAnalysisInputRef = useRef<HTMLInputElement | null>(null);
 
   const photoPreviews = useMemo<PhotoPreview[]>(
     () =>
-      photos.map((file) => ({
+      photos.map((file, index) => ({
+        id: `${fileKey(file)}-${index}`,
         name: file.name,
         url: URL.createObjectURL(file),
+        index,
       })),
     [photos],
   );
@@ -167,19 +207,49 @@ function EnviarCasoContent() {
 
   const handlePhotosChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files ?? []);
+
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
     const invalidFileMessage = selectedFiles
       .map((file) => validateFile(file, ACCEPTED_PHOTO_TYPES, "A imagem"))
       .find(Boolean);
 
     if (invalidFileMessage) {
-      setPhotos([]);
       setAttachmentErrors((prev) => ({ ...prev, photos: invalidFileMessage }));
       event.target.value = "";
       return;
     }
 
-    setPhotos(selectedFiles);
+    setPhotos((currentPhotos) => {
+      const currentKeys = new Set(currentPhotos.map(fileKey));
+      const uniqueSelectedFiles = selectedFiles.filter((file) => {
+        const key = fileKey(file);
+
+        if (currentKeys.has(key)) {
+          return false;
+        }
+
+        currentKeys.add(key);
+        return true;
+      });
+
+      return [...currentPhotos, ...uniqueSelectedFiles];
+    });
     setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
+    event.target.value = "";
+  };
+
+  const handleRemovePhoto = (indexToRemove: number) => {
+    setPhotos((currentPhotos) =>
+      currentPhotos.filter((_, index) => index !== indexToRemove),
+    );
+    setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
+
+    if (photosInputRef.current) {
+      photosInputRef.current.value = "";
+    }
   };
 
   const handleSoilAnalysisChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -209,6 +279,15 @@ function EnviarCasoContent() {
 
     setSoilAnalysis(selectedFile);
     setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
+  };
+
+  const handleRemoveSoilAnalysis = () => {
+    setSoilAnalysis(null);
+    setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
+
+    if (soilAnalysisInputRef.current) {
+      soilAnalysisInputRef.current.value = "";
+    }
   };
 
   const validate = () => {
@@ -259,7 +338,7 @@ function EnviarCasoContent() {
 
     if (!accessToken) {
       setSubmitError(
-        "Faça login com Supabase antes de enviar o caso agronômico.",
+        "Faça login novamente para enviar o caso agronômico.",
       );
       return;
     }
@@ -300,21 +379,17 @@ function EnviarCasoContent() {
         setErrors((prev) => ({ ...prev, ...error.fieldErrors }));
       }
 
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível enviar o caso. Tente novamente em instantes.",
-      );
+      setSubmitError(getFriendlySubmitError(error));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-      <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
+    <section className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-16">
+      <div className="rounded-[2rem] border border-paper-200 bg-hero-gradient p-6 shadow-soft md:p-10">
         <div className="max-w-3xl">
-          <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
+          <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-800 ring-1 ring-leaf-100">
             Preparação do atendimento
           </p>
           <SectionTitle
@@ -327,7 +402,7 @@ function EnviarCasoContent() {
                 : "Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."
             }
           />
-          <p className="text-base leading-7 text-slate-700">
+          <p className="text-base leading-7 text-slate-700 md:text-lg">
             {isEditingExistingCase
               ? "Você está atualizando o mesmo caseId. As imagens e conversas anteriores serão preservadas e a IA fará nova análise após salvar."
               : "O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela."}
@@ -390,7 +465,7 @@ function EnviarCasoContent() {
         className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]"
       >
         <div className="space-y-6">
-          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
             <h3 className="text-lg font-semibold text-slate-900">
               Dados da propriedade e cultura
             </h3>
@@ -467,7 +542,7 @@ function EnviarCasoContent() {
             )}
           </div>
 
-          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
             <h3 className="text-lg font-semibold text-slate-900">
               Sintomas e manejo
             </h3>
@@ -482,7 +557,7 @@ function EnviarCasoContent() {
                   }
                   rows={6}
                   placeholder="Descreva manchas, amarelecimento, pragas, falhas de desenvolvimento, talhões afetados e quando o problema começou."
-                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                  className="rounded-2xl border border-paper-200 bg-paper-50 px-4 py-3 text-slate-900 shadow-inner-soft outline-none transition focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
                 />
               </label>
               {errors.symptoms && (
@@ -499,7 +574,7 @@ function EnviarCasoContent() {
                   }
                   rows={5}
                   placeholder="Informe irrigação, adubação, defensivos aplicados, chuva recente e mudanças importantes no manejo."
-                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
+                  className="rounded-2xl border border-paper-200 bg-paper-50 px-4 py-3 text-slate-900 shadow-inner-soft outline-none transition focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
                 />
               </label>
             </div>
@@ -507,37 +582,61 @@ function EnviarCasoContent() {
         </div>
 
         <aside className="space-y-6">
-          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
+          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
             <h3 className="text-lg font-semibold text-slate-900">
               Fotos e documentos
             </h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Os uploads estão preparados para o bucket Supabase Storage{" "}
-              <strong>{STORAGE_BUCKET}</strong>.
+              As fotos são opcionais. Envie somente quando ajudarem a análise;
+              o caso será salvo normalmente mesmo sem imagem.
             </p>
 
             <div className="mt-6 space-y-5">
-              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                <span className="font-semibold text-slate-900">
-                  Upload de fotos
-                </span>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  multiple
-                  onChange={handlePhotosChange}
-                />
-                <span className="text-xs text-slate-500">
-                  Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de{" "}
-                  {MAX_FILE_SIZE_LABEL} por arquivo.
-                </span>
+              <div className="rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      Upload de fotos <span className="font-normal text-slate-500">opcional</span>
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de{" "}
+                      {MAX_FILE_SIZE_LABEL} por arquivo.
+                    </p>
+                  </div>
+                  {photos.length > 0 && (
+                    <span className="rounded-full bg-leaf-100 px-3 py-1 text-xs font-bold text-leaf-800">
+                      {photos.length} selecionada{photos.length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+
+                <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-leaf-300 bg-white px-4 py-6 text-center transition hover:border-leaf-500 hover:bg-leaf-50/50">
+                  <span className="text-2xl" aria-hidden>
+                    📷
+                  </span>
+                  <span className="mt-2 font-semibold text-leaf-800">
+                    Selecionar imagens
+                  </span>
+                  <span className="mt-1 text-xs text-slate-500">
+                    Você pode adicionar várias fotos e remover antes de enviar.
+                  </span>
+                  <input
+                    ref={photosInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    multiple
+                    onChange={handlePhotosChange}
+                    className="sr-only"
+                  />
+                </label>
+
                 {attachmentErrors.photos && (
-                  <span className="rounded-xl bg-red-50 p-3 text-red-700">
+                  <span className="mt-4 block rounded-xl bg-red-50 p-3 text-red-700">
                     {attachmentErrors.photos}
                   </span>
                 )}
                 {existingImages.length > 0 && (
-                  <div>
+                  <div className="mt-5">
                     <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
                       Imagens já anexadas
                     </p>
@@ -547,7 +646,8 @@ function EnviarCasoContent() {
                           key={image.id}
                           href={image.image_url}
                           target="_blank"
-                          className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50"
+                          rel="noreferrer"
+                          className="overflow-hidden rounded-2xl border border-paper-200 bg-white"
                         >
                           <Image
                             src={image.image_url}
@@ -566,37 +666,50 @@ function EnviarCasoContent() {
                   </div>
                 )}
                 {photoPreviews.length > 0 && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {photoPreviews.map((preview) => (
                       <figure
-                        key={`${preview.name}-${preview.url}`}
-                        className="overflow-hidden rounded-xl border border-leaf-100 bg-leaf-50"
+                        key={preview.id}
+                        className="group overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-inner-soft"
                       >
-                        <Image
-                          src={preview.url}
-                          alt={`Prévia de ${preview.name}`}
-                          width={240}
-                          height={112}
-                          unoptimized
-                          className="h-28 w-full object-cover"
-                        />
-                        <figcaption className="truncate px-3 py-2 text-xs text-slate-700">
+                        <div className="relative">
+                          <Image
+                            src={preview.url}
+                            alt={`Prévia de ${preview.name}`}
+                            width={240}
+                            height={112}
+                            unoptimized
+                            className="h-32 w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePhoto(preview.index)}
+                            className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-red-700 shadow-soft ring-1 ring-red-100 transition hover:bg-red-50"
+                            aria-label={`Remover imagem ${preview.name}`}
+                          >
+                            Remover
+                          </button>
+                        </div>
+                        <figcaption className="truncate px-3 py-2 text-xs font-semibold text-slate-700">
                           {preview.name}
                         </figcaption>
                       </figure>
                     ))}
                   </div>
                 )}
-              </label>
+              </div>
 
-              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
-                <span className="font-semibold text-slate-900">
-                  Upload de análise de solo em PDF ou imagem
-                </span>
+              <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
+                <label htmlFor="soil-analysis-upload" className="font-semibold text-slate-900">
+                  Upload de análise de solo em PDF ou imagem <span className="font-normal text-slate-500">opcional</span>
+                </label>
                 <input
+                  id="soil-analysis-upload"
+                  ref={soilAnalysisInputRef}
                   type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
                   onChange={handleSoilAnalysisChange}
+                  className="rounded-2xl border border-paper-200 bg-white px-3 py-2 text-sm"
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de{" "}
@@ -608,24 +721,27 @@ function EnviarCasoContent() {
                   </span>
                 )}
                 {existingSoilAnalysisUrl && (
-                  <a
-                    href={existingSoilAnalysisUrl}
-                    target="_blank"
-                    className="rounded-xl bg-slate-50 p-3 text-leaf-700"
-                  >
+                  <a href={existingSoilAnalysisUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-white p-3 text-leaf-700 ring-1 ring-paper-200">
                     Ver análise de solo anterior
                   </a>
                 )}
                 {soilAnalysis && (
-                  <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">
-                    Arquivo selecionado: {soilAnalysis.name}
+                  <span className="flex items-center justify-between gap-3 rounded-xl bg-leaf-50 p-3 text-slate-700">
+                    <span className="truncate">Arquivo selecionado: {soilAnalysis.name}</span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveSoilAnalysis}
+                      className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-red-700 ring-1 ring-red-100 hover:bg-red-50"
+                    >
+                      Remover
+                    </button>
                   </span>
                 )}
-              </label>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
+          <div className="rounded-[2rem] border border-gold-200 bg-gold-50 p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">
               Próxima etapa
             </h3>
@@ -637,12 +753,12 @@ function EnviarCasoContent() {
           </div>
 
           {submitError && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium leading-6 text-red-700">
               {submitError}
             </div>
           )}
           {successMessage && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium leading-6 text-emerald-800">
               {successMessage}
             </div>
           )}
@@ -650,13 +766,22 @@ function EnviarCasoContent() {
           <button
             type="submit"
             disabled={loading || loadingExistingCase}
-            className="w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-70"
+            className="group relative w-full overflow-hidden rounded-full bg-leaf-700 px-6 py-3.5 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading
-              ? "Salvando e enviando..."
-              : isEditingExistingCase
-                ? "Atualizar mesmo caso e reanalisar"
-                : "Salvar e enviar"}
+            {loading && (
+              <span
+                className="absolute inset-y-0 left-0 bg-white/20"
+                style={{ animation: "submitProgress 1.3s ease-in-out infinite" }}
+                aria-hidden
+              />
+            )}
+            <span className="relative">
+              {loading
+                ? "Salvando e enviando..."
+                : isEditingExistingCase
+                  ? "Atualizar mesmo caso e reanalisar"
+                  : "Salvar e enviar"}
+            </span>
           </button>
         </aside>
       </form>

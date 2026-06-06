@@ -7,8 +7,8 @@ type SafetyDisclaimerProps = {
 
 export default function SafetyDisclaimer({ className = "" }: SafetyDisclaimerProps) {
   return (
-    <div className={`rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900 shadow-soft ${className}`} role="note">
-      <p className="font-semibold">Aviso de segurança e responsabilidade</p>
+    <div className={`rounded-2xl border border-gold-200 bg-gold-50 p-5 text-sm leading-6 text-gold-900 shadow-inner-soft ${className}`} role="note">
+      <p className="font-bold text-moss-800">Aviso de segurança e responsabilidade</p>
       <p className="mt-2">{SAFETY_DISCLAIMER_TEXT}</p>
     </div>
   );

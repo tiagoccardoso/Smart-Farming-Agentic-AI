@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature } from "../../../../lib/billing/check-plan-limits";
+import { PlanFeatureUnavailableError, assertPlanFeature } from "../../../../lib/billing/check-plan-limits";
 import { getSupabaseAdminConfig, supabaseAdminRequest } from "../../../../lib/stripe/humanReview";
 
 const STORAGE_BUCKET = "agronomic-cases";
@@ -33,7 +33,10 @@ function optionalNumber(formData: FormData, key: string) {
   const value = text(formData, key).replace(",", ".");
   if (!value) return null;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new FriendlyRequestError("Área em hectares deve ser um número maior que zero.");
+  }
+  return parsed;
 }
 
 function sanitizeFileName(fileName: string) {
@@ -62,8 +65,38 @@ async function uploadToStorage(file: File, path: string, token: string) {
     cache: "no-store"
   });
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.message || payload?.error || `Não foi possível enviar ${file.name}.`);
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new FriendlyRequestError("Sua sessão expirou durante o upload. Faça login novamente e tente editar o caso.", 401);
+    }
+
+    if (response.status === 403 || payload?.code === "42501") {
+      throw new FriendlyRequestError("Não foi possível anexar o arquivo por falta de permissão no storage.", 403);
+    }
+
+    if (response.status === 409) {
+      throw new FriendlyRequestError(`Já existe um arquivo chamado ${file.name} neste caso. Renomeie o arquivo e tente novamente.`, 409);
+    }
+
+    throw new FriendlyRequestError(`Não foi possível anexar o arquivo "${file.name}". Tente novamente em instantes.`, response.status >= 500 ? 502 : 400);
+  }
   return `${config.supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+}
+
+function safeEditErrorMessage(error: unknown) {
+  if (error instanceof FriendlyRequestError) return error.message;
+
+  const message = error instanceof Error ? error.message : "";
+
+  if (/row-level security|permission denied/i.test(message)) {
+    return "Você não tem permissão para editar este caso. Verifique sua sessão e tente novamente.";
+  }
+
+  if (/NEXT_PUBLIC_|SUPABASE_|SERVICE_ROLE|secret|token|apikey|schema cache|relation .* does not exist|column .* does not exist/i.test(message)) {
+    return "A edição do caso está indisponível por configuração do servidor. Avise o suporte.";
+  }
+
+  return message || "Não foi possível editar o caso.";
 }
 
 async function logActivity(caseId: string, userId: string, action: string, metadata: Record<string, unknown>, token: string) {
@@ -173,8 +206,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { caseId
     await logActivity(params.caseId, user.id, "Usuário editou", { fields: Object.keys(casePatch), newAttachments: images.length }, token);
     return NextResponse.json({ ok: true, caseId: params.caseId, reanalysisQueued: photoFiles.length > 0 || Boolean(isFile(soilAnalysis)) });
   } catch (error) {
-    if (error instanceof PlanFeatureUnavailableError) return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
-    const message = error instanceof Error ? error.message : "Não foi possível editar o caso.";
+    if (error instanceof PlanFeatureUnavailableError) return NextResponse.json({ error: "Seu plano atual não permite enviar fotos ou análise de solo. Remova o anexo para editar sem imagem ou atualize o plano para continuar com anexos." }, { status: error.status });
+    const message = safeEditErrorMessage(error);
     const status = error instanceof FriendlyRequestError ? error.status : 500;
     return NextResponse.json({ error: message }, { status });
   }

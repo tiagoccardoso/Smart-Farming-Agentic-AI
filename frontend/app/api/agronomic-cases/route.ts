@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  PLAN_LIMIT_REACHED_MESSAGE,
   PlanFeatureUnavailableError,
   assertPlanFeature,
   getPlanLimitCheck,
@@ -113,6 +112,10 @@ function parseJsonSafely(text: string): SupabaseErrorPayload | null {
   } catch {
     return null;
   }
+}
+
+function includesAny(value: string | undefined, patterns: RegExp[]) {
+  return Boolean(value && patterns.some((pattern) => pattern.test(value)));
 }
 
 function getSupabaseConfig(): SupabaseConfig {
@@ -360,6 +363,10 @@ function toErrorResponse(error: unknown): {
   }
 
   if (error instanceof SupabaseRequestError) {
+    const databaseMessage = [error.message, error.details, error.hint]
+      .filter(Boolean)
+      .join(" ");
+
     if (error.status === 401) {
       return {
         status: 401,
@@ -370,13 +377,45 @@ function toErrorResponse(error: unknown): {
       };
     }
 
-    if (error.status === 403 || error.supabaseCode === "42501") {
+    if (
+      error.status === 403 ||
+      error.supabaseCode === "42501" ||
+      includesAny(databaseMessage, [/row-level security/i, /permission denied/i])
+    ) {
       return {
         status: 403,
         body: {
           error:
             "Você não tem permissão para salvar este caso. Verifique sua sessão e as permissões da conta.",
           code: "DATABASE_PERMISSION_DENIED",
+        },
+      };
+    }
+
+    if (
+      includesAny(databaseMessage, [
+        /relation .* does not exist/i,
+        /column .* does not exist/i,
+        /schema cache/i,
+      ])
+    ) {
+      return {
+        status: 500,
+        body: {
+          error:
+            "A estrutura do banco de dados não está compatível com o envio de casos. Avise o suporte para revisar as migrations.",
+          code: "SERVER_CONFIGURATION_ERROR",
+        },
+      };
+    }
+
+    if (error.supabaseCode === "23505") {
+      return {
+        status: 409,
+        body: {
+          error:
+            "Já existe um registro com essas informações. Revise os dados e tente novamente.",
+          code: "VALIDATION_ERROR",
         },
       };
     }
@@ -953,7 +992,8 @@ export async function POST(request: NextRequest) {
     if (error instanceof PlanFeatureUnavailableError) {
       return NextResponse.json(
         {
-          error: PLAN_LIMIT_REACHED_MESSAGE,
+          error:
+            "Seu plano atual não permite enviar fotos ou análise de solo. Remova o anexo para enviar o caso sem imagem ou atualize o plano para continuar com anexos.",
           code: "PLAN_LIMIT_REACHED" satisfies ApiErrorCode,
         },
         { status: error.status },
