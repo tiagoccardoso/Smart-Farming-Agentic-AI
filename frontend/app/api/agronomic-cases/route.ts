@@ -1,28 +1,126 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PLAN_LIMIT_REACHED_MESSAGE, PlanFeatureUnavailableError, assertPlanFeature, getPlanLimitCheck } from "../../../lib/billing/check-plan-limits";
+import {
+  PLAN_LIMIT_REACHED_MESSAGE,
+  PlanFeatureUnavailableError,
+  assertPlanFeature,
+  getPlanLimitCheck,
+} from "../../../lib/billing/check-plan-limits";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ACCEPTED_PHOTO_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
-const ACCEPTED_SOIL_ANALYSIS_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const ACCEPTED_SOIL_ANALYSIS_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+];
 const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
+
+type SupabaseConfig = { supabaseUrl: string; anonKey: string };
+type ApiErrorCode =
+  | "VALIDATION_ERROR"
+  | "AUTH_REQUIRED"
+  | "PLAN_LIMIT_REACHED"
+  | "SERVER_CONFIGURATION_ERROR"
+  | "DATABASE_SAVE_FAILED"
+  | "DATABASE_PERMISSION_DENIED"
+  | "UPLOAD_FAILED"
+  | "UNKNOWN_ERROR";
+
+type ErrorResponseBody = {
+  error: string;
+  code: ApiErrorCode;
+  fieldErrors?: Record<string, string>;
+};
+
+type SupabaseErrorPayload = {
+  message?: string;
+  error_description?: string;
+  error?: string | { message?: string };
+  code?: string;
+  details?: string;
+  hint?: string;
+};
 
 class FriendlyRequestError extends Error {
   status: number;
+  code: ApiErrorCode;
+  fieldErrors?: Record<string, string>;
 
-  constructor(message: string, status = 400) {
+  constructor(
+    message: string,
+    status = 400,
+    code: ApiErrorCode = "VALIDATION_ERROR",
+    fieldErrors?: Record<string, string>,
+  ) {
     super(message);
+    this.name = "FriendlyRequestError";
     this.status = status;
+    this.code = code;
+    this.fieldErrors = fieldErrors;
   }
 }
 
-function getSupabaseConfig() {
+class ConfigurationError extends Error {
+  status = 500;
+  code: ApiErrorCode = "SERVER_CONFIGURATION_ERROR";
+
+  constructor(
+    message = "Configuração de Supabase ausente para criação de casos.",
+  ) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}
+
+class SupabaseRequestError extends Error {
+  status: number;
+  supabaseCode?: string;
+  details?: string;
+  hint?: string;
+
+  constructor(
+    status: number,
+    payload: SupabaseErrorPayload | null,
+    fallbackMessage: string,
+  ) {
+    const payloadMessage = getPayloadMessage(payload);
+    super(payloadMessage || fallbackMessage);
+    this.name = "SupabaseRequestError";
+    this.status = status;
+    this.supabaseCode = payload?.code;
+    this.details = payload?.details;
+    this.hint = payload?.hint;
+  }
+}
+
+function getPayloadMessage(payload: SupabaseErrorPayload | null) {
+  if (!payload) return "";
+  if (typeof payload.message === "string") return payload.message;
+  if (typeof payload.error_description === "string")
+    return payload.error_description;
+  if (typeof payload.error === "string") return payload.error;
+  if (typeof payload.error?.message === "string") return payload.error.message;
+  return "";
+}
+
+function parseJsonSafely(text: string): SupabaseErrorPayload | null {
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as SupabaseErrorPayload;
+  } catch {
+    return null;
+  }
+}
+
+function getSupabaseConfig(): SupabaseConfig {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !anonKey) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY para salvar casos.");
+    throw new ConfigurationError();
   }
 
   return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), anonKey };
@@ -42,15 +140,28 @@ function optionalText(formData: FormData, key: string) {
   return value.length > 0 ? value : null;
 }
 
-function optionalNumber(formData: FormData, key: string) {
-  const value = requiredText(formData, key).replace(",", ".");
+function optionalNumber(formData: FormData, key: string, label: string) {
+  const rawValue = requiredText(formData, key);
+  const value = rawValue.replace(",", ".");
 
   if (!value) {
     return null;
   }
 
   const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : null;
+
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    throw new FriendlyRequestError(
+      `${label} deve ser um número maior que zero.`,
+      400,
+      "VALIDATION_ERROR",
+      {
+        [key]: `${label} deve ser um número maior que zero.`,
+      },
+    );
+  }
+
+  return numberValue;
 }
 
 function sanitizeFileName(fileName: string) {
@@ -69,81 +180,298 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function validateUploadFile(file: File, allowedTypes: string[], allowedExtensions: string[], label: string) {
+function validateUploadFile(
+  file: File,
+  allowedTypes: string[],
+  allowedExtensions: string[],
+  label: string,
+) {
   const extension = getFileExtension(file.name);
 
-  if (!allowedTypes.includes(file.type) || !allowedExtensions.includes(extension)) {
-    throw new FriendlyRequestError(`${label} "${file.name}" não está em um formato aceito.`);
+  if (
+    !allowedTypes.includes(file.type) ||
+    !allowedExtensions.includes(extension)
+  ) {
+    throw new FriendlyRequestError(
+      `${label} "${file.name}" não está em um formato aceito.`,
+      400,
+      "VALIDATION_ERROR",
+    );
   }
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    throw new FriendlyRequestError(`${label} "${file.name}" excede o limite de 10MB.`);
+    throw new FriendlyRequestError(
+      `${label} "${file.name}" excede o limite de 10MB.`,
+      400,
+      "VALIDATION_ERROR",
+    );
   }
+}
+
+function buildNullableTextFilter(column: string, value: string | null) {
+  return value
+    ? `${column}=eq.${encodeURIComponent(value)}`
+    : `${column}=is.null`;
+}
+
+function buildStoredFilePath(
+  userId: string,
+  caseId: string,
+  fileName: string,
+  index: number,
+) {
+  return `${userId}/${caseId}/${Date.now()}-${index}-${crypto.randomUUID()}-${sanitizeFileName(fileName)}`;
 }
 
 async function supabaseRequest<T>(
   path: string,
   init: RequestInit,
   token: string,
-  config: { supabaseUrl: string; anonKey: string }
+  config: SupabaseConfig,
 ) {
   const response = await fetch(`${config.supabaseUrl}${path}`, {
     ...init,
     headers: {
       apikey: config.anonKey,
       Authorization: `Bearer ${token}`,
-      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init.headers
+      ...(init.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...init.headers,
     },
-    cache: "no-store"
+    cache: "no-store",
   });
 
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  const payload = parseJsonSafely(text);
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase. Tente novamente em instantes.");
+    throw new SupabaseRequestError(
+      response.status,
+      payload,
+      "Erro ao comunicar com o banco de dados.",
+    );
   }
 
   return payload as T;
 }
 
-async function uploadToStorage(file: File, path: string, token: string, config: { supabaseUrl: string; anonKey: string }) {
-  const response = await fetch(`${config.supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: config.anonKey,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": file.type || "application/octet-stream",
-      "x-upsert": "false"
+async function uploadToStorage(
+  file: File,
+  path: string,
+  token: string,
+  config: SupabaseConfig,
+) {
+  const response = await fetch(
+    `${config.supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: config.anonKey,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "false",
+      },
+      body: Buffer.from(await file.arrayBuffer()),
+      cache: "no-store",
     },
-    body: Buffer.from(await file.arrayBuffer()),
-    cache: "no-store"
-  });
+  );
 
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  const payload = parseJsonSafely(text);
 
   if (!response.ok) {
-    if (response.status === 409) {
-      throw new FriendlyRequestError(`Já existe um arquivo chamado ${file.name} neste caso. Renomeie o arquivo e tente novamente.`, 409);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Falha no upload de anexo do caso agronômico.", {
+        status: response.status,
+        code: payload?.code,
+        message: getPayloadMessage(payload),
+        details: payload?.details,
+      });
     }
 
-    throw new Error(payload?.message || payload?.error || `Não foi possível enviar o arquivo ${file.name}. Tente novamente.`);
+    if (response.status === 409) {
+      throw new FriendlyRequestError(
+        `Já existe um arquivo chamado ${file.name} neste caso. Renomeie o arquivo e tente novamente.`,
+        409,
+        "UPLOAD_FAILED",
+      );
+    }
+
+    if (response.status === 401) {
+      throw new FriendlyRequestError(
+        "Sua sessão expirou durante o upload. Faça login novamente e tente enviar o caso.",
+        401,
+        "AUTH_REQUIRED",
+      );
+    }
+
+    if (response.status === 403 || payload?.code === "42501") {
+      throw new FriendlyRequestError(
+        "Não foi possível anexar o arquivo por falta de permissão no storage.",
+        403,
+        "DATABASE_PERMISSION_DENIED",
+      );
+    }
+
+    throw new FriendlyRequestError(
+      `Não foi possível anexar o arquivo "${file.name}". Tente novamente em instantes.`,
+      response.status >= 500 ? 502 : 400,
+      "UPLOAD_FAILED",
+    );
   }
 
   return `${config.supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
 }
 
-async function getAuthenticatedUser(token: string, config: { supabaseUrl: string; anonKey: string }) {
+async function getAuthenticatedUser(token: string, config: SupabaseConfig) {
   return supabaseRequest<{ id: string }>(
     "/auth/v1/user",
     { method: "GET", headers: { "Content-Type": "application/json" } },
     token,
-    config
+    config,
   );
 }
 
+function toErrorResponse(error: unknown): {
+  body: ErrorResponseBody;
+  status: number;
+} {
+  if (error instanceof FriendlyRequestError) {
+    return {
+      status: error.status,
+      body: {
+        error: error.message,
+        code: error.code,
+        fieldErrors: error.fieldErrors,
+      },
+    };
+  }
+
+  if (error instanceof ConfigurationError) {
+    return {
+      status: error.status,
+      body: {
+        error:
+          "Serviço de envio de casos indisponível por configuração do servidor. Avise o suporte.",
+        code: error.code,
+      },
+    };
+  }
+
+  if (error instanceof SupabaseRequestError) {
+    if (error.status === 401) {
+      return {
+        status: 401,
+        body: {
+          error: "Sua sessão expirou. Faça login novamente para enviar o caso.",
+          code: "AUTH_REQUIRED",
+        },
+      };
+    }
+
+    if (error.status === 403 || error.supabaseCode === "42501") {
+      return {
+        status: 403,
+        body: {
+          error:
+            "Você não tem permissão para salvar este caso. Verifique sua sessão e as permissões da conta.",
+          code: "DATABASE_PERMISSION_DENIED",
+        },
+      };
+    }
+
+    if (error.supabaseCode === "23502") {
+      return {
+        status: 400,
+        body: {
+          error: "Há um campo obrigatório ausente no cadastro do caso.",
+          code: "VALIDATION_ERROR",
+        },
+      };
+    }
+
+    if (error.supabaseCode === "23503") {
+      return {
+        status: 400,
+        body: {
+          error:
+            "Não foi possível relacionar o caso ao usuário ou à propriedade informada.",
+          code: "VALIDATION_ERROR",
+        },
+      };
+    }
+
+    if (error.supabaseCode === "23514") {
+      return {
+        status: 400,
+        body: {
+          error:
+            "Algum valor enviado não é aceito pelas regras do banco de dados.",
+          code: "VALIDATION_ERROR",
+        },
+      };
+    }
+
+    if (error.supabaseCode === "22P02") {
+      return {
+        status: 400,
+        body: {
+          error: "Foi enviado um identificador ou número em formato inválido.",
+          code: "VALIDATION_ERROR",
+        },
+      };
+    }
+
+    return {
+      status: error.status >= 500 ? 502 : error.status,
+      body: {
+        error:
+          "Falha ao salvar o caso no banco de dados. Tente novamente em instantes.",
+        code: "DATABASE_SAVE_FAILED",
+      },
+    };
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Erro desconhecido ao salvar o caso.";
+
+  if (/SUPABASE|NEXT_PUBLIC|SERVICE_ROLE|secret|token|apikey/i.test(message)) {
+    return {
+      status: 500,
+      body: {
+        error:
+          "Serviço de envio de casos indisponível por configuração do servidor. Avise o suporte.",
+        code: "SERVER_CONFIGURATION_ERROR",
+      },
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      error:
+        "Não foi possível salvar o caso agronômico. Tente novamente em instantes.",
+      code: "UNKNOWN_ERROR",
+    },
+  };
+}
+
+function logServerError(context: string, error: unknown) {
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      context,
+      error instanceof Error
+        ? { name: error.name, message: error.message }
+        : error,
+    );
+    return;
+  }
+
+  console.error(context, error);
+}
 
 type ListedCaseRow = {
   id: string;
@@ -211,45 +539,73 @@ function buildInFilter(values: string[]) {
 export async function GET(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    const token = request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "");
 
     if (!token) {
-      return NextResponse.json({ error: "Faça login para consultar seus casos agronômicos." }, { status: 401 });
+      return NextResponse.json(
+        { error: "Faça login para consultar seus casos agronômicos." },
+        { status: 401 },
+      );
     }
 
     const user = await getAuthenticatedUser(token, config);
     const { searchParams } = request.nextUrl;
-    const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") ?? "50") || 50));
+    const limit = Math.min(
+      100,
+      Math.max(1, Number(searchParams.get("limit") ?? "50") || 50),
+    );
     const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
     const offset = (page - 1) * limit;
     const scope = searchParams.get("scope");
-    const statusFilter = scope === "human_review"
-      ? "&human_review_requested=eq.true"
-      : scope === "ai_analyzed"
-        ? "&or=(status.eq.ai_analyzed,ai_summary.not.is.null)"
-        : "";
+    const statusFilter =
+      scope === "human_review"
+        ? "&human_review_requested=eq.true"
+        : scope === "ai_analyzed"
+          ? "&or=(status.eq.ai_analyzed,ai_summary.not.is.null)"
+          : "";
     const cases = await supabaseRequest<ListedCaseRow[]>(
       `/rest/v1/agronomic_cases?user_id=eq.${encodeURIComponent(user.id)}&deleted_at=is.null${statusFilter}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,ai_analysis_json,human_review_requested,human_review_status,created_at,updated_at,farm_id&order=updated_at.desc&limit=${limit}&offset=${offset}`,
       { method: "GET" },
       token,
-      config
+      config,
     );
 
     if (cases.length === 0) {
-      const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(() => null);
+      const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(
+        () => null,
+      );
       return NextResponse.json({
         cases: [],
         pagination: { page, limit, hasMore: false },
-        plan: planCheck ? {
-          slug: planCheck.planSlug === "ia-revisao-humana" ? "premium" : planCheck.planSlug,
-          label: planCheck.planSlug === "ia-revisao-humana" ? "Premium" : planCheck.planLabel.replace("Plano ", ""),
-          remaining: planCheck.remaining,
-          subscriptionStatus: planCheck.planSlug === "gratuito" ? "Sem assinatura ativa" : "Assinatura ativa"
-        } : undefined
+        plan: planCheck
+          ? {
+              slug:
+                planCheck.planSlug === "ia-revisao-humana"
+                  ? "premium"
+                  : planCheck.planSlug,
+              label:
+                planCheck.planSlug === "ia-revisao-humana"
+                  ? "Premium"
+                  : planCheck.planLabel.replace("Plano ", ""),
+              remaining: planCheck.remaining,
+              subscriptionStatus:
+                planCheck.planSlug === "gratuito"
+                  ? "Sem assinatura ativa"
+                  : "Assinatura ativa",
+            }
+          : undefined,
       });
     }
 
-    const farmIds = Array.from(new Set(cases.map((caseItem) => caseItem.farm_id).filter((id): id is string => Boolean(id))));
+    const farmIds = Array.from(
+      new Set(
+        cases
+          .map((caseItem) => caseItem.farm_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
     const caseIds = cases.map((caseItem) => caseItem.id);
 
     const [farms, humanReviews, reports, orders] = await Promise.all([
@@ -258,37 +614,42 @@ export async function GET(request: NextRequest) {
             `/rest/v1/farms?id=${buildInFilter(farmIds)}&select=id,name,city,state,area_hectares,soil_type`,
             { method: "GET" },
             token,
-            config
+            config,
           )
         : Promise.resolve([]),
       supabaseRequest<ListedHumanReview[]>(
         `/rest/v1/human_reviews?case_id=${buildInFilter(caseIds)}&select=id,case_id,status,review_text,technical_recommendation,final_observations,reviewed_at,created_at&order=created_at.desc`,
         { method: "GET" },
         token,
-        config
+        config,
       ),
       supabaseRequest<ListedReport[]>(
         `/rest/v1/reports?case_id=${buildInFilter(caseIds)}&select=id,case_id,report_url,report_type,created_at&order=created_at.desc`,
         { method: "GET" },
         token,
-        config
+        config,
       ),
       supabaseRequest<ListedOneTimeOrder[]>(
         `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(user.id)}&case_id=${buildInFilter(caseIds)}&service_type=eq.human_case_review&select=id,case_id,service_type,price_cents,payment_status,stripe_checkout_session_id,created_at,updated_at&order=created_at.desc`,
         { method: "GET" },
         token,
-        config
-      ).catch(() => [])
+        config,
+      ).catch(() => []),
     ]);
 
     const imageRows = await supabaseRequest<Array<{ case_id: string }>>(
       `/rest/v1/case_images?case_id=${buildInFilter(caseIds)}&select=case_id`,
       { method: "GET" },
       token,
-      config
+      config,
     ).catch(() => []);
-    const imageCounts = imageRows.reduce((acc, row) => acc.set(row.case_id, (acc.get(row.case_id) ?? 0) + 1), new Map<string, number>());
-    const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(() => null);
+    const imageCounts = imageRows.reduce(
+      (acc, row) => acc.set(row.case_id, (acc.get(row.case_id) ?? 0) + 1),
+      new Map<string, number>(),
+    );
+    const planCheck = await getPlanLimitCheck(user.id, "case_analysis").catch(
+      () => null,
+    );
 
     const farmsById = new Map(farms.map((farm) => [farm.id, farm]));
     const reviewsByCaseId = new Map<string, ListedHumanReview>();
@@ -316,24 +677,41 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       cases: cases.map((caseItem) => ({
         ...caseItem,
-        farm: caseItem.farm_id ? farmsById.get(caseItem.farm_id) ?? null : null,
+        farm: caseItem.farm_id
+          ? (farmsById.get(caseItem.farm_id) ?? null)
+          : null,
         latestHumanReview: reviewsByCaseId.get(caseItem.id) ?? null,
         latestReport: reportsByCaseId.get(caseItem.id) ?? null,
         latestOrder: ordersByCaseId.get(caseItem.id) ?? null,
         payment_status: ordersByCaseId.get(caseItem.id)?.payment_status ?? null,
-        review_price_cents: ordersByCaseId.get(caseItem.id)?.price_cents ?? null,
-        images_count: imageCounts.get(caseItem.id) ?? 0
+        review_price_cents:
+          ordersByCaseId.get(caseItem.id)?.price_cents ?? null,
+        images_count: imageCounts.get(caseItem.id) ?? 0,
       })),
       pagination: { page, limit, hasMore: cases.length === limit },
-      plan: planCheck ? {
-        slug: planCheck.planSlug === "ia-revisao-humana" ? "premium" : planCheck.planSlug,
-        label: planCheck.planSlug === "ia-revisao-humana" ? "Premium" : planCheck.planLabel.replace("Plano ", ""),
-        remaining: planCheck.remaining,
-        subscriptionStatus: planCheck.planSlug === "gratuito" ? "Sem assinatura ativa" : "Assinatura ativa"
-      } : undefined
+      plan: planCheck
+        ? {
+            slug:
+              planCheck.planSlug === "ia-revisao-humana"
+                ? "premium"
+                : planCheck.planSlug,
+            label:
+              planCheck.planSlug === "ia-revisao-humana"
+                ? "Premium"
+                : planCheck.planLabel.replace("Plano ", ""),
+            remaining: planCheck.remaining,
+            subscriptionStatus:
+              planCheck.planSlug === "gratuito"
+                ? "Sem assinatura ativa"
+                : "Assinatura ativa",
+          }
+        : undefined,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível carregar seus casos agronômicos.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Não foi possível carregar seus casos agronômicos.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -341,31 +719,79 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    const token = request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "");
 
     if (!token) {
-      return NextResponse.json({ error: "Faça login para enviar um caso agronômico." }, { status: 401 });
+      return NextResponse.json(
+        {
+          error: "Faça login para enviar um caso agronômico.",
+          code: "AUTH_REQUIRED" satisfies ApiErrorCode,
+        },
+        { status: 401 },
+      );
     }
 
     const formData = await request.formData();
     const crop = requiredText(formData, "crop");
     const state = requiredText(formData, "state");
     const symptoms = requiredText(formData, "symptoms");
+    const fieldErrors: Record<string, string> = {};
 
-    if (!crop || !state || !symptoms) {
-      return NextResponse.json({ error: "Preencha cultura, estado e sintomas observados." }, { status: 400 });
+    if (!crop) fieldErrors.crop = "Informe a cultura.";
+    if (!state) fieldErrors.state = "Informe o estado.";
+    if (!symptoms) fieldErrors.symptoms = "Descreva os sintomas observados.";
+
+    if (Object.keys(fieldErrors).length > 0) {
+      throw new FriendlyRequestError(
+        "Preencha os campos obrigatórios antes de enviar o caso.",
+        400,
+        "VALIDATION_ERROR",
+        fieldErrors,
+      );
     }
 
+    const farmName = optionalText(formData, "farmName");
+    const city = optionalText(formData, "city");
+    const areaHectares = optionalNumber(
+      formData,
+      "areaHectares",
+      "Área em hectares",
+    );
+    const soilType = optionalText(formData, "soilType");
+    const growthStage = optionalText(formData, "growthStage");
+    const managementHistory = optionalText(formData, "managementHistory");
     const photoFiles = formData.getAll("photos").filter(isFile);
     const soilAnalysis = formData.get("soilAnalysis");
 
-    photoFiles.forEach((photo) => validateUploadFile(photo, ACCEPTED_PHOTO_TYPES, ACCEPTED_PHOTO_EXTENSIONS, "A imagem"));
+    photoFiles.forEach((photo) =>
+      validateUploadFile(
+        photo,
+        ACCEPTED_PHOTO_TYPES,
+        ACCEPTED_PHOTO_EXTENSIONS,
+        "A imagem",
+      ),
+    );
 
     if (isFile(soilAnalysis)) {
-      validateUploadFile(soilAnalysis, ACCEPTED_SOIL_ANALYSIS_TYPES, ACCEPTED_SOIL_ANALYSIS_EXTENSIONS, "A análise de solo");
+      validateUploadFile(
+        soilAnalysis,
+        ACCEPTED_SOIL_ANALYSIS_TYPES,
+        ACCEPTED_SOIL_ANALYSIS_EXTENSIONS,
+        "A análise de solo",
+      );
     }
 
     const user = await getAuthenticatedUser(token, config);
+
+    if (!user?.id) {
+      throw new FriendlyRequestError(
+        "Sua sessão não retornou um usuário válido. Faça login novamente e tente enviar o caso.",
+        401,
+        "AUTH_REQUIRED",
+      );
+    }
 
     if (photoFiles.length > 0) {
       await assertPlanFeature(user.id, "photo_upload");
@@ -375,44 +801,63 @@ export async function POST(request: NextRequest) {
       await assertPlanFeature(user.id, "soil_analysis_upload");
     }
 
-    const farmName = optionalText(formData, "farmName");
-    const city = optionalText(formData, "city");
-    const areaHectares = optionalNumber(formData, "areaHectares");
-    const soilType = optionalText(formData, "soilType");
-
     const farmPayload = {
       user_id: user.id,
       name: farmName,
       city,
       state,
       area_hectares: areaHectares,
-      soil_type: soilType
+      soil_type: soilType,
     };
+    const farmLookupFilter = [
+      `user_id=eq.${encodeURIComponent(user.id)}`,
+      buildNullableTextFilter("name", farmName),
+      buildNullableTextFilter("city", city),
+      `state=eq.${encodeURIComponent(state)}`,
+      "select=id",
+      "limit=1",
+    ].join("&");
 
     const farms = await supabaseRequest<Array<{ id: string }>>(
-      "/rest/v1/farms?select=id&name=eq." + encodeURIComponent(farmName ?? "") + "&city=eq." + encodeURIComponent(city ?? "") + "&state=eq." + encodeURIComponent(state) + "&limit=1",
+      `/rest/v1/farms?${farmLookupFilter}`,
       { method: "GET" },
       token,
-      config
+      config,
     );
 
     const farm = farms[0]
       ? (
           await supabaseRequest<Array<{ id: string }>>(
-            `/rest/v1/farms?id=eq.${farms[0].id}&select=id`,
-            { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(farmPayload) },
+            `/rest/v1/farms?id=eq.${encodeURIComponent(farms[0].id)}&user_id=eq.${encodeURIComponent(user.id)}&select=id`,
+            {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify(farmPayload),
+            },
             token,
-            config
+            config,
           )
         )[0]
       : (
           await supabaseRequest<Array<{ id: string }>>(
             "/rest/v1/farms?select=id",
-            { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(farmPayload) },
+            {
+              method: "POST",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify(farmPayload),
+            },
             token,
-            config
+            config,
           )
         )[0];
+
+    if (!farm?.id) {
+      throw new FriendlyRequestError(
+        "Não foi possível salvar os dados da propriedade. Verifique sua sessão e tente novamente.",
+        502,
+        "DATABASE_SAVE_FAILED",
+      );
+    }
 
     const createdCase = (
       await supabaseRequest<Array<{ id: string }>>(
@@ -424,54 +869,99 @@ export async function POST(request: NextRequest) {
             user_id: user.id,
             farm_id: farm.id,
             crop,
-            growth_stage: optionalText(formData, "growthStage"),
+            growth_stage: growthStage,
             symptoms,
-            history: optionalText(formData, "managementHistory"),
-            status: "submitted"
-          })
+            history: managementHistory,
+            status: "submitted",
+          }),
         },
         token,
-        config
+        config,
       )
     )[0];
 
+    if (!createdCase?.id) {
+      throw new FriendlyRequestError(
+        "Não foi possível criar o registro do caso. Verifique as permissões da conta e tente novamente.",
+        502,
+        "DATABASE_SAVE_FAILED",
+      );
+    }
+
     const uploadedImages = [];
 
-    for (const photo of photoFiles) {
-      const path = `${user.id}/${createdCase.id}/${sanitizeFileName(photo.name)}`;
+    for (const [index, photo] of photoFiles.entries()) {
+      const path = buildStoredFilePath(
+        user.id,
+        createdCase.id,
+        photo.name,
+        index,
+      );
       const imageUrl = await uploadToStorage(photo, path, token, config);
-      uploadedImages.push({ case_id: createdCase.id, user_id: user.id, image_url: imageUrl, image_type: photo.type || "image" });
+      uploadedImages.push({
+        case_id: createdCase.id,
+        user_id: user.id,
+        image_url: imageUrl,
+        image_type: photo.type || "image",
+      });
     }
 
     if (uploadedImages.length > 0) {
       await supabaseRequest(
         "/rest/v1/case_images",
-        { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(uploadedImages) },
+        {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(uploadedImages),
+        },
         token,
-        config
+        config,
       );
     }
 
     if (isFile(soilAnalysis)) {
-      const path = `${user.id}/${createdCase.id}/${sanitizeFileName(soilAnalysis.name)}`;
-      const soilAnalysisUrl = await uploadToStorage(soilAnalysis, path, token, config);
+      const path = buildStoredFilePath(
+        user.id,
+        createdCase.id,
+        soilAnalysis.name,
+        photoFiles.length,
+      );
+      const soilAnalysisUrl = await uploadToStorage(
+        soilAnalysis,
+        path,
+        token,
+        config,
+      );
 
       await supabaseRequest(
-        `/rest/v1/agronomic_cases?id=eq.${createdCase.id}`,
-        { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ soil_analysis_url: soilAnalysisUrl }) },
+        `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(createdCase.id)}&user_id=eq.${encodeURIComponent(user.id)}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ soil_analysis_url: soilAnalysisUrl }),
+        },
         token,
-        config
+        config,
       );
     }
 
-    return NextResponse.json({ caseId: createdCase.id });
+    return NextResponse.json({
+      caseId: createdCase.id,
+      message: "Caso salvo e enviado com sucesso.",
+    });
   } catch (error) {
     if (error instanceof PlanFeatureUnavailableError) {
-      return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
+      return NextResponse.json(
+        {
+          error: PLAN_LIMIT_REACHED_MESSAGE,
+          code: "PLAN_LIMIT_REACHED" satisfies ApiErrorCode,
+        },
+        { status: error.status },
+      );
     }
 
-    const message = error instanceof Error ? error.message : "Não foi possível salvar o caso agronômico.";
-    const status = error instanceof FriendlyRequestError ? error.status : 500;
-    return NextResponse.json({ error: message }, { status });
+    logServerError("Erro ao criar caso agronômico", error);
+    const { body, status } = toErrorResponse(error);
+    return NextResponse.json(body, { status });
   }
 }
