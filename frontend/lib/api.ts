@@ -111,7 +111,8 @@ export async function recommendCrop(payload: CropPayload) {
 }
 
 export type DiseaseTriagePayload = {
-  file: File;
+  file?: File;
+  files?: File[];
   crop: string;
   symptoms: string;
   state: string;
@@ -123,7 +124,13 @@ export type DiseaseTriagePayload = {
 
 export async function detectDisease(payload: DiseaseTriagePayload) {
   const formData = new FormData();
-  formData.append("file", payload.file);
+  const files = payload.files?.length
+    ? payload.files
+    : payload.file
+      ? [payload.file]
+      : [];
+
+  files.forEach((file) => formData.append("files", file));
   formData.append("crop", payload.crop);
   formData.append("symptoms", payload.symptoms);
   formData.append("state", payload.state);

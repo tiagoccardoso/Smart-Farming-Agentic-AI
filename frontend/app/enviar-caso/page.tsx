@@ -25,7 +25,6 @@ import {
 } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
-const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_SIZE_LABEL = "10MB";
 const PHOTO_COMPRESSION_TRIGGER_BYTES = 4 * 1024 * 1024;
@@ -734,11 +733,6 @@ function EnviarCasoContent() {
             <h3 className="text-lg font-semibold text-slate-900">
               Fotos e documentos
             </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Os uploads estão preparados para o bucket Supabase Storage{" "}
-              <strong>{STORAGE_BUCKET}</strong>.
-            </p>
-
             <div className="mt-6 space-y-5">
               <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
                 <span className="font-semibold text-slate-900">
@@ -752,10 +746,10 @@ function EnviarCasoContent() {
                   onGalleryChange={handlePhotosChange}
                   onCameraChange={handlePhotosChange}
                   disabled={loading || loadingExistingCase || preparingPhotos}
-                  galleryLabel="Escolher arquivos"
-                  cameraLabel="Câmera"
+                  galleryLabel="Escolher imagem"
+                  cameraLabel="Tirar Foto"
                   galleryAriaLabel="Escolher uma ou mais imagens da galeria"
-                  cameraAriaLabel="Abrir câmera do celular"
+                  cameraAriaLabel="Tirar foto pelo smartphone"
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF. Limite de{" "}

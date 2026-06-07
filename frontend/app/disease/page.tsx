@@ -68,6 +68,176 @@ const confidenceLabels: Record<string, string> = {
   high: "Confiança alta",
 };
 
+const MAX_DISEASE_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_DISEASE_IMAGE_SIZE_LABEL = "10MB";
+const PHOTO_COMPRESSION_TRIGGER_BYTES = 4 * 1024 * 1024;
+const PHOTO_COMPRESSION_TARGET_BYTES = 3 * 1024 * 1024;
+const PHOTO_MAX_DIMENSION = 1920;
+const PHOTO_COMPRESSION_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_DISEASE_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const ACCEPTED_DISEASE_IMAGE_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+];
+const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
+
+type DiseaseImagePreview = {
+  id: string;
+  name: string;
+  url: string;
+  index: number;
+};
+
+function fileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function getFileExtension(fileName: string) {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function getNormalizedFileType(file: File) {
+  const normalizedType = file.type.toLowerCase();
+
+  if (normalizedType && normalizedType !== "application/octet-stream") {
+    return normalizedType;
+  }
+
+  const extension = getFileExtension(file.name);
+  const typeByExtension: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+  };
+
+  return typeByExtension[extension] ?? normalizedType;
+}
+
+function isAllowedMobileImage(file: File) {
+  const extension = getFileExtension(file.name);
+  const hasAllowedExtension = ACCEPTED_DISEASE_IMAGE_EXTENSIONS.includes(extension);
+  const normalizedType = file.type.toLowerCase();
+  const inferredType = getNormalizedFileType(file);
+
+  if (
+    ACCEPTED_DISEASE_IMAGE_TYPES.includes(normalizedType) ||
+    ACCEPTED_DISEASE_IMAGE_TYPES.includes(inferredType)
+  ) {
+    return true;
+  }
+
+  return hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
+}
+
+function replaceFileExtension(fileName: string, extension: string) {
+  const cleanName = fileName.replace(/\.[^/.]+$/, "");
+  return `${cleanName || "foto-doenca"}.${extension}`;
+}
+
+function loadImageFromFile(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = document.createElement("img");
+
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Não foi possível ler a imagem selecionada."));
+    };
+    image.src = imageUrl;
+  });
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number,
+) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
+
+async function compressPhotoForMobileUpload(file: File) {
+  const normalizedType = getNormalizedFileType(file);
+
+  if (
+    file.size <= PHOTO_COMPRESSION_TRIGGER_BYTES ||
+    !PHOTO_COMPRESSION_TYPES.includes(normalizedType)
+  ) {
+    return file;
+  }
+
+  try {
+    const image = await loadImageFromFile(file);
+    const scale = Math.min(
+      1,
+      PHOTO_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) return file;
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+
+    let quality = 0.82;
+    let blob = await canvasToBlob(canvas, "image/jpeg", quality);
+
+    while (
+      blob &&
+      blob.size > PHOTO_COMPRESSION_TARGET_BYTES &&
+      quality > 0.55
+    ) {
+      quality -= 0.08;
+      blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    }
+
+    if (!blob || blob.size >= file.size) {
+      return file;
+    }
+
+    return new File([blob], replaceFileExtension(file.name, "jpg"), {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  }
+}
+
+function validateDiseaseImage(file: File) {
+  if (!isAllowedMobileImage(file)) {
+    return `A imagem "${file.name}" não está em um formato aceito.`;
+  }
+
+  if (file.size > MAX_DISEASE_IMAGE_SIZE_BYTES) {
+    return `A imagem "${file.name}" excede o limite de ${MAX_DISEASE_IMAGE_SIZE_LABEL}.`;
+  }
+
+  return null;
+}
+
 const riskStyles: Record<string, string> = {
   low: "border-emerald-200 bg-emerald-50 text-emerald-700",
   medium: "border-amber-200 bg-amber-50 text-amber-800",
@@ -99,9 +269,10 @@ function CardList({ title, items }: { title: string; items: string[] }) {
 }
 
 export default function DiseasePage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [zoomPreviewUrl, setZoomPreviewUrl] = useState<string | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
+  const [preparingImages, setPreparingImages] = useState(false);
   const [crop, setCrop] = useState("");
   const [symptoms, setSymptoms] = useState("");
   const [state, setState] = useState("");
@@ -129,6 +300,17 @@ export default function DiseasePage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
+  const imagePreviews = useMemo<DiseaseImagePreview[]>(
+    () =>
+      files.map((file, index) => ({
+        id: `${fileKey(file)}-${index}`,
+        name: file.name,
+        url: URL.createObjectURL(file),
+        index,
+      })),
+    [files],
+  );
+
   const selectedCrop = useMemo(
     () => crops.find((item) => [item.name, item.display_name_pt].includes(crop)),
     [crop, crops],
@@ -149,33 +331,89 @@ export default function DiseasePage() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      imagePreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    };
+  }, [imagePreviews]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, chatLoading]);
 
-  function selectFile(nextFile: File | null) {
-    if (nextFile && !nextFile.type.match(/^image\/(jpeg|png|webp)$/)) {
-      setError("Envie imagens JPG, PNG ou WEBP.");
+  async function addSelectedImages(fileList: FileList | File[]) {
+    const selectedFiles = Array.from(fileList);
+
+    if (selectedFiles.length === 0) {
       return;
     }
 
+    setPreparingImages(true);
     setError(null);
-    setFile(nextFile);
-    setZoomOpen(false);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+
+    try {
+      const preparedFiles = await Promise.all(
+        selectedFiles.map((selectedFile) =>
+          compressPhotoForMobileUpload(selectedFile),
+        ),
+      );
+      const invalidFileMessage = preparedFiles
+        .map((selectedFile) => validateDiseaseImage(selectedFile))
+        .find(Boolean);
+
+      if (invalidFileMessage) {
+        setError(invalidFileMessage);
+        return;
+      }
+
+      setFiles((currentFiles) => {
+        const currentKeys = new Set(currentFiles.map(fileKey));
+        const uniqueSelectedFiles = preparedFiles.filter((selectedFile) => {
+          const key = fileKey(selectedFile);
+
+          if (currentKeys.has(key)) return false;
+
+          currentKeys.add(key);
+          return true;
+        });
+
+        return [...currentFiles, ...uniqueSelectedFiles];
+      });
+      setZoomOpen(false);
+      setZoomPreviewUrl(null);
+    } catch {
+      setError(
+        "Não foi possível preparar a imagem selecionada. Tente escolher outra foto.",
+      );
+    } finally {
+      setPreparingImages(false);
     }
-    setPreviewUrl(nextFile ? URL.createObjectURL(nextFile) : null);
+  }
+
+  function handleRemoveImage(indexToRemove: number) {
+    setFiles((currentFiles) =>
+      currentFiles.filter((_, index) => index !== indexToRemove),
+    );
+    setError(null);
+    setZoomOpen(false);
+    setZoomPreviewUrl(null);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
-    selectFile(event.dataTransfer.files?.[0] ?? null);
+    void addSelectedImages(event.dataTransfer.files);
   }
 
   async function handleSubmit() {
-    if (!file || !crop.trim() || !symptoms.trim() || !state.trim()) {
-      setError("Envie foto, cultura, sintomas e localização para iniciar a consulta.");
+    if (!files.length || !crop.trim() || !symptoms.trim() || !state.trim()) {
+      setError(
+        "Envie ao menos uma foto, cultura, sintomas e localização para iniciar a consulta.",
+      );
+      return;
+    }
+
+    if (preparingImages) {
+      setError("Aguarde a preparação das imagens antes de iniciar a triagem.");
       return;
     }
 
@@ -190,7 +428,7 @@ export default function DiseasePage() {
 
     try {
       const response = await detectDisease({
-        file,
+        files,
         crop,
         symptoms,
         state,
@@ -306,19 +544,25 @@ export default function DiseasePage() {
     if (!selected) {
       return;
     }
-    if (!selected.type.match(/^image\/(jpeg|png|webp)$/)) {
-      setError("Envie imagens JPG, PNG ou WEBP.");
+
+    const preparedSelected = await compressPhotoForMobileUpload(selected);
+    const invalidFileMessage = validateDiseaseImage(preparedSelected);
+
+    if (invalidFileMessage) {
+      setError(invalidFileMessage);
       return;
     }
+
     const formData = new FormData();
+    const message = chatText.trim();
     formData.append("messageType", "image");
-    formData.append("message", chatText.trim());
-    formData.append("file", selected);
-    const localUrl = URL.createObjectURL(selected);
+    formData.append("message", message);
+    formData.append("file", preparedSelected);
+    const localUrl = URL.createObjectURL(preparedSelected);
     setChatText("");
     await sendChatPayload(formData, {
       role: "user",
-      content: chatText.trim() || "Nova foto enviada para comparar a evolução dos sintomas.",
+      content: message || "Nova foto enviada para comparar a evolução dos sintomas.",
       messageType: "image",
       fileUrl: localUrl,
     });
@@ -406,29 +650,73 @@ export default function DiseasePage() {
               onDrop={handleDrop}
               className={`rounded-[2rem] border-2 border-dashed p-5 text-center transition ${dragging ? "border-leaf-500 bg-leaf-50" : "border-leaf-200 bg-slate-50"}`}
             >
-              {previewUrl ? (
-                <button type="button" onClick={() => setZoomOpen(true)} className="block w-full overflow-hidden rounded-[1.5rem] bg-black">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={previewUrl} alt="Prévia da planta enviada" className="max-h-96 w-full object-contain" />
-                </button>
+              {imagePreviews.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {imagePreviews.map((preview) => (
+                    <figure
+                      key={preview.id}
+                      className="overflow-hidden rounded-[1.5rem] border border-leaf-100 bg-white text-left shadow-sm"
+                    >
+                      <div className="relative bg-black">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setZoomPreviewUrl(preview.url);
+                            setZoomOpen(true);
+                          }}
+                          className="block w-full"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={preview.url}
+                            alt={`Prévia de ${preview.name}`}
+                            className="h-44 w-full object-contain"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(preview.index)}
+                          className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-red-700 shadow-soft"
+                          aria-label={`Remover imagem ${preview.name}`}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                      <figcaption className="truncate px-3 py-2 text-xs font-semibold text-slate-700">
+                        {preview.name}
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
               ) : (
                 <div className="py-12">
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-leaf-100 text-3xl">📷</div>
-                  <p className="mt-4 font-semibold text-slate-900">Arraste a foto da planta aqui</p>
-                  <p className="mt-1 text-sm text-slate-500">JPG, PNG ou WEBP até 10MB</p>
+                  <p className="mt-4 font-semibold text-slate-900">Arraste uma ou mais fotos da planta aqui</p>
+                  <p className="mt-1 text-sm text-slate-500">JPG, PNG, WEBP, HEIC ou HEIF até 10MB por imagem</p>
                 </div>
               )}
               <MobileImagePicker
-                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
                 cameraAccept="image/*"
+                multiple
+                capture="environment"
                 galleryLabel="Escolher imagem"
-                cameraLabel="Tirar foto"
-                galleryAriaLabel="Escolher imagem da planta"
-                cameraAriaLabel="Tirar foto da planta"
-                onGalleryChange={(event) => selectFile(event.target.files?.[0] ?? null)}
-                onCameraChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+                cameraLabel="Tirar Foto"
+                galleryAriaLabel="Escolher uma ou mais imagens da planta"
+                cameraAriaLabel="Tirar foto da planta pelo smartphone"
+                disabled={loading || preparingImages}
+                onGalleryChange={(event) => void addSelectedImages(event.target.files ?? [])}
+                onCameraChange={(event) => void addSelectedImages(event.target.files ?? [])}
                 className="mt-4 justify-center"
               />
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Você pode selecionar várias imagens, tirar foto pelo celular e remover qualquer imagem antes de iniciar a triagem.
+              </p>
+              {preparingImages && (
+                <p className="mt-3 rounded-xl bg-leaf-50 p-3 text-sm font-semibold text-leaf-800">
+                  Preparando imagem para envio pelo celular...
+                </p>
+              )}
             </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -487,10 +775,10 @@ export default function DiseasePage() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={loading}
+              disabled={loading || preparingImages}
               className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-4 text-sm font-bold uppercase tracking-wide text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {loading ? "Analisando imagem, cultura e contexto..." : "Iniciar triagem inteligente"}
+              {preparingImages ? "Preparando imagens..." : loading ? "Analisando imagem, cultura e contexto..." : "Iniciar triagem inteligente"}
             </button>
             {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
           </div>
@@ -602,10 +890,10 @@ export default function DiseasePage() {
                 <textarea value={chatText} onChange={(event) => setChatText(event.target.value)} rows={4} placeholder="Responda à pergunta atual, descreva evolução ou acrescente detalhes do talhão." className="w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-400" />
                 <div className="flex flex-wrap gap-2">
                   <MobileImagePicker
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
                     cameraAccept="image/*"
                     galleryLabel="Enviar nova foto"
-                    cameraLabel="Tirar foto"
+                    cameraLabel="Tirar Foto"
                     galleryAriaLabel="Selecionar nova foto para o chat"
                     cameraAriaLabel="Tirar nova foto para o chat"
                     disabled={chatLoading}
@@ -636,10 +924,10 @@ export default function DiseasePage() {
         )}
       </section>
 
-      {zoomOpen && previewUrl && (
+      {zoomOpen && zoomPreviewUrl && (
         <button type="button" onClick={() => setZoomOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewUrl} alt="Zoom da imagem da planta" className="max-h-full max-w-full rounded-2xl object-contain" />
+          <img src={zoomPreviewUrl} alt="Zoom da imagem da planta" className="max-h-full max-w-full rounded-2xl object-contain" />
         </button>
       )}
     </div>

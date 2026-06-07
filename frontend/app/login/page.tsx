@@ -93,8 +93,7 @@ function LoginContent() {
       }
 
       window.dispatchEvent(new Event("auth:changed"));
-      router.replace(postLoginRedirectPath);
-      router.refresh();
+      window.location.replace(postLoginRedirectPath);
     } catch (loginError) {
       setError(
         loginError instanceof Error

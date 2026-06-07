@@ -19,8 +19,22 @@ import {
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
-const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ACCEPTED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+const ACCEPTED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const ACCEPTED_IMAGE_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+];
+const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 const ACCEPTED_AUDIO_TYPES = [
   "audio/webm",
   "audio/mpeg",
@@ -67,6 +81,43 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function getNormalizedFileType(file: File) {
+  const normalizedType = file.type.toLowerCase();
+
+  if (normalizedType && normalizedType !== "application/octet-stream") {
+    return normalizedType;
+  }
+
+  const extension = getFileExtension(file.name);
+  const typeByExtension: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+  };
+
+  return typeByExtension[extension] ?? normalizedType;
+}
+
+function isAllowedMobileUpload(
+  file: File,
+  allowedTypes: string[],
+  allowedExtensions: string[],
+) {
+  const extension = getFileExtension(file.name);
+  const hasAllowedExtension = allowedExtensions.includes(extension);
+  const normalizedType = file.type.toLowerCase();
+  const inferredType = getNormalizedFileType(file);
+
+  if (allowedTypes.includes(normalizedType) || allowedTypes.includes(inferredType)) {
+    return true;
+  }
+
+  return hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
+}
+
 function validateUploadFile(
   file: File,
   allowedTypes: string[],
@@ -74,12 +125,7 @@ function validateUploadFile(
   maxSize: number,
   label: string,
 ) {
-  const extension = getFileExtension(file.name);
-
-  if (
-    !allowedTypes.includes(file.type) ||
-    !allowedExtensions.includes(extension)
-  ) {
+  if (!isAllowedMobileUpload(file, allowedTypes, allowedExtensions)) {
     throw new FriendlyRequestError(`${label} em formato inválido.`);
   }
 
@@ -97,7 +143,7 @@ async function uploadToStorage(file: File, path: string, token: string) {
       headers: {
         apikey: config.anonKey,
         Authorization: `Bearer ${token}`,
-        "Content-Type": file.type || "application/octet-stream",
+        "Content-Type": getNormalizedFileType(file) || "application/octet-stream",
         "x-upsert": "false",
       },
       body: Buffer.from(await file.arrayBuffer()),

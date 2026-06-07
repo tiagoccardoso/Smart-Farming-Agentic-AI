@@ -22,8 +22,22 @@ import {
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ACCEPTED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+const ACCEPTED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const ACCEPTED_IMAGE_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+];
+const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 const DISEASE_TRIAGE_DISCLAIMER =
   "Esta análise é uma triagem orientativa gerada por IA e não substitui avaliação de profissional habilitado.";
 
@@ -70,11 +84,45 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function validateImage(file: File) {
-  const extension = getFileExtension(file.name);
+function getNormalizedFileType(file: File) {
+  const normalizedType = file.type.toLowerCase();
 
-  if (!ACCEPTED_IMAGE_TYPES.includes(file.type) || !ACCEPTED_IMAGE_EXTENSIONS.includes(extension)) {
-    throw new FriendlyRequestError("Envie uma imagem JPG, PNG ou WEBP da planta.");
+  if (normalizedType && normalizedType !== "application/octet-stream") {
+    return normalizedType;
+  }
+
+  const extension = getFileExtension(file.name);
+  const typeByExtension: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+  };
+
+  return typeByExtension[extension] ?? normalizedType;
+}
+
+function isAllowedMobileImage(file: File) {
+  const extension = getFileExtension(file.name);
+  const hasAllowedExtension = ACCEPTED_IMAGE_EXTENSIONS.includes(extension);
+  const normalizedType = file.type.toLowerCase();
+  const inferredType = getNormalizedFileType(file);
+
+  if (
+    ACCEPTED_IMAGE_TYPES.includes(normalizedType) ||
+    ACCEPTED_IMAGE_TYPES.includes(inferredType)
+  ) {
+    return true;
+  }
+
+  return hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
+}
+
+function validateImage(file: File) {
+  if (!isAllowedMobileImage(file)) {
+    throw new FriendlyRequestError("Envie uma imagem JPG, PNG, WEBP, HEIC ou HEIF da planta.");
   }
 
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
@@ -89,7 +137,7 @@ async function uploadToStorage(file: File, path: string, token: string) {
     headers: {
       apikey: config.anonKey,
       Authorization: `Bearer ${token}`,
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": getNormalizedFileType(file) || "application/octet-stream",
       "x-upsert": "false",
     },
     body: Buffer.from(await file.arrayBuffer()),
@@ -164,7 +212,13 @@ export async function POST(request: Request) {
 
     const user = await getAuthenticatedUser(token);
     const formData = await request.formData();
-    const file = formData.get("file");
+    const filesFromPayload = formData.getAll("files").filter(isFile);
+    const legacyFile = formData.get("file");
+    const files = filesFromPayload.length
+      ? filesFromPayload
+      : isFile(legacyFile)
+        ? [legacyFile]
+        : [];
     const crop = requiredText(formData, "crop");
     const symptoms = requiredText(formData, "symptoms");
     const state = requiredText(formData, "state") || "Não informado";
@@ -173,14 +227,14 @@ export async function POST(request: Request) {
     const soilType = optionalText(formData, "soilType");
     const history = optionalText(formData, "history");
 
-    if (!crop || !symptoms || !isFile(file)) {
+    if (!crop || !symptoms || files.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Envie foto, cultura e sintomas para iniciar a triagem agronômica." },
+        { success: false, error: "Envie ao menos uma foto, cultura e sintomas para iniciar a triagem agronômica." },
         { status: 400 },
       );
     }
 
-    validateImage(file);
+    files.forEach(validateImage);
     await assertPlanLimit(user.id, "image_triage");
 
     const farmRows = await supabaseRequest<Array<{ id: string }>>(
@@ -221,20 +275,34 @@ export async function POST(request: Request) {
     );
     const createdCase = caseRows[0];
 
-    const imagePath = `${user.id}/${createdCase.id}/disease-triage/${Date.now()}-${sanitizeFileName(file.name)}`;
-    const imageUrl = await uploadToStorage(file, imagePath, token);
+    const uploadedImages = await Promise.all(
+      files.map(async (file, index) => {
+        const imagePath = `${user.id}/${createdCase.id}/disease-triage/${Date.now()}-${index}-${sanitizeFileName(file.name)}`;
+        const imageUrl = await uploadToStorage(file, imagePath, token);
+        return {
+          imageUrl,
+          imageType:
+            index === 0
+              ? "disease_triage_initial_image"
+              : "disease_triage_additional_image",
+        };
+      }),
+    );
+    const imageUrl = uploadedImages[0]?.imageUrl;
 
     await supabaseRequest(
       "/rest/v1/case_images",
       {
         method: "POST",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          case_id: createdCase.id,
-          user_id: user.id,
-          image_url: imageUrl,
-          image_type: "disease_triage_initial_image",
-        }),
+        body: JSON.stringify(
+          uploadedImages.map((image) => ({
+            case_id: createdCase.id,
+            user_id: user.id,
+            image_url: image.imageUrl,
+            image_type: image.imageType,
+          })),
+        ),
       },
       token,
     );
@@ -245,7 +313,7 @@ export async function POST(request: Request) {
     }
 
     const imagePrompt = [
-      "Triagem multimodal de doença agrícola por imagem.",
+      `Triagem multimodal de doença agrícola com ${uploadedImages.length} imagem(ns) anexada(s).`,
       "Avalie visualmente manchas, coloração, textura, necrose, deformações, fungos, pragas visíveis, padrão das folhas, caule, frutos e estágio provável da infecção.",
       "Cruze imagem, cultura, sintomas, localização, estágio, solo, clima ideal da cultura, doenças comuns, pragas recorrentes e histórico.",
       "Faça perguntas pendentes em ordem de prioridade para a conversa continuar uma pergunta por vez.",
@@ -299,6 +367,7 @@ export async function POST(request: Request) {
       data: {
         caseId: createdCase.id,
         imageUrl,
+        imageUrls: uploadedImages.map((image) => image.imageUrl),
         analysis: structuredAnalysis,
         agronomicAnalysis: analysis,
         pendingQuestions,
