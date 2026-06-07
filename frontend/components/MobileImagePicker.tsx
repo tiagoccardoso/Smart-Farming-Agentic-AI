@@ -67,6 +67,7 @@ export default function MobileImagePicker({
         type="file"
         accept={cameraAccept}
         capture={capture}
+        multiple={multiple}
         onChange={handleCameraChange}
         className="sr-only"
         aria-label={cameraAriaLabel ?? cameraLabel}

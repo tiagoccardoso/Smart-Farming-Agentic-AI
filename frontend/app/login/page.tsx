@@ -76,13 +76,22 @@ function LoginContent() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (loading || recoveringPassword) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setRecoveryMessage(null);
 
     try {
-      await loginWithEmailPassword(email, password);
-      await getCurrentAuthSession();
+      const session = await loginWithEmailPassword(email, password);
+
+      if (!session.access_token) {
+        throw new Error("Não foi possível confirmar a sessão de login.");
+      }
+
       window.dispatchEvent(new Event("auth:changed"));
       router.replace(postLoginRedirectPath);
       router.refresh();

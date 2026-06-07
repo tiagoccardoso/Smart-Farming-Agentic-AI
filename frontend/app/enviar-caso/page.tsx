@@ -15,6 +15,7 @@ import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
+import MobileImagePicker from "../../components/MobileImagePicker";
 import {
   ApiRequestError,
   analyzeAgronomicCase,
@@ -739,26 +740,23 @@ function EnviarCasoContent() {
             </p>
 
             <div className="mt-6 space-y-5">
-              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
+              <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
                 <span className="font-semibold text-slate-900">
                   Upload de fotos
                 </span>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
-                    multiple
-                    onChange={handlePhotosChange}
-                    disabled={loading || loadingExistingCase || preparingPhotos}
-                  />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handlePhotosChange}
-                    disabled={loading || loadingExistingCase || preparingPhotos}
-                  />
-                </div>
+                <MobileImagePicker
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                  cameraAccept="image/*"
+                  multiple
+                  capture="environment"
+                  onGalleryChange={handlePhotosChange}
+                  onCameraChange={handlePhotosChange}
+                  disabled={loading || loadingExistingCase || preparingPhotos}
+                  galleryLabel="Escolher arquivos"
+                  cameraLabel="Câmera"
+                  galleryAriaLabel="Escolher uma ou mais imagens da galeria"
+                  cameraAriaLabel="Abrir câmera do celular"
+                />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF. Limite de{" "}
                   {MAX_FILE_SIZE_LABEL} por arquivo. Fotos grandes do celular
@@ -835,7 +833,7 @@ function EnviarCasoContent() {
                     ))}
                   </div>
                 )}
-              </label>
+              </div>
 
               <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
                 <span className="font-semibold text-slate-900">
