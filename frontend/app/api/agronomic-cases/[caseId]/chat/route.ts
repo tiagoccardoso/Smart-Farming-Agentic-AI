@@ -15,6 +15,10 @@ import {
   updateAgronomicCaseWithAnalysis,
   type CaseChatMessageType,
 } from "../../../../../lib/agronomic/case";
+import {
+  getSafeUploadContentType,
+  isAllowedUploadFile,
+} from "../../../../../lib/mobile-image-upload";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -111,26 +115,50 @@ function isAllowedMobileUpload(
   const normalizedType = file.type.toLowerCase();
   const inferredType = getNormalizedFileType(file);
 
-  if (allowedTypes.includes(normalizedType) || allowedTypes.includes(inferredType)) {
+  if (
+    allowedTypes.includes(normalizedType) ||
+    allowedTypes.includes(inferredType)
+  ) {
     return true;
   }
 
-  return hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
+  return (
+    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType)
+  );
 }
 
-function validateUploadFile(
+async function validateUploadFile(
   file: File,
   allowedTypes: string[],
   allowedExtensions: string[],
   maxSize: number,
   label: string,
 ) {
-  if (!isAllowedMobileUpload(file, allowedTypes, allowedExtensions)) {
+  const shouldInspectImageContent = allowedTypes.some((type) =>
+    type.startsWith("image/"),
+  );
+  const isAllowed = shouldInspectImageContent
+    ? await isAllowedUploadFile(file, allowedTypes, allowedExtensions)
+    : isAllowedMobileUpload(file, allowedTypes, allowedExtensions);
+
+  if (!isAllowed) {
     throw new FriendlyRequestError(`${label} em formato inválido.`);
   }
 
   if (file.size > maxSize) {
     throw new FriendlyRequestError(`${label} excede o limite permitido.`);
+  }
+}
+
+function safeJsonParse(text: string) {
+  try {
+    return JSON.parse(text) as {
+      message?: string;
+      error?: string;
+      code?: string;
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -143,7 +171,7 @@ async function uploadToStorage(file: File, path: string, token: string) {
       headers: {
         apikey: config.anonKey,
         Authorization: `Bearer ${token}`,
-        "Content-Type": getNormalizedFileType(file) || "application/octet-stream",
+        "Content-Type": await getSafeUploadContentType(file),
         "x-upsert": "false",
       },
       body: Buffer.from(await file.arrayBuffer()),
@@ -151,13 +179,28 @@ async function uploadToStorage(file: File, path: string, token: string) {
     },
   );
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  const payload = text ? safeJsonParse(text) : null;
 
   if (!response.ok) {
-    throw new Error(
+    if (response.status === 401) {
+      throw new FriendlyRequestError(
+        "Sua sessão expirou durante o upload. Faça login novamente e tente enviar o arquivo.",
+        401,
+      );
+    }
+
+    if (response.status === 403 || payload?.code === "42501") {
+      throw new FriendlyRequestError(
+        "Não foi possível anexar o arquivo por falta de permissão no storage.",
+        403,
+      );
+    }
+
+    throw new FriendlyRequestError(
       payload?.message ||
         payload?.error ||
-        "Não foi possível enviar o arquivo.",
+        `Não foi possível enviar o arquivo "${file.name}".`,
+      response.status >= 500 ? 502 : 400,
     );
   }
 
@@ -401,10 +444,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
       if (isFile(file)) {
         const safeName = sanitizeFileName(file.name);
-        const suffix = `${Date.now()}-${safeName}`;
+        const suffix = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
 
         if (requestedType === "image") {
-          validateUploadFile(
+          await validateUploadFile(
             file,
             ACCEPTED_IMAGE_TYPES,
             ACCEPTED_IMAGE_EXTENSIONS,
@@ -423,7 +466,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           messageType = "image";
           text = text || "Nova imagem enviada pelo usuário durante a conversa.";
         } else if (requestedType === "audio") {
-          validateUploadFile(
+          await validateUploadFile(
             file,
             ACCEPTED_AUDIO_TYPES,
             ACCEPTED_AUDIO_EXTENSIONS,

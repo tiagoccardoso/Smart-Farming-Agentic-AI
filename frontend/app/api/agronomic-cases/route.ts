@@ -5,6 +5,10 @@ import {
   assertPlanFeature,
   getPlanLimitCheck,
 } from "../../../lib/billing/check-plan-limits";
+import {
+  getSafeUploadContentType,
+  isAllowedUploadFile,
+} from "../../../lib/mobile-image-upload";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -29,7 +33,6 @@ const ACCEPTED_SOIL_ANALYSIS_TYPES = [
   "image/png",
 ];
 const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
-const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 
 type SupabaseConfig = { supabaseUrl: string; anonKey: string };
 type ApiErrorCode =
@@ -190,24 +193,13 @@ function sanitizeFileName(fileName: string) {
   return sanitized || "arquivo";
 }
 
-function getFileExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function validateUploadFile(
+async function validateUploadFile(
   file: File,
   allowedTypes: string[],
   allowedExtensions: string[],
   label: string,
 ) {
-  const extension = getFileExtension(file.name);
-  const normalizedType = file.type.toLowerCase();
-  const hasAllowedExtension = allowedExtensions.includes(extension);
-  const hasAllowedType = allowedTypes.includes(normalizedType);
-  const hasSafeGenericMobileType =
-    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
-
-  if (!hasAllowedType && !hasSafeGenericMobileType) {
+  if (!(await isAllowedUploadFile(file, allowedTypes, allowedExtensions))) {
     throw new FriendlyRequestError(
       `${label} "${file.name}" não está em um formato aceito.`,
       400,
@@ -222,25 +214,6 @@ function validateUploadFile(
       "VALIDATION_ERROR",
     );
   }
-}
-
-function getContentType(file: File) {
-  if (file.type && file.type !== "application/octet-stream") {
-    return file.type;
-  }
-
-  const extension = getFileExtension(file.name);
-  const contentTypes: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-    pdf: "application/pdf",
-  };
-
-  return contentTypes[extension] ?? "application/octet-stream";
 }
 
 function buildNullableTextFilter(column: string, value: string | null) {
@@ -304,7 +277,7 @@ async function uploadToStorage(
       headers: {
         apikey: config.anonKey,
         Authorization: `Bearer ${token}`,
-        "Content-Type": getContentType(file),
+        "Content-Type": await getSafeUploadContentType(file),
         "x-upsert": "false",
       },
       body: Buffer.from(await file.arrayBuffer()),
@@ -829,17 +802,19 @@ export async function POST(request: NextRequest) {
     const photoFiles = formData.getAll("photos").filter(isFile);
     const soilAnalysis = formData.get("soilAnalysis");
 
-    photoFiles.forEach((photo) =>
-      validateUploadFile(
-        photo,
-        ACCEPTED_PHOTO_TYPES,
-        ACCEPTED_PHOTO_EXTENSIONS,
-        "A imagem",
+    await Promise.all(
+      photoFiles.map((photo) =>
+        validateUploadFile(
+          photo,
+          ACCEPTED_PHOTO_TYPES,
+          ACCEPTED_PHOTO_EXTENSIONS,
+          "A imagem",
+        ),
       ),
     );
 
     if (isFile(soilAnalysis)) {
-      validateUploadFile(
+      await validateUploadFile(
         soilAnalysis,
         ACCEPTED_SOIL_ANALYSIS_TYPES,
         ACCEPTED_SOIL_ANALYSIS_EXTENSIONS,

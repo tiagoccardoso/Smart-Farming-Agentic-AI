@@ -14,6 +14,10 @@ import {
   getSupabaseAdminConfig,
   supabaseAdminRequest,
 } from "../../../../lib/stripe/humanReview";
+import {
+  getSafeUploadContentType,
+  isAllowedUploadFile,
+} from "../../../../lib/mobile-image-upload";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -38,7 +42,6 @@ const ACCEPTED_SOIL_ANALYSIS_TYPES = [
   "image/png",
 ];
 const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
-const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 
 function getRequestToken(request: NextRequest) {
   return (
@@ -94,24 +97,13 @@ function sanitizeFileName(fileName: string) {
   );
 }
 
-function getFileExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function validateFile(
+async function validateFile(
   file: File,
   acceptedTypes: string[],
   acceptedExtensions: string[],
   label: string,
 ) {
-  const ext = getFileExtension(file.name);
-  const normalizedType = file.type.toLowerCase();
-  const hasAllowedType = acceptedTypes.includes(normalizedType);
-  const hasSafeGenericMobileType =
-    acceptedExtensions.includes(ext) &&
-    GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
-
-  if (!hasAllowedType && !hasSafeGenericMobileType) {
+  if (!(await isAllowedUploadFile(file, acceptedTypes, acceptedExtensions))) {
     throw new FriendlyRequestError(
       `${label} "${file.name}" não está em um formato aceito.`,
     );
@@ -124,25 +116,6 @@ function validateFile(
   }
 }
 
-function getContentType(file: File) {
-  if (file.type && file.type !== "application/octet-stream") {
-    return file.type;
-  }
-
-  const ext = getFileExtension(file.name);
-  const contentTypes: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-    pdf: "application/pdf",
-  };
-
-  return contentTypes[ext] ?? "application/octet-stream";
-}
-
 async function uploadToStorage(file: File, path: string, token: string) {
   const config = getSupabaseConfig();
   const response = await fetch(
@@ -152,7 +125,7 @@ async function uploadToStorage(file: File, path: string, token: string) {
       headers: {
         apikey: config.anonKey,
         Authorization: `Bearer ${token}`,
-        "Content-Type": getContentType(file),
+        "Content-Type": await getSafeUploadContentType(file),
         "x-upsert": "false",
       },
       body: Buffer.from(await file.arrayBuffer()),
@@ -347,16 +320,18 @@ export async function PATCH(
 
     const photoFiles = formData.getAll("photos").filter(isFile);
     const soilAnalysis = formData.get("soilAnalysis");
-    photoFiles.forEach((file) =>
-      validateFile(
-        file,
-        ACCEPTED_PHOTO_TYPES,
-        ACCEPTED_PHOTO_EXTENSIONS,
-        "A imagem",
+    await Promise.all(
+      photoFiles.map((file) =>
+        validateFile(
+          file,
+          ACCEPTED_PHOTO_TYPES,
+          ACCEPTED_PHOTO_EXTENSIONS,
+          "A imagem",
+        ),
       ),
     );
     if (isFile(soilAnalysis))
-      validateFile(
+      await validateFile(
         soilAnalysis,
         ACCEPTED_SOIL_ANALYSIS_TYPES,
         ACCEPTED_SOIL_ANALYSIS_EXTENSIONS,
@@ -410,7 +385,7 @@ export async function PATCH(
       status: nextStatus,
     };
     if (isFile(soilAnalysis)) {
-      const soilPath = `${user.id}/${params.caseId}/${Date.now()}-${sanitizeFileName(soilAnalysis.name)}`;
+      const soilPath = `${user.id}/${params.caseId}/${Date.now()}-${crypto.randomUUID()}-${sanitizeFileName(soilAnalysis.name)}`;
       casePatch.soil_analysis_url = await uploadToStorage(
         soilAnalysis,
         soilPath,
@@ -429,8 +404,8 @@ export async function PATCH(
     );
 
     const images = [];
-    for (const file of photoFiles) {
-      const imagePath = `${user.id}/${params.caseId}/${Date.now()}-${sanitizeFileName(file.name)}`;
+    for (const [index, file] of photoFiles.entries()) {
+      const imagePath = `${user.id}/${params.caseId}/${Date.now()}-${index}-${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
       images.push({
         case_id: params.caseId,
         user_id: user.id,

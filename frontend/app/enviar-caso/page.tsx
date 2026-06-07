@@ -23,13 +23,19 @@ import {
   submitAgronomicCase,
   updateAgronomicCase,
 } from "../../lib/api";
+import {
+  getNormalizedUploadFileType,
+  isAllowedUploadFile,
+} from "../../lib/mobile-image-upload";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_SIZE_LABEL = "10MB";
-const PHOTO_COMPRESSION_TRIGGER_BYTES = 4 * 1024 * 1024;
-const PHOTO_COMPRESSION_TARGET_BYTES = 3 * 1024 * 1024;
-const PHOTO_MAX_DIMENSION = 1920;
+const PHOTO_COMPRESSION_TRIGGER_BYTES = 1200 * 1024;
+const PHOTO_COMPRESSION_TARGET_BYTES = 900 * 1024;
+const PHOTO_MAX_DIMENSION = 1600;
+const MAX_TOTAL_PHOTO_PAYLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_TOTAL_PHOTO_PAYLOAD_LABEL = "4MB";
 const PHOTO_COMPRESSION_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ACCEPTED_PHOTO_TYPES = [
   "image/jpeg",
@@ -52,7 +58,6 @@ const ACCEPTED_SOIL_ANALYSIS_TYPES = [
   "image/png",
 ];
 const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
-const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 
 type PhotoPreview = {
   id: string;
@@ -92,53 +97,6 @@ function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
-function getFileExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function getNormalizedFileType(file: File) {
-  const normalizedType = file.type.toLowerCase();
-
-  if (normalizedType && normalizedType !== "application/octet-stream") {
-    return normalizedType;
-  }
-
-  const extension = getFileExtension(file.name);
-  const typeByExtension: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-    pdf: "application/pdf",
-  };
-
-  return typeByExtension[extension] ?? normalizedType;
-}
-
-function isAllowedMobileFile(
-  file: File,
-  allowedTypes: string[],
-  allowedExtensions: string[],
-) {
-  const extension = getFileExtension(file.name);
-  const hasAllowedExtension = allowedExtensions.includes(extension);
-  const normalizedType = file.type.toLowerCase();
-  const inferredType = getNormalizedFileType(file);
-
-  if (
-    allowedTypes.includes(normalizedType) ||
-    allowedTypes.includes(inferredType)
-  ) {
-    return true;
-  }
-
-  return (
-    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType)
-  );
-}
-
 function replaceFileExtension(fileName: string, extension: string) {
   const cleanName = fileName.replace(/\.[^/.]+$/, "");
   return `${cleanName || "foto-do-caso"}.${extension}`;
@@ -171,8 +129,8 @@ function canvasToBlob(
   });
 }
 
-async function compressPhotoForMobileUpload(file: File) {
-  const normalizedType = getNormalizedFileType(file);
+async function compressPhotoForMobileUpload(file: File, index = 0) {
+  const normalizedType = await getNormalizedUploadFileType(file);
 
   if (
     file.size <= PHOTO_COMPRESSION_TRIGGER_BYTES ||
@@ -216,7 +174,7 @@ async function compressPhotoForMobileUpload(file: File) {
 
     return new File([blob], replaceFileExtension(file.name, "jpg"), {
       type: "image/jpeg",
-      lastModified: Date.now(),
+      lastModified: Date.now() + index,
     });
   } catch {
     return file;
@@ -313,13 +271,13 @@ function EnviarCasoContent() {
     }
   };
 
-  const validateFile = (
+  const validateFile = async (
     file: File,
     allowedTypes: string[],
     allowedExtensions: string[],
     label: string,
   ) => {
-    if (!isAllowedMobileFile(file, allowedTypes, allowedExtensions)) {
+    if (!(await isAllowedUploadFile(file, allowedTypes, allowedExtensions))) {
       return `${label} "${file.name}" não está em um formato aceito.`;
     }
 
@@ -341,18 +299,21 @@ function EnviarCasoContent() {
 
     try {
       const preparedFiles = await Promise.all(
-        selectedFiles.map((file) => compressPhotoForMobileUpload(file)),
+        selectedFiles.map((file, index) =>
+          compressPhotoForMobileUpload(file, index),
+        ),
       );
-      const invalidFileMessage = preparedFiles
-        .map((file) =>
+      const validationMessages = await Promise.all(
+        preparedFiles.map((file) =>
           validateFile(
             file,
             ACCEPTED_PHOTO_TYPES,
             ACCEPTED_PHOTO_EXTENSIONS,
             "A imagem",
           ),
-        )
-        .find(Boolean);
+        ),
+      );
+      const invalidFileMessage = validationMessages.find(Boolean);
 
       if (invalidFileMessage) {
         setAttachmentErrors((prev) => ({
@@ -362,19 +323,30 @@ function EnviarCasoContent() {
         return;
       }
 
-      setPhotos((currentPhotos) => {
-        const currentKeys = new Set(currentPhotos.map(fileKey));
-        const uniqueSelectedFiles = preparedFiles.filter((file) => {
-          const key = fileKey(file);
+      const currentKeys = new Set(photos.map(fileKey));
+      const uniqueSelectedFiles = preparedFiles.filter((file) => {
+        const key = fileKey(file);
 
-          if (currentKeys.has(key)) return false;
+        if (currentKeys.has(key)) return false;
 
-          currentKeys.add(key);
-          return true;
-        });
-
-        return [...currentPhotos, ...uniqueSelectedFiles];
+        currentKeys.add(key);
+        return true;
       });
+      const nextPhotos = [...photos, ...uniqueSelectedFiles];
+      const nextPayloadSize = nextPhotos.reduce(
+        (total, file) => total + file.size,
+        0,
+      );
+
+      if (nextPayloadSize > MAX_TOTAL_PHOTO_PAYLOAD_BYTES) {
+        setAttachmentErrors((prev) => ({
+          ...prev,
+          photos: `As fotos selecionadas somam mais de ${MAX_TOTAL_PHOTO_PAYLOAD_LABEL} após a compactação. Remova uma imagem ou tire fotos um pouco mais distantes/menores e tente novamente.`,
+        }));
+        return;
+      }
+
+      setPhotos(nextPhotos);
     } catch {
       setAttachmentErrors((prev) => ({
         ...prev,
@@ -394,7 +366,9 @@ function EnviarCasoContent() {
     setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
   };
 
-  const handleSoilAnalysisChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleSoilAnalysisChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
     const selectedFile = event.target.files?.[0] ?? null;
 
     if (!selectedFile) {
@@ -403,7 +377,7 @@ function EnviarCasoContent() {
       return;
     }
 
-    const invalidFileMessage = validateFile(
+    const invalidFileMessage = await validateFile(
       selectedFile,
       ACCEPTED_SOIL_ANALYSIS_TYPES,
       ACCEPTED_SOIL_ANALYSIS_EXTENSIONS,
@@ -754,7 +728,8 @@ function EnviarCasoContent() {
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF. Limite de{" "}
                   {MAX_FILE_SIZE_LABEL} por arquivo. Fotos grandes do celular
-                  são compactadas automaticamente.
+                  são compactadas automaticamente para evitar falha no envio
+                  mobile.
                 </span>
                 {preparingPhotos && (
                   <span className="rounded-xl bg-leaf-50 p-3 text-leaf-800">
@@ -836,7 +811,7 @@ function EnviarCasoContent() {
                 <input
                   type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
-                  onChange={handleSoilAnalysisChange}
+                  onChange={(event) => void handleSoilAnalysisChange(event)}
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de{" "}
