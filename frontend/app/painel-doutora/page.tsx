@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import MobileImagePicker from "../../components/MobileImagePicker";
 import SectionTitle from "../../components/SectionTitle";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
@@ -874,15 +875,23 @@ export default function PainelDoutoraPage() {
                 <div className="block">
                   <span className="text-sm font-semibold text-slate-700">Upload de arquivo local</span>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <input
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.doc,.docx"
-                      onChange={(event) => {
+                    <MobileImagePicker
+                      accept="application/pdf,image/png,image/jpeg,image/webp,text/plain,text/markdown,.pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.doc,.docx"
+                      cameraAccept="image/*"
+                      galleryLabel="Selecionar arquivo"
+                      cameraLabel="Tirar foto"
+                      galleryAriaLabel="Selecionar arquivo local para a base de conhecimento"
+                      cameraAriaLabel="Tirar foto para a base de conhecimento"
+                      onGalleryChange={(event) => {
                         const file = event.target.files?.[0] ?? null;
                         setSelectedKnowledgeFile(file);
                         setUploadStatus(file ? `Arquivo selecionado: ${file.name}` : "Nenhum arquivo enviado.");
                       }}
-                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-leaf-100 file:px-4 file:py-2 file:font-semibold file:text-leaf-700"
+                      onCameraChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setSelectedKnowledgeFile(file);
+                        setUploadStatus(file ? `Foto selecionada: ${file.name}` : "Nenhum arquivo enviado.");
+                      }}
                     />
                     <button
                       type="button"

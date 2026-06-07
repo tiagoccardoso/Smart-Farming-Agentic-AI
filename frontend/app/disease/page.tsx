@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import SectionTitle from "../../components/SectionTitle";
+import MobileImagePicker from "../../components/MobileImagePicker";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { detectDisease } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
@@ -123,8 +124,6 @@ export default function DiseasePage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,6 +153,12 @@ export default function DiseasePage() {
   }, [chatMessages, chatLoading]);
 
   function selectFile(nextFile: File | null) {
+    if (nextFile && !nextFile.type.match(/^image\/(jpeg|png|webp)$/)) {
+      setError("Envie imagens JPG, PNG ou WEBP.");
+      return;
+    }
+
+    setError(null);
     setFile(nextFile);
     setZoomOpen(false);
     if (previewUrl) {
@@ -401,13 +406,6 @@ export default function DiseasePage() {
               onDrop={handleDrop}
               className={`rounded-[2rem] border-2 border-dashed p-5 text-center transition ${dragging ? "border-leaf-500 bg-leaf-50" : "border-leaf-200 bg-slate-50"}`}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
-                className="hidden"
-              />
               {previewUrl ? (
                 <button type="button" onClick={() => setZoomOpen(true)} className="block w-full overflow-hidden rounded-[1.5rem] bg-black">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -420,13 +418,17 @@ export default function DiseasePage() {
                   <p className="mt-1 text-sm text-slate-500">JPG, PNG ou WEBP até 10MB</p>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-4 rounded-full bg-leaf-600 px-6 py-3 text-sm font-bold text-white shadow-soft hover:bg-leaf-700"
-              >
-                Escolher imagem
-              </button>
+              <MobileImagePicker
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                cameraAccept="image/*"
+                galleryLabel="Escolher imagem"
+                cameraLabel="Tirar foto"
+                galleryAriaLabel="Escolher imagem da planta"
+                cameraAriaLabel="Tirar foto da planta"
+                onGalleryChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+                onCameraChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+                className="mt-4 justify-center"
+              />
             </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -597,10 +599,19 @@ export default function DiseasePage() {
               </div>
 
               <form onSubmit={handleChatSubmit} className="mt-4 space-y-3">
-                <input ref={chatImageInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleChatImage} className="hidden" />
                 <textarea value={chatText} onChange={(event) => setChatText(event.target.value)} rows={4} placeholder="Responda à pergunta atual, descreva evolução ou acrescente detalhes do talhão." className="w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-400" />
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => chatImageInputRef.current?.click()} disabled={chatLoading} className="rounded-full border border-leaf-200 bg-white px-4 py-3 text-sm font-bold text-leaf-700 disabled:bg-slate-100">Enviar nova foto</button>
+                  <MobileImagePicker
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    cameraAccept="image/*"
+                    galleryLabel="Enviar nova foto"
+                    cameraLabel="Tirar foto"
+                    galleryAriaLabel="Selecionar nova foto para o chat"
+                    cameraAriaLabel="Tirar nova foto para o chat"
+                    disabled={chatLoading}
+                    onGalleryChange={handleChatImage}
+                    onCameraChange={handleChatImage}
+                  />
                   <button type="button" onClick={recording ? stopRecording : startRecording} disabled={chatLoading} className={`rounded-full px-4 py-3 text-sm font-bold disabled:bg-slate-100 ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}>{recording ? `Parar ${recordingSeconds}s` : "Gravar áudio"}</button>
                   <button type="submit" disabled={chatLoading || !chatText.trim()} className="ml-auto rounded-full bg-leaf-600 px-6 py-3 text-sm font-bold text-white disabled:bg-slate-300">Enviar</button>
                 </div>

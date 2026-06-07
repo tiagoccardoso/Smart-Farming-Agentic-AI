@@ -6,13 +6,13 @@ import {
   Suspense,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
+import MobileImagePicker from "../../components/MobileImagePicker";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
@@ -180,8 +180,6 @@ function EnviarCasoContent() {
   const [existingSoilAnalysisUrl, setExistingSoilAnalysisUrl] = useState<
     string | null
   >(null);
-  const photosInputRef = useRef<HTMLInputElement | null>(null);
-  const soilAnalysisInputRef = useRef<HTMLInputElement | null>(null);
 
   const photoPreviews = useMemo<PhotoPreview[]>(
     () =>
@@ -317,9 +315,6 @@ function EnviarCasoContent() {
     );
     setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
 
-    if (photosInputRef.current) {
-      photosInputRef.current.value = "";
-    }
   };
 
   const handleSoilAnalysisChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -356,9 +351,6 @@ function EnviarCasoContent() {
     setSoilAnalysis(null);
     setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
 
-    if (soilAnalysisInputRef.current) {
-      soilAnalysisInputRef.current.value = "";
-    }
   };
 
   const validate = () => {
@@ -684,25 +676,29 @@ function EnviarCasoContent() {
                   )}
                 </div>
 
-                <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-leaf-300 bg-white px-4 py-6 text-center transition hover:border-leaf-500 hover:bg-leaf-50/50">
+                <div className="mt-4 rounded-2xl border border-dashed border-leaf-300 bg-white px-4 py-6 text-center">
                   <span className="text-2xl" aria-hidden>
                     📷
                   </span>
-                  <span className="mt-2 font-semibold text-leaf-800">
-                    Selecionar imagens
-                  </span>
-                  <span className="mt-1 text-xs text-slate-500">
-                    Você pode adicionar várias fotos e remover antes de enviar.
-                  </span>
-                  <input
-                    ref={photosInputRef}
-                    type="file"
+                  <p className="mt-2 font-semibold text-leaf-800">
+                    Adicionar fotos
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Selecione imagens da galeria ou tire uma foto pelo celular.
+                  </p>
+                  <MobileImagePicker
                     accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                    cameraAccept="image/*"
                     multiple
-                    onChange={handlePhotosChange}
-                    className="sr-only"
+                    galleryLabel="Selecionar imagens"
+                    cameraLabel="Tirar foto"
+                    galleryAriaLabel="Selecionar imagens do caso"
+                    cameraAriaLabel="Tirar foto para o caso"
+                    onGalleryChange={handlePhotosChange}
+                    onCameraChange={handlePhotosChange}
+                    className="mt-4 justify-center"
                   />
-                </label>
+                </div>
 
                 {attachmentErrors.photos && (
                   <span className="mt-4 block rounded-xl bg-red-50 p-3 text-red-700">
@@ -774,20 +770,19 @@ function EnviarCasoContent() {
               </div>
 
               <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
-                <label
-                  htmlFor="soil-analysis-upload"
-                  className="font-semibold text-slate-900"
-                >
+                <p className="font-semibold text-slate-900">
                   Upload de análise de solo em PDF ou imagem{" "}
                   <span className="font-normal text-slate-500">opcional</span>
-                </label>
-                <input
-                  id="soil-analysis-upload"
-                  ref={soilAnalysisInputRef}
-                  type="file"
+                </p>
+                <MobileImagePicker
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
-                  onChange={handleSoilAnalysisChange}
-                  className="w-full min-w-0 rounded-2xl border border-paper-200 bg-white px-3 py-2 text-sm"
+                  cameraAccept="image/*"
+                  galleryLabel="Selecionar PDF ou imagem"
+                  cameraLabel="Tirar foto da análise"
+                  galleryAriaLabel="Selecionar análise de solo em PDF ou imagem"
+                  cameraAriaLabel="Tirar foto da análise de solo"
+                  onGalleryChange={handleSoilAnalysisChange}
+                  onCameraChange={handleSoilAnalysisChange}
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de{" "}
