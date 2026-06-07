@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
@@ -11,16 +11,68 @@ import {
   getCurrentAuthSession,
 } from "../../lib/supabaseAuth";
 
+const POST_LOGIN_REDIRECT_PATH = "/consultoria-ia";
+
+function resolvePostLoginRedirect(rawNextPath: string | null) {
+  if (!rawNextPath) {
+    return POST_LOGIN_REDIRECT_PATH;
+  }
+
+  try {
+    const baseUrl = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+    const parsedUrl = new URL(rawNextPath, baseUrl);
+
+    if (parsedUrl.origin !== baseUrl) {
+      return POST_LOGIN_REDIRECT_PATH;
+    }
+
+    const isConsultoriaIaRoute =
+      parsedUrl.pathname === POST_LOGIN_REDIRECT_PATH ||
+      parsedUrl.pathname.startsWith(`${POST_LOGIN_REDIRECT_PATH}/`);
+
+    if (!isConsultoriaIaRoute) {
+      return POST_LOGIN_REDIRECT_PATH;
+    }
+
+    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+  } catch {
+    return POST_LOGIN_REDIRECT_PATH;
+  }
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/consultoria-ia";
+  const nextParam = searchParams.get("next");
+  const postLoginRedirectPath = useMemo(
+    () => resolvePostLoginRedirect(nextParam),
+    [nextParam],
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [recoveringPassword, setRecoveringPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function redirectAuthenticatedUser() {
+      const session = await getCurrentAuthSession().catch(() => null);
+
+      if (active && session?.access_token) {
+        router.replace(postLoginRedirectPath);
+        router.refresh();
+      }
+    }
+
+    void redirectAuthenticatedUser();
+
+    return () => {
+      active = false;
+    };
+  }, [postLoginRedirectPath, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -32,7 +84,7 @@ function LoginContent() {
       await loginWithEmailPassword(email, password);
       await getCurrentAuthSession();
       window.dispatchEvent(new Event("auth:changed"));
-      router.replace(nextPath);
+      router.replace(postLoginRedirectPath);
       router.refresh();
     } catch (loginError) {
       setError(
