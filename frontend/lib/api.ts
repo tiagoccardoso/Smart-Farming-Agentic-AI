@@ -94,9 +94,9 @@ async function parseResponse<T = any>(response: Response): Promise<T> {
   return payload as T;
 }
 
-function getOptionalAuthHeaders(): Record<string, string> {
-  const token = getStoredSupabaseAccessToken();
-
+function getOptionalAuthHeaders(
+  token = getStoredSupabaseAccessToken(),
+): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -165,11 +165,12 @@ export async function getQuestionHistory() {
 
 export async function submitAgronomicCase(
   formData: FormData,
-  accessToken: string,
+  accessToken?: string | null,
 ) {
   const response = await fetch("/api/agronomic-cases", {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: getOptionalAuthHeaders(accessToken),
+    credentials: "same-origin",
     body: formData,
   });
 
@@ -179,13 +180,14 @@ export async function submitAgronomicCase(
 export async function updateAgronomicCase(
   caseId: string,
   formData: FormData,
-  accessToken: string,
+  accessToken?: string | null,
 ) {
   const response = await fetch(
     `/api/agronomic-cases/${encodeURIComponent(caseId)}`,
     {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: getOptionalAuthHeaders(accessToken),
+      credentials: "same-origin",
       body: formData,
     },
   );
@@ -214,12 +216,16 @@ export async function getAgronomicCases(accessToken: string) {
   return parseResponse(response);
 }
 
-export async function getAgronomicCase(caseId: string, accessToken: string) {
+export async function getAgronomicCase(
+  caseId: string,
+  accessToken?: string | null,
+) {
   const response = await fetch(
     `/api/agronomic-cases/${encodeURIComponent(caseId)}`,
     {
       method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: getOptionalAuthHeaders(accessToken),
+      credentials: "same-origin",
     },
   );
 
@@ -228,15 +234,16 @@ export async function getAgronomicCase(caseId: string, accessToken: string) {
 
 export async function analyzeAgronomicCase(
   caseId: string,
-  accessToken: string,
+  accessToken?: string | null,
   question?: string,
 ) {
   const response = await fetch("/api/agronomic-ai/analyze-case", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
+      ...getOptionalAuthHeaders(accessToken),
     },
+    credentials: "same-origin",
     body: JSON.stringify({ caseId, question }),
   });
 

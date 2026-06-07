@@ -23,16 +23,35 @@ import {
   submitAgronomicCase,
   updateAgronomicCase,
 } from "../../lib/api";
-import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
+import {
+  getCurrentAuthSession,
+  getStoredSupabaseAccessToken,
+} from "../../lib/supabaseAuth";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_SIZE_LABEL = "10MB";
-const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_PHOTO_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const ACCEPTED_PHOTO_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+];
 const ACCEPTED_SOIL_ANALYSIS_TYPES = [
   "application/pdf",
   "image/jpeg",
   "image/png",
 ];
+const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
+const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 
 type PhotoPreview = {
   id: string;
@@ -72,6 +91,42 @@ function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
+function getFileExtension(fileName: string) {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function isAllowedMobileFile(
+  file: File,
+  allowedTypes: string[],
+  allowedExtensions: string[],
+) {
+  const extension = getFileExtension(file.name);
+  const hasAllowedExtension = allowedExtensions.includes(extension);
+  const normalizedType = file.type.toLowerCase();
+
+  if (allowedTypes.includes(normalizedType)) {
+    return true;
+  }
+
+  // Alguns navegadores mobile enviam imagens capturadas pela câmera com
+  // MIME vazio ou genérico. Nesses casos, aceite apenas quando a extensão
+  // ainda estiver dentro da lista segura.
+  return (
+    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType)
+  );
+}
+
+async function resolveAccessToken() {
+  const storedToken = getStoredSupabaseAccessToken();
+
+  if (storedToken) {
+    return storedToken;
+  }
+
+  const session = await getCurrentAuthSession().catch(() => null);
+  return session?.access_token ?? null;
+}
+
 function getFriendlySubmitError(error: unknown) {
   if (error instanceof ApiRequestError) {
     if (error.code === "AUTH_REQUIRED") {
@@ -93,7 +148,10 @@ function getFriendlySubmitError(error: unknown) {
     return error.message;
   }
 
-  if (error instanceof TypeError || /fetch|network|conex/i.test(String(error))) {
+  if (
+    error instanceof TypeError ||
+    /fetch|network|conex/i.test(String(error))
+  ) {
     return "Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.";
   }
 
@@ -145,7 +203,7 @@ function EnviarCasoContent() {
   useEffect(() => {
     async function loadExistingCase() {
       if (!caseId) return;
-      const accessToken = getStoredSupabaseAccessToken();
+      const accessToken = await resolveAccessToken();
       if (!accessToken) {
         setSubmitError("Faça login para editar este caso agronômico.");
         return;
@@ -193,8 +251,13 @@ function EnviarCasoContent() {
     }
   };
 
-  const validateFile = (file: File, allowedTypes: string[], label: string) => {
-    if (!allowedTypes.includes(file.type)) {
+  const validateFile = (
+    file: File,
+    allowedTypes: string[],
+    allowedExtensions: string[],
+    label: string,
+  ) => {
+    if (!isAllowedMobileFile(file, allowedTypes, allowedExtensions)) {
       return `${label} "${file.name}" não está em um formato aceito.`;
     }
 
@@ -213,7 +276,14 @@ function EnviarCasoContent() {
     }
 
     const invalidFileMessage = selectedFiles
-      .map((file) => validateFile(file, ACCEPTED_PHOTO_TYPES, "A imagem"))
+      .map((file) =>
+        validateFile(
+          file,
+          ACCEPTED_PHOTO_TYPES,
+          ACCEPTED_PHOTO_EXTENSIONS,
+          "A imagem",
+        ),
+      )
       .find(Boolean);
 
     if (invalidFileMessage) {
@@ -264,6 +334,7 @@ function EnviarCasoContent() {
     const invalidFileMessage = validateFile(
       selectedFile,
       ACCEPTED_SOIL_ANALYSIS_TYPES,
+      ACCEPTED_SOIL_ANALYSIS_EXTENSIONS,
       "A análise de solo",
     );
 
@@ -334,11 +405,11 @@ function EnviarCasoContent() {
       return;
     }
 
-    const accessToken = getStoredSupabaseAccessToken();
+    const accessToken = await resolveAccessToken();
 
     if (!accessToken) {
       setSubmitError(
-        "Faça login novamente para enviar o caso agronômico.",
+        "Sua sessão não está ativa neste navegador. Faça login novamente e tente enviar o caso.",
       );
       return;
     }
@@ -465,7 +536,7 @@ function EnviarCasoContent() {
         className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] lg:gap-8"
       >
         <div className="space-y-6">
-          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
+          <div className="min-w-0 rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
             <h3 className="text-lg font-semibold text-slate-900">
               Dados da propriedade e cultura
             </h3>
@@ -581,14 +652,14 @@ function EnviarCasoContent() {
           </div>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="min-w-0 space-y-6">
           <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
             <h3 className="text-lg font-semibold text-slate-900">
               Fotos e documentos
             </h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              As fotos são opcionais. Envie somente quando ajudarem a análise;
-              o caso será salvo normalmente mesmo sem imagem.
+              As fotos são opcionais. Envie somente quando ajudarem a análise; o
+              caso será salvo normalmente mesmo sem imagem.
             </p>
 
             <div className="mt-6 space-y-5">
@@ -596,11 +667,14 @@ function EnviarCasoContent() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-semibold text-slate-900">
-                      Upload de fotos <span className="font-normal text-slate-500">opcional</span>
+                      Upload de fotos{" "}
+                      <span className="font-normal text-slate-500">
+                        opcional
+                      </span>
                     </p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Formatos aceitos: JPG, JPEG, PNG e WEBP. Limite de{" "}
-                      {MAX_FILE_SIZE_LABEL} por arquivo.
+                      Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF.
+                      Limite de {MAX_FILE_SIZE_LABEL} por arquivo.
                     </p>
                   </div>
                   {photos.length > 0 && (
@@ -623,7 +697,7 @@ function EnviarCasoContent() {
                   <input
                     ref={photosInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
                     multiple
                     onChange={handlePhotosChange}
                     className="sr-only"
@@ -700,8 +774,12 @@ function EnviarCasoContent() {
               </div>
 
               <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
-                <label htmlFor="soil-analysis-upload" className="font-semibold text-slate-900">
-                  Upload de análise de solo em PDF ou imagem <span className="font-normal text-slate-500">opcional</span>
+                <label
+                  htmlFor="soil-analysis-upload"
+                  className="font-semibold text-slate-900"
+                >
+                  Upload de análise de solo em PDF ou imagem{" "}
+                  <span className="font-normal text-slate-500">opcional</span>
                 </label>
                 <input
                   id="soil-analysis-upload"
@@ -709,7 +787,7 @@ function EnviarCasoContent() {
                   type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
                   onChange={handleSoilAnalysisChange}
-                  className="rounded-2xl border border-paper-200 bg-white px-3 py-2 text-sm"
+                  className="w-full min-w-0 rounded-2xl border border-paper-200 bg-white px-3 py-2 text-sm"
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de{" "}
@@ -721,13 +799,20 @@ function EnviarCasoContent() {
                   </span>
                 )}
                 {existingSoilAnalysisUrl && (
-                  <a href={existingSoilAnalysisUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-white p-3 text-leaf-700 ring-1 ring-paper-200">
+                  <a
+                    href={existingSoilAnalysisUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl bg-white p-3 text-leaf-700 ring-1 ring-paper-200"
+                  >
                     Ver análise de solo anterior
                   </a>
                 )}
                 {soilAnalysis && (
                   <span className="flex flex-col gap-3 rounded-xl bg-leaf-50 p-3 text-slate-700 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="break-all sm:truncate">Arquivo selecionado: {soilAnalysis.name}</span>
+                    <span className="break-all sm:truncate">
+                      Arquivo selecionado: {soilAnalysis.name}
+                    </span>
                     <button
                       type="button"
                       onClick={handleRemoveSoilAnalysis}
@@ -766,12 +851,14 @@ function EnviarCasoContent() {
           <button
             type="submit"
             disabled={loading || loadingExistingCase}
-            className="group relative w-full overflow-hidden rounded-full bg-leaf-700 px-6 py-3.5 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-not-allowed disabled:opacity-70"
+            className="group relative w-full touch-manipulation overflow-hidden rounded-full bg-leaf-700 px-6 py-3.5 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {loading && (
               <span
                 className="absolute inset-y-0 left-0 bg-white/20"
-                style={{ animation: "submitProgress 1.3s ease-in-out infinite" }}
+                style={{
+                  animation: "submitProgress 1.3s ease-in-out infinite",
+                }}
                 aria-hidden
               />
             )}

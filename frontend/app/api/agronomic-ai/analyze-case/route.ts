@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_ACCESS_COOKIE } from "../../../../lib/auth";
 import {
   fetchAgronomicCase,
   generateAgronomicPreAnalysis,
@@ -23,9 +24,10 @@ import type { UsageEventType } from "../../../../lib/billing/check-plan-limits";
 
 export async function POST(request: NextRequest) {
   try {
-    const token = request.headers
-      .get("authorization")
-      ?.replace(/^Bearer\s+/i, "");
+    const token =
+      request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+      request.cookies.get(AUTH_ACCESS_COOKIE)?.value ||
+      "";
 
     if (!token) {
       return NextResponse.json(

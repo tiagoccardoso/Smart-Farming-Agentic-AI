@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_ACCESS_COOKIE } from "../../../lib/auth";
 import {
   PlanFeatureUnavailableError,
   assertPlanFeature,
@@ -7,14 +8,28 @@ import {
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-const ACCEPTED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ACCEPTED_PHOTO_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+const ACCEPTED_PHOTO_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const ACCEPTED_PHOTO_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "heic",
+  "heif",
+];
 const ACCEPTED_SOIL_ANALYSIS_TYPES = [
   "application/pdf",
   "image/jpeg",
   "image/png",
 ];
 const ACCEPTED_SOIL_ANALYSIS_EXTENSIONS = ["pdf", "jpg", "jpeg", "png"];
+const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
 
 type SupabaseConfig = { supabaseUrl: string; anonKey: string };
 type ApiErrorCode =
@@ -92,6 +107,14 @@ class SupabaseRequestError extends Error {
     this.details = payload?.details;
     this.hint = payload?.hint;
   }
+}
+
+function getRequestToken(request: NextRequest) {
+  return (
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    request.cookies.get(AUTH_ACCESS_COOKIE)?.value ||
+    ""
+  );
 }
 
 function getPayloadMessage(payload: SupabaseErrorPayload | null) {
@@ -190,11 +213,13 @@ function validateUploadFile(
   label: string,
 ) {
   const extension = getFileExtension(file.name);
+  const normalizedType = file.type.toLowerCase();
+  const hasAllowedExtension = allowedExtensions.includes(extension);
+  const hasAllowedType = allowedTypes.includes(normalizedType);
+  const hasSafeGenericMobileType =
+    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType);
 
-  if (
-    !allowedTypes.includes(file.type) ||
-    !allowedExtensions.includes(extension)
-  ) {
+  if (!hasAllowedType && !hasSafeGenericMobileType) {
     throw new FriendlyRequestError(
       `${label} "${file.name}" não está em um formato aceito.`,
       400,
@@ -209,6 +234,25 @@ function validateUploadFile(
       "VALIDATION_ERROR",
     );
   }
+}
+
+function getContentType(file: File) {
+  if (file.type && file.type !== "application/octet-stream") {
+    return file.type;
+  }
+
+  const extension = getFileExtension(file.name);
+  const contentTypes: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+    pdf: "application/pdf",
+  };
+
+  return contentTypes[extension] ?? "application/octet-stream";
 }
 
 function buildNullableTextFilter(column: string, value: string | null) {
@@ -272,7 +316,7 @@ async function uploadToStorage(
       headers: {
         apikey: config.anonKey,
         Authorization: `Bearer ${token}`,
-        "Content-Type": file.type || "application/octet-stream",
+        "Content-Type": getContentType(file),
         "x-upsert": "false",
       },
       body: Buffer.from(await file.arrayBuffer()),
@@ -380,7 +424,10 @@ function toErrorResponse(error: unknown): {
     if (
       error.status === 403 ||
       error.supabaseCode === "42501" ||
-      includesAny(databaseMessage, [/row-level security/i, /permission denied/i])
+      includesAny(databaseMessage, [
+        /row-level security/i,
+        /permission denied/i,
+      ])
     ) {
       return {
         status: 403,
@@ -578,9 +625,7 @@ function buildInFilter(values: string[]) {
 export async function GET(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = request.headers
-      .get("authorization")
-      ?.replace(/^Bearer\s+/i, "");
+    const token = getRequestToken(request);
 
     if (!token) {
       return NextResponse.json(
@@ -758,9 +803,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = request.headers
-      .get("authorization")
-      ?.replace(/^Bearer\s+/i, "");
+    const token = getRequestToken(request);
 
     if (!token) {
       return NextResponse.json(
