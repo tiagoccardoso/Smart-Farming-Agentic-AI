@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE } from "../../../lib/auth";
 import {
+  PLAN_LIMIT_REACHED_MESSAGE,
   PlanFeatureUnavailableError,
   assertPlanFeature,
   getPlanLimitCheck,
@@ -109,14 +109,6 @@ class SupabaseRequestError extends Error {
   }
 }
 
-function getRequestToken(request: NextRequest) {
-  return (
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-    request.cookies.get(AUTH_ACCESS_COOKIE)?.value ||
-    ""
-  );
-}
-
 function getPayloadMessage(payload: SupabaseErrorPayload | null) {
   if (!payload) return "";
   if (typeof payload.message === "string") return payload.message;
@@ -135,10 +127,6 @@ function parseJsonSafely(text: string): SupabaseErrorPayload | null {
   } catch {
     return null;
   }
-}
-
-function includesAny(value: string | undefined, patterns: RegExp[]) {
-  return Boolean(value && patterns.some((pattern) => pattern.test(value)));
 }
 
 function getSupabaseConfig(): SupabaseConfig {
@@ -353,6 +341,35 @@ async function uploadToStorage(
       );
     }
 
+    const storageMessage = [
+      getPayloadMessage(payload),
+      payload?.details,
+      payload?.hint,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (
+      response.status === 413 ||
+      /size|too large|file_size/i.test(storageMessage)
+    ) {
+      throw new FriendlyRequestError(
+        `A imagem "${file.name}" está acima do tamanho permitido. Tente tirar outra foto ou escolha uma imagem menor.`,
+        400,
+        "UPLOAD_FAILED",
+      );
+    }
+
+    if (
+      /mime|content.?type|allowed_mime_types|not allowed/i.test(storageMessage)
+    ) {
+      throw new FriendlyRequestError(
+        `O storage recusou o formato da imagem "${file.name}". Aplique a migration de upload mobile ou envie uma foto em JPG, PNG ou WEBP.`,
+        400,
+        "UPLOAD_FAILED",
+      );
+    }
+
     if (response.status === 403 || payload?.code === "42501") {
       throw new FriendlyRequestError(
         "Não foi possível anexar o arquivo por falta de permissão no storage.",
@@ -407,10 +424,6 @@ function toErrorResponse(error: unknown): {
   }
 
   if (error instanceof SupabaseRequestError) {
-    const databaseMessage = [error.message, error.details, error.hint]
-      .filter(Boolean)
-      .join(" ");
-
     if (error.status === 401) {
       return {
         status: 401,
@@ -421,48 +434,13 @@ function toErrorResponse(error: unknown): {
       };
     }
 
-    if (
-      error.status === 403 ||
-      error.supabaseCode === "42501" ||
-      includesAny(databaseMessage, [
-        /row-level security/i,
-        /permission denied/i,
-      ])
-    ) {
+    if (error.status === 403 || error.supabaseCode === "42501") {
       return {
         status: 403,
         body: {
           error:
             "Você não tem permissão para salvar este caso. Verifique sua sessão e as permissões da conta.",
           code: "DATABASE_PERMISSION_DENIED",
-        },
-      };
-    }
-
-    if (
-      includesAny(databaseMessage, [
-        /relation .* does not exist/i,
-        /column .* does not exist/i,
-        /schema cache/i,
-      ])
-    ) {
-      return {
-        status: 500,
-        body: {
-          error:
-            "A estrutura do banco de dados não está compatível com o envio de casos. Avise o suporte para revisar as migrations.",
-          code: "SERVER_CONFIGURATION_ERROR",
-        },
-      };
-    }
-
-    if (error.supabaseCode === "23505") {
-      return {
-        status: 409,
-        body: {
-          error:
-            "Já existe um registro com essas informações. Revise os dados e tente novamente.",
-          code: "VALIDATION_ERROR",
         },
       };
     }
@@ -625,7 +603,9 @@ function buildInFilter(values: string[]) {
 export async function GET(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = getRequestToken(request);
+    const token = request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "");
 
     if (!token) {
       return NextResponse.json(
@@ -803,7 +783,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const config = getSupabaseConfig();
-    const token = getRequestToken(request);
+    const token = request.headers
+      .get("authorization")
+      ?.replace(/^Bearer\s+/i, "");
 
     if (!token) {
       return NextResponse.json(
@@ -1035,8 +1017,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof PlanFeatureUnavailableError) {
       return NextResponse.json(
         {
-          error:
-            "Seu plano atual não permite enviar fotos ou análise de solo. Remova o anexo para enviar o caso sem imagem ou atualize o plano para continuar com anexos.",
+          error: PLAN_LIMIT_REACHED_MESSAGE,
           code: "PLAN_LIMIT_REACHED" satisfies ApiErrorCode,
         },
         { status: error.status },

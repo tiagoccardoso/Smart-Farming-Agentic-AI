@@ -12,7 +12,6 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
-import MobileImagePicker from "../../components/MobileImagePicker";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
@@ -23,13 +22,15 @@ import {
   submitAgronomicCase,
   updateAgronomicCase,
 } from "../../lib/api";
-import {
-  getCurrentAuthSession,
-  getStoredSupabaseAccessToken,
-} from "../../lib/supabaseAuth";
+import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 
+const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_SIZE_LABEL = "10MB";
+const PHOTO_COMPRESSION_TRIGGER_BYTES = 4 * 1024 * 1024;
+const PHOTO_COMPRESSION_TARGET_BYTES = 3 * 1024 * 1024;
+const PHOTO_MAX_DIMENSION = 1920;
+const PHOTO_COMPRESSION_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ACCEPTED_PHOTO_TYPES = [
   "image/jpeg",
   "image/png",
@@ -95,6 +96,27 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function getNormalizedFileType(file: File) {
+  const normalizedType = file.type.toLowerCase();
+
+  if (normalizedType && normalizedType !== "application/octet-stream") {
+    return normalizedType;
+  }
+
+  const extension = getFileExtension(file.name);
+  const typeByExtension: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+    pdf: "application/pdf",
+  };
+
+  return typeByExtension[extension] ?? normalizedType;
+}
+
 function isAllowedMobileFile(
   file: File,
   allowedTypes: string[],
@@ -103,61 +125,102 @@ function isAllowedMobileFile(
   const extension = getFileExtension(file.name);
   const hasAllowedExtension = allowedExtensions.includes(extension);
   const normalizedType = file.type.toLowerCase();
+  const inferredType = getNormalizedFileType(file);
 
-  if (allowedTypes.includes(normalizedType)) {
+  if (
+    allowedTypes.includes(normalizedType) ||
+    allowedTypes.includes(inferredType)
+  ) {
     return true;
   }
 
-  // Alguns navegadores mobile enviam imagens capturadas pela câmera com
-  // MIME vazio ou genérico. Nesses casos, aceite apenas quando a extensão
-  // ainda estiver dentro da lista segura.
   return (
     hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType)
   );
 }
 
-async function resolveAccessToken() {
-  const storedToken = getStoredSupabaseAccessToken();
-
-  if (storedToken) {
-    return storedToken;
-  }
-
-  const session = await getCurrentAuthSession().catch(() => null);
-  return session?.access_token ?? null;
+function replaceFileExtension(fileName: string, extension: string) {
+  const cleanName = fileName.replace(/\.[^/.]+$/, "");
+  return `${cleanName || "foto-do-caso"}.${extension}`;
 }
 
-function getFriendlySubmitError(error: unknown) {
-  if (error instanceof ApiRequestError) {
-    if (error.code === "AUTH_REQUIRED") {
-      return "Sua sessão expirou ou não está ativa. Faça login novamente e tente enviar o caso.";
-    }
+function loadImageFromFile(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = document.createElement("img");
 
-    if (error.code === "PLAN_LIMIT_REACHED") {
-      return "Seu plano atual não permite esta ação. Remova o anexo ou atualize o plano para continuar.";
-    }
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Não foi possível ler a imagem selecionada."));
+    };
+    image.src = imageUrl;
+  });
+}
 
-    if (error.code === "DATABASE_PERMISSION_DENIED") {
-      return "Sua conta não tem permissão para salvar este caso. Entre novamente ou fale com o suporte.";
-    }
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number,
+) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
 
-    if (error.code === "SERVER_CONFIGURATION_ERROR") {
-      return "O envio de casos está indisponível por configuração do servidor. Avise o suporte.";
-    }
-
-    return error.message;
-  }
+async function compressPhotoForMobileUpload(file: File) {
+  const normalizedType = getNormalizedFileType(file);
 
   if (
-    error instanceof TypeError ||
-    /fetch|network|conex/i.test(String(error))
+    file.size <= PHOTO_COMPRESSION_TRIGGER_BYTES ||
+    !PHOTO_COMPRESSION_TYPES.includes(normalizedType)
   ) {
-    return "Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.";
+    return file;
   }
 
-  return error instanceof Error
-    ? error.message
-    : "Não foi possível enviar o caso. Tente novamente em instantes.";
+  try {
+    const image = await loadImageFromFile(file);
+    const scale = Math.min(
+      1,
+      PHOTO_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) return file;
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+
+    let quality = 0.82;
+    let blob = await canvasToBlob(canvas, "image/jpeg", quality);
+
+    while (
+      blob &&
+      blob.size > PHOTO_COMPRESSION_TARGET_BYTES &&
+      quality > 0.55
+    ) {
+      quality -= 0.08;
+      blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    }
+
+    if (!blob || blob.size >= file.size) {
+      return file;
+    }
+
+    return new File([blob], replaceFileExtension(file.name, "jpg"), {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  }
 }
 
 function EnviarCasoContent() {
@@ -174,6 +237,7 @@ function EnviarCasoContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingExistingCase, setLoadingExistingCase] = useState(false);
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
   const [existingImages, setExistingImages] = useState<
     Array<{ id: string; image_url: string; created_at: string | null }>
   >([]);
@@ -201,7 +265,7 @@ function EnviarCasoContent() {
   useEffect(() => {
     async function loadExistingCase() {
       if (!caseId) return;
-      const accessToken = await resolveAccessToken();
+      const accessToken = getStoredSupabaseAccessToken();
       if (!accessToken) {
         setSubmitError("Faça login para editar este caso agronômico.");
         return;
@@ -266,47 +330,61 @@ function EnviarCasoContent() {
     return null;
   };
 
-  const handlePhotosChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files ?? []);
+  const handlePhotosChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const selectedFiles = Array.from(input.files ?? []);
 
-    if (selectedFiles.length === 0) {
-      return;
-    }
+    if (selectedFiles.length === 0) return;
 
-    const invalidFileMessage = selectedFiles
-      .map((file) =>
-        validateFile(
-          file,
-          ACCEPTED_PHOTO_TYPES,
-          ACCEPTED_PHOTO_EXTENSIONS,
-          "A imagem",
-        ),
-      )
-      .find(Boolean);
-
-    if (invalidFileMessage) {
-      setAttachmentErrors((prev) => ({ ...prev, photos: invalidFileMessage }));
-      event.target.value = "";
-      return;
-    }
-
-    setPhotos((currentPhotos) => {
-      const currentKeys = new Set(currentPhotos.map(fileKey));
-      const uniqueSelectedFiles = selectedFiles.filter((file) => {
-        const key = fileKey(file);
-
-        if (currentKeys.has(key)) {
-          return false;
-        }
-
-        currentKeys.add(key);
-        return true;
-      });
-
-      return [...currentPhotos, ...uniqueSelectedFiles];
-    });
+    setPreparingPhotos(true);
     setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
-    event.target.value = "";
+
+    try {
+      const preparedFiles = await Promise.all(
+        selectedFiles.map((file) => compressPhotoForMobileUpload(file)),
+      );
+      const invalidFileMessage = preparedFiles
+        .map((file) =>
+          validateFile(
+            file,
+            ACCEPTED_PHOTO_TYPES,
+            ACCEPTED_PHOTO_EXTENSIONS,
+            "A imagem",
+          ),
+        )
+        .find(Boolean);
+
+      if (invalidFileMessage) {
+        setAttachmentErrors((prev) => ({
+          ...prev,
+          photos: invalidFileMessage,
+        }));
+        return;
+      }
+
+      setPhotos((currentPhotos) => {
+        const currentKeys = new Set(currentPhotos.map(fileKey));
+        const uniqueSelectedFiles = preparedFiles.filter((file) => {
+          const key = fileKey(file);
+
+          if (currentKeys.has(key)) return false;
+
+          currentKeys.add(key);
+          return true;
+        });
+
+        return [...currentPhotos, ...uniqueSelectedFiles];
+      });
+    } catch {
+      setAttachmentErrors((prev) => ({
+        ...prev,
+        photos:
+          "Não foi possível preparar a imagem selecionada. Tente escolher outra foto ou enviar o caso sem imagem.",
+      }));
+    } finally {
+      setPreparingPhotos(false);
+      input.value = "";
+    }
   };
 
   const handleRemovePhoto = (indexToRemove: number) => {
@@ -314,7 +392,6 @@ function EnviarCasoContent() {
       currentPhotos.filter((_, index) => index !== indexToRemove),
     );
     setAttachmentErrors((prev) => ({ ...prev, photos: undefined }));
-
   };
 
   const handleSoilAnalysisChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -347,12 +424,6 @@ function EnviarCasoContent() {
     setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
   };
 
-  const handleRemoveSoilAnalysis = () => {
-    setSoilAnalysis(null);
-    setAttachmentErrors((prev) => ({ ...prev, soilAnalysis: undefined }));
-
-  };
-
   const validate = () => {
     const nextErrors: FormErrors = {};
 
@@ -380,7 +451,7 @@ function EnviarCasoContent() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (loading || loadingExistingCase) {
+    if (loading || loadingExistingCase || preparingPhotos) {
       return;
     }
 
@@ -397,11 +468,16 @@ function EnviarCasoContent() {
       return;
     }
 
-    const accessToken = await resolveAccessToken();
+    if (preparingPhotos) {
+      setSubmitError("Aguarde a preparação da imagem antes de enviar o caso.");
+      return;
+    }
+
+    const accessToken = getStoredSupabaseAccessToken();
 
     if (!accessToken) {
       setSubmitError(
-        "Sua sessão não está ativa neste navegador. Faça login novamente e tente enviar o caso.",
+        "Faça login com Supabase antes de enviar o caso agronômico.",
       );
       return;
     }
@@ -442,17 +518,21 @@ function EnviarCasoContent() {
         setErrors((prev) => ({ ...prev, ...error.fieldErrors }));
       }
 
-      setSubmitError(getFriendlySubmitError(error));
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o caso. Tente novamente em instantes.",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-16">
-      <div className="rounded-[2rem] border border-paper-200 bg-hero-gradient p-5 shadow-soft sm:p-6 md:p-10">
+    <section className="mx-auto max-w-6xl px-6 py-14 md:py-20">
+      <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
         <div className="max-w-3xl">
-          <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-800 ring-1 ring-leaf-100">
+          <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
             Preparação do atendimento
           </p>
           <SectionTitle
@@ -465,7 +545,7 @@ function EnviarCasoContent() {
                 : "Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."
             }
           />
-          <p className="text-base leading-7 text-slate-700 md:text-lg">
+          <p className="text-base leading-7 text-slate-700">
             {isEditingExistingCase
               ? "Você está atualizando o mesmo caseId. As imagens e conversas anteriores serão preservadas e a IA fará nova análise após salvar."
               : "O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela."}
@@ -505,18 +585,22 @@ function EnviarCasoContent() {
         ]}
       />
 
-      {(loading || loadingExistingCase) && (
+      {(loading || loadingExistingCase || preparingPhotos) && (
         <div className="mt-8">
           <LoadingCard
             title={
               loadingExistingCase
                 ? "Carregando caso existente"
-                : "Salvando o caso agronômico"
+                : preparingPhotos
+                  ? "Preparando imagem"
+                  : "Salvando o caso agronômico"
             }
             description={
               loadingExistingCase
                 ? "Estamos preenchendo a tela com os dados já salvos, imagens anteriores e anexos."
-                : "Estamos validando os dados, enviando anexos e preparando a reanálise com segurança. Não feche esta página."
+                : preparingPhotos
+                  ? "Estamos ajustando a foto do celular para envio seguro. Não feche esta página."
+                  : "Estamos validando os dados, enviando anexos e preparando a reanálise com segurança. Não feche esta página."
             }
             rows={4}
           />
@@ -525,10 +609,10 @@ function EnviarCasoContent() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] lg:gap-8"
+        className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]"
       >
         <div className="space-y-6">
-          <div className="min-w-0 rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">
               Dados da propriedade e cultura
             </h3>
@@ -605,7 +689,7 @@ function EnviarCasoContent() {
             )}
           </div>
 
-          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">
               Sintomas e manejo
             </h3>
@@ -620,7 +704,7 @@ function EnviarCasoContent() {
                   }
                   rows={6}
                   placeholder="Descreva manchas, amarelecimento, pragas, falhas de desenvolvimento, talhões afetados e quando o problema começou."
-                  className="rounded-2xl border border-paper-200 bg-paper-50 px-4 py-3 text-slate-900 shadow-inner-soft outline-none transition focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
                 />
               </label>
               {errors.symptoms && (
@@ -637,87 +721,71 @@ function EnviarCasoContent() {
                   }
                   rows={5}
                   placeholder="Informe irrigação, adubação, defensivos aplicados, chuva recente e mudanças importantes no manejo."
-                  className="rounded-2xl border border-paper-200 bg-paper-50 px-4 py-3 text-slate-900 shadow-inner-soft outline-none transition focus:border-leaf-500 focus:ring-4 focus:ring-leaf-100"
+                  className="rounded-xl border border-leaf-100 bg-white px-4 py-3 text-slate-900 shadow-soft focus:border-leaf-400 focus:outline-none"
                 />
               </label>
             </div>
           </div>
         </div>
 
-        <aside className="min-w-0 space-y-6">
-          <div className="rounded-[2rem] border border-paper-200 bg-white/95 p-5 shadow-soft md:p-6">
+        <aside className="space-y-6">
+          <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">
               Fotos e documentos
             </h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              As fotos são opcionais. Envie somente quando ajudarem a análise; o
-              caso será salvo normalmente mesmo sem imagem.
+              Os uploads estão preparados para o bucket Supabase Storage{" "}
+              <strong>{STORAGE_BUCKET}</strong>.
             </p>
 
             <div className="mt-6 space-y-5">
-              <div className="rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      Upload de fotos{" "}
-                      <span className="font-normal text-slate-500">
-                        opcional
-                      </span>
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF.
-                      Limite de {MAX_FILE_SIZE_LABEL} por arquivo.
-                    </p>
-                  </div>
-                  {photos.length > 0 && (
-                    <span className="rounded-full bg-leaf-100 px-3 py-1 text-xs font-bold text-leaf-800">
-                      {photos.length} selecionada{photos.length > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-dashed border-leaf-300 bg-white px-4 py-6 text-center">
-                  <span className="text-2xl" aria-hidden>
-                    📷
-                  </span>
-                  <p className="mt-2 font-semibold text-leaf-800">
-                    Adicionar fotos
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Selecione imagens da galeria ou tire uma foto pelo celular.
-                  </p>
-                  <MobileImagePicker
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
+                <span className="font-semibold text-slate-900">
+                  Upload de fotos
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    type="file"
                     accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
-                    cameraAccept="image/*"
                     multiple
-                    galleryLabel="Selecionar imagens"
-                    cameraLabel="Tirar foto"
-                    galleryAriaLabel="Selecionar imagens do caso"
-                    cameraAriaLabel="Tirar foto para o caso"
-                    onGalleryChange={handlePhotosChange}
-                    onCameraChange={handlePhotosChange}
-                    className="mt-4 justify-center"
+                    onChange={handlePhotosChange}
+                    disabled={loading || loadingExistingCase || preparingPhotos}
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handlePhotosChange}
+                    disabled={loading || loadingExistingCase || preparingPhotos}
                   />
                 </div>
-
+                <span className="text-xs text-slate-500">
+                  Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF. Limite de{" "}
+                  {MAX_FILE_SIZE_LABEL} por arquivo. Fotos grandes do celular
+                  são compactadas automaticamente.
+                </span>
+                {preparingPhotos && (
+                  <span className="rounded-xl bg-leaf-50 p-3 text-leaf-800">
+                    Preparando foto para envio pelo celular...
+                  </span>
+                )}
                 {attachmentErrors.photos && (
-                  <span className="mt-4 block rounded-xl bg-red-50 p-3 text-red-700">
+                  <span className="rounded-xl bg-red-50 p-3 text-red-700">
                     {attachmentErrors.photos}
                   </span>
                 )}
                 {existingImages.length > 0 && (
-                  <div className="mt-5">
+                  <div>
                     <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
                       Imagens já anexadas
                     </p>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-2 gap-3">
                       {existingImages.map((image) => (
                         <a
                           key={image.id}
                           href={image.image_url}
                           target="_blank"
-                          rel="noreferrer"
-                          className="overflow-hidden rounded-2xl border border-paper-200 bg-white"
+                          className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50"
                         >
                           <Image
                             src={image.image_url}
@@ -736,11 +804,11 @@ function EnviarCasoContent() {
                   </div>
                 )}
                 {photoPreviews.length > 0 && (
-                  <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-3">
                     {photoPreviews.map((preview) => (
                       <figure
                         key={preview.id}
-                        className="group overflow-hidden rounded-2xl border border-leaf-100 bg-white shadow-inner-soft"
+                        className="overflow-hidden rounded-xl border border-leaf-100 bg-leaf-50"
                       >
                         <div className="relative">
                           <Image
@@ -749,40 +817,34 @@ function EnviarCasoContent() {
                             width={240}
                             height={112}
                             unoptimized
-                            className="h-32 w-full object-cover"
+                            className="h-28 w-full object-cover"
                           />
                           <button
                             type="button"
                             onClick={() => handleRemovePhoto(preview.index)}
-                            className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-red-700 shadow-soft ring-1 ring-red-100 transition hover:bg-red-50"
+                            className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-red-700 shadow-soft"
                             aria-label={`Remover imagem ${preview.name}`}
                           >
                             Remover
                           </button>
                         </div>
-                        <figcaption className="truncate px-3 py-2 text-xs font-semibold text-slate-700">
+                        <figcaption className="truncate px-3 py-2 text-xs text-slate-700">
                           {preview.name}
                         </figcaption>
                       </figure>
                     ))}
                   </div>
                 )}
-              </div>
+              </label>
 
-              <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-paper-50/80 p-5 text-sm text-slate-600">
-                <p className="font-semibold text-slate-900">
-                  Upload de análise de solo em PDF ou imagem{" "}
-                  <span className="font-normal text-slate-500">opcional</span>
-                </p>
-                <MobileImagePicker
+              <label className="flex flex-col gap-3 rounded-2xl border border-dashed border-leaf-200 bg-white p-5 text-sm text-slate-600">
+                <span className="font-semibold text-slate-900">
+                  Upload de análise de solo em PDF ou imagem
+                </span>
+                <input
+                  type="file"
                   accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
-                  cameraAccept="image/*"
-                  galleryLabel="Selecionar PDF ou imagem"
-                  cameraLabel="Tirar foto da análise"
-                  galleryAriaLabel="Selecionar análise de solo em PDF ou imagem"
-                  cameraAriaLabel="Tirar foto da análise de solo"
-                  onGalleryChange={handleSoilAnalysisChange}
-                  onCameraChange={handleSoilAnalysisChange}
+                  onChange={handleSoilAnalysisChange}
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: PDF, JPG, JPEG e PNG. Limite de{" "}
@@ -797,31 +859,21 @@ function EnviarCasoContent() {
                   <a
                     href={existingSoilAnalysisUrl}
                     target="_blank"
-                    rel="noreferrer"
-                    className="rounded-xl bg-white p-3 text-leaf-700 ring-1 ring-paper-200"
+                    className="rounded-xl bg-slate-50 p-3 text-leaf-700"
                   >
                     Ver análise de solo anterior
                   </a>
                 )}
                 {soilAnalysis && (
-                  <span className="flex flex-col gap-3 rounded-xl bg-leaf-50 p-3 text-slate-700 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="break-all sm:truncate">
-                      Arquivo selecionado: {soilAnalysis.name}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleRemoveSoilAnalysis}
-                      className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-red-700 ring-1 ring-red-100 hover:bg-red-50"
-                    >
-                      Remover
-                    </button>
+                  <span className="rounded-xl bg-leaf-50 p-3 text-slate-700">
+                    Arquivo selecionado: {soilAnalysis.name}
                   </span>
                 )}
-              </div>
+              </label>
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-gold-200 bg-gold-50 p-6 shadow-soft">
+          <div className="rounded-3xl border border-sun-200 bg-sun-50 p-6 shadow-soft">
             <h3 className="text-lg font-semibold text-slate-900">
               Próxima etapa
             </h3>
@@ -833,37 +885,28 @@ function EnviarCasoContent() {
           </div>
 
           {submitError && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium leading-6 text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
               {submitError}
             </div>
           )}
           {successMessage && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium leading-6 text-emerald-800">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
               {successMessage}
             </div>
           )}
 
           <button
             type="submit"
-            disabled={loading || loadingExistingCase}
-            className="group relative w-full touch-manipulation overflow-hidden rounded-full bg-leaf-700 px-6 py-3.5 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={loading || loadingExistingCase || preparingPhotos}
+            className="w-full rounded-full bg-leaf-600 px-6 py-3 text-sm font-semibold text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading && (
-              <span
-                className="absolute inset-y-0 left-0 bg-white/20"
-                style={{
-                  animation: "submitProgress 1.3s ease-in-out infinite",
-                }}
-                aria-hidden
-              />
-            )}
-            <span className="relative">
-              {loading
+            {preparingPhotos
+              ? "Preparando imagem..."
+              : loading
                 ? "Salvando e enviando..."
                 : isEditingExistingCase
                   ? "Atualizar mesmo caso e reanalisar"
                   : "Salvar e enviar"}
-            </span>
           </button>
         </aside>
       </form>
@@ -875,7 +918,7 @@ export default function EnviarCasoPage() {
   return (
     <Suspense
       fallback={
-        <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-14 text-sm text-slate-600">
+        <section className="mx-auto max-w-6xl px-6 py-14 text-sm text-slate-600">
           Carregando envio de caso...
         </section>
       }
