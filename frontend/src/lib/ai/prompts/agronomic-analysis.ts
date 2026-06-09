@@ -165,14 +165,17 @@ Regras específicas:
 - Se faltarem informações na análise inicial, liste missingQuestions apenas como sugestões para o backend criar a fila progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
 - Faça perguntas específicas para a cultura: por exemplo soja (chuva, umidade, ferrugem, manchas), tomate (folhas inferiores, irrigação, manchas), milho (lagarta, cigarrinha, coloração, solo).
 - Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
-- Inclua sempre popularSummary com resumo em linguagem popular, simples, objetivo e sem jargão.
+- Inclua sempre popularSummary com resumo completo em linguagem popular: simples, fácil de entender, mas cobrindo as principais conclusões da pesquisa externa, base interna, hipóteses, riscos e próximos passos seguros. Não reduza a resposta a 1 frase.
+- Inclua sempre technicalDetails com dados técnicos completos: contexto do caso, hipóteses detalhadas, achados, causas, impacto produtivo, recomendações seguras, limitações, pesquisa externa aproveitada e conteúdo relevante da base interna.
+- O popularSummary e o technicalDetails devem ser gerados com base no conjunto completo: dados do caso + pesquisa externa obrigatória + base specialist_knowledge + cadastro da cultura.
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
 
 Formato obrigatório:
 {
-  "popularSummary": "Resumo em linguagem popular para usuário não técnico, dizendo o que pode estar acontecendo, o que observar e o próximo passo seguro.",
+  "popularSummary": "Resumo completo em linguagem popular para usuário não técnico, dizendo com clareza o que pode estar acontecendo, o que sustenta a análise, o que a pesquisa/base interna acrescentaram, o que observar e o próximo passo seguro.",
+  "technicalDetails": "Dados técnicos completos e organizados para análise profissional, usando pesquisa externa, base interna, contexto da cultura, hipóteses, fatores favoráveis, incertezas, impacto produtivo, recomendações seguras e fontes disponíveis.",
   "initialDiagnosis": "Visão geral rica do caso, com cultura, contexto, sintomas, base interna e pesquisa externa, sem diagnóstico definitivo.",
   "probableHypotheses": ["Resumo textual das hipóteses principais com raciocínio técnico."],
   "detailedHypotheses": [

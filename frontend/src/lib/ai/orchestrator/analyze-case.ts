@@ -284,9 +284,21 @@ function buildFallbackAnalysis(
     sources: [],
   };
 
+  const fallbackInitialDiagnosis = `Pré-consultoria para ${cropName} em ${location}: os sinais relatados (${symptoms}) indicam um caso que merece triagem técnica estruturada. Ainda não é um diagnóstico definitivo, mas já permite levantar hipóteses úteis, separar causas prováveis e orientar próximos passos seguros antes de qualquer intervenção de alto impacto.`;
+
   return {
     popularSummary: buildPopularSummary(caseData, riskLevel, internetResearch),
-    initialDiagnosis: `Pré-consultoria para ${cropName} em ${location}: os sinais relatados (${symptoms}) indicam um caso que merece triagem técnica estruturada. Ainda não é um diagnóstico definitivo, mas já permite levantar hipóteses úteis, separar causas prováveis e orientar próximos passos seguros antes de qualquer intervenção de alto impacto.`,
+    technicalDetails: [
+      "Dados técnicos da triagem local segura:",
+      `Cultura e local: ${cropName} em ${location}.`,
+      `Sintomas relatados: ${symptoms}.`,
+      `Estádio: ${caseData.growth_stage || "não informado"}. Solo/contexto: ${soil || "não informado"}.`,
+      `Anexos: ${hasImages ? `${caseData.images.length} imagem(ns)` : "sem imagens"}; análise de solo ${hasSoilAnalysis ? "anexada" : "não anexada"}.`,
+      `Hipóteses técnicas: ${detailedHypotheses.map((item) => `${item.name} (${item.probability}) - ${item.justification}`).join(" | ")}.`,
+      `Impacto produtivo: ${riskLevel === "high" ? "alto se houver avanço rápido ou fase sensível" : riskLevel === "medium" ? "moderado e dependente da evolução" : "baixo a moderado, sujeito à evolução"}.`,
+      "Recomendações seguras: monitorar evolução, registrar fotos, mapear distribuição e evitar aplicações sem confirmação técnica."
+    ].join("\n\n"),
+    initialDiagnosis: fallbackInitialDiagnosis,
     probableHypotheses: detailedHypotheses.map(
       (item) => `${item.name}: ${item.justification}`,
     ),
@@ -477,20 +489,124 @@ function normalizeSafeText(value: unknown, fallback: string) {
     : fallback;
 }
 
+
+function truncateForBlock(value: string, maxLength: number) {
+  const clean = sanitizeAiSafetyText(value).replace(/\s+\n/g, "\n").trim();
+  return clean.length > maxLength ? `${clean.slice(0, maxLength).trim()}...` : clean;
+}
+
+function bulletList(items: string[], emptyText = "Nenhum item estruturado foi retornado.") {
+  const normalized = items.map((item) => sanitizeAiSafetyText(item)).filter(Boolean);
+  return normalized.length ? normalized.map((item) => `- ${item}`).join("\n") : emptyText;
+}
+
+function sourceList(internetResearch: InternetResearchResult) {
+  if (!internetResearch.sources.length) {
+    return "- Nenhuma fonte externa estruturada foi retornada pelo provedor.";
+  }
+
+  return internetResearch.sources
+    .map((source) => `- ${source.title}${source.url ? ` — ${source.url}` : ""}`)
+    .join("\n");
+}
+
+function knowledgeBlock(knowledge: KnowledgeDocument[]) {
+  if (!knowledge.length) {
+    return "Nenhum conteúdo interno relevante foi encontrado na base specialist_knowledge para esta consulta.";
+  }
+
+  return knowledge
+    .map((item, index) => [
+      `${index + 1}. ${item.title} (${item.category})${item.crop ? ` — cultura: ${item.crop}` : ""}`,
+      truncateForBlock(item.content, 2400),
+    ].join("\n"))
+    .join("\n\n");
+}
+
+function composeCompletePopularSummary(
+  modelSummary: string,
+  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails">,
+  knowledge: KnowledgeDocument[],
+  internetResearch: InternetResearchResult,
+) {
+  const parts = [
+    modelSummary,
+    `Em termos práticos, o caso aponta risco ${analysis.riskLevel} e confiança ${analysis.confidenceLevel}. O principal é acompanhar a evolução dos sintomas, comparar plantas sadias e afetadas e evitar decisões de aplicação ou investimento alto sem confirmação técnica.`,
+    analysis.probableHypotheses.length
+      ? `As possibilidades mais importantes levantadas foram: ${analysis.probableHypotheses.join("; ")}.`
+      : "A IA não recebeu hipóteses estruturadas suficientes, então a análise deve permanecer como triagem inicial.",
+    analysis.productionImpact
+      ? `Possível impacto: ${analysis.productionImpact}`
+      : "O impacto produtivo depende da evolução, área afetada e fase da cultura.",
+    analysis.safeInitialRecommendations.length
+      ? `Próximos passos seguros: ${analysis.safeInitialRecommendations.join("; ")}.`
+      : analysis.initialRecommendation,
+    internetResearch.status === "success" && internetResearch.summary
+      ? `O que a pesquisa na internet acrescentou: ${internetResearch.summary}`
+      : `A pesquisa na internet foi solicitada, mas retornou status "${internetResearch.status}". Por isso, essa parte foi usada com cautela: ${internetResearch.summary}`,
+    knowledge.length
+      ? `O que a base interna acrescentou: ${knowledge.map((item) => `${item.title} (${item.category}) — ${truncateForBlock(item.content, 900)}`).join(" | ")}`
+      : "Nenhum material interno relevante foi encontrado; a resposta continua usando os dados do caso, cadastro da cultura e pesquisa externa disponível.",
+    analysis.whenToCallHumanSpecialist,
+  ].filter((item): item is string => Boolean(item && item.trim()));
+
+  return parts.join("\n\n");
+}
+
+function composeCompleteTechnicalDetails(
+  modelTechnicalDetails: string,
+  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails">,
+  knowledge: KnowledgeDocument[],
+  internetResearch: InternetResearchResult,
+  caseData: AgronomicCaseForAI,
+) {
+  const detailedHypotheses = analysis.detailedHypotheses.length
+    ? analysis.detailedHypotheses.map((item, index) => [
+        `${index + 1}. ${item.name} — probabilidade ${item.probability}`,
+        `Justificativa: ${item.justification}`,
+        `Fatores favoráveis:\n${bulletList(item.favorableFactors)}`,
+        `Fatores de incerteza:\n${bulletList(item.uncertaintyFactors)}`,
+        `Impacto potencial: ${item.potentialImpact || "Não informado."}`,
+      ].join("\n")).join("\n\n")
+    : bulletList(analysis.probableHypotheses);
+
+  const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
+
+  return [
+    "Dados técnicos completos",
+    `Contexto do caso: cultura ${caseData.crop || "não informada"}; estádio ${caseData.growth_stage || "não informado"}; local ${location}; solo ${caseData.farm?.soil_type || "não informado"}; imagens ${caseData.images.length}; análise de solo ${caseData.soil_analysis_url ? "anexada" : "não anexada"}.`,
+    modelTechnicalDetails,
+    `Diagnóstico inicial: ${analysis.initialDiagnosis}`,
+    `Nível de risco: ${analysis.riskLevel}. Nível de confiança: ${analysis.confidenceLevel}.`,
+    `Impacto produtivo: ${analysis.productionImpact}`,
+    `Achados visuais/relatados:\n${bulletList(analysis.visualFindings)}`,
+    `Pontos de atenção:\n${bulletList(analysis.attentionPoints)}`,
+    `Hipóteses detalhadas:\n${detailedHypotheses}`,
+    `Possíveis causas:\n${bulletList(analysis.possibleCauses)}`,
+    `Recomendações iniciais seguras:\n${bulletList(analysis.safeInitialRecommendations.length ? analysis.safeInitialRecommendations : [analysis.initialRecommendation])}`,
+    `Perguntas ou informações pendentes:\n${bulletList(analysis.missingQuestions, "Nenhuma pergunta pendente estruturada foi retornada nesta etapa.")}`,
+    `Quando acionar especialista: ${analysis.whenToCallHumanSpecialist}`,
+    `Motivo técnico para revisão humana: ${analysis.humanReviewReason}`,
+    `Pesquisa na internet\nStatus: ${internetResearch.status}\nConsulta: ${internetResearch.query || "não informada"}\nSíntese aproveitada: ${internetResearch.summary || "sem síntese externa disponível"}\nFontes:\n${sourceList(internetResearch)}`,
+    `Base interna do sistema\n${knowledgeBlock(knowledge)}`,
+    `Aviso de segurança: ${AGRONOMIC_AI_DISCLAIMER}`,
+  ].filter((item) => item.trim()).join("\n\n");
+}
+
 function normalizeAnalysis(
   output: Partial<AgronomicAnalysisOutput>,
   fallback: AgronomicAnalysisOutput,
   knowledge: KnowledgeDocument[],
   internetResearch: InternetResearchResult,
+  caseData: AgronomicCaseForAI,
 ): AgronomicAnalysisOutput {
   const riskLevel = normalizeConfidenceLevel(output.riskLevel, fallback.riskLevel);
   const detailedHypotheses = normalizeDetailedHypotheses(
     output.detailedHypotheses,
     fallback.detailedHypotheses,
   );
-
-  return {
-    popularSummary: normalizeSafeText(output.popularSummary, fallback.popularSummary),
+  const normalizedInternetResearch = normalizeInternetResearch(output.internetResearch, internetResearch);
+  const baseWithoutLongBlocks: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails"> = {
     initialDiagnosis: normalizeSafeText(output.initialDiagnosis, fallback.initialDiagnosis),
     probableHypotheses: normalizeStringArray(
       output.probableHypotheses,
@@ -527,13 +643,38 @@ function normalizeAnalysis(
       fallback.humanReviewReason,
     ),
     knowledgeUsed: normalizeKnowledgeUsed(output.knowledgeUsed, knowledge),
-    internetResearch: normalizeInternetResearch(output.internetResearch, internetResearch),
+    internetResearch: normalizedInternetResearch,
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer:
       typeof output.conversationalAnswer === "string" &&
       output.conversationalAnswer.trim()
         ? sanitizeAiSafetyText(output.conversationalAnswer)
         : fallback.conversationalAnswer,
+  };
+  const modelPopularSummary = normalizeSafeText(
+    output.popularSummary,
+    fallback.popularSummary,
+  );
+  const modelTechnicalDetails = normalizeSafeText(
+    output.technicalDetails,
+    fallback.technicalDetails || fallback.initialDiagnosis,
+  );
+
+  return {
+    popularSummary: composeCompletePopularSummary(
+      modelPopularSummary,
+      baseWithoutLongBlocks,
+      knowledge,
+      normalizedInternetResearch,
+    ),
+    technicalDetails: composeCompleteTechnicalDetails(
+      modelTechnicalDetails,
+      baseWithoutLongBlocks,
+      knowledge,
+      normalizedInternetResearch,
+      caseData,
+    ),
+    ...baseWithoutLongBlocks,
   };
 }
 
@@ -597,11 +738,11 @@ async function callProvider(
         {
           model,
           promptType: "agronomic_analysis",
-          maxOutputTokens: 3600,
-          timeoutMs: 40000,
+          maxOutputTokens: 6500,
+          timeoutMs: 60000,
         },
       ),
-    { retries: 1, baseDelayMs: 600, timeoutMs: 45000 },
+    { retries: 1, baseDelayMs: 600, timeoutMs: 65000 },
   );
 }
 
@@ -670,7 +811,7 @@ export async function analyzeAgronomicCase(
       selected.model,
       messages,
     );
-    const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch);
+    const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
     if (options.logUsage !== false) {
       await logResult(result, options.userId ?? caseData.user_id, false, true);
     }
@@ -690,7 +831,7 @@ export async function analyzeAgronomicCase(
         fallbackModel,
         messages,
       );
-      const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch);
+      const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
       if (options.logUsage !== false) {
         await logResult(result, options.userId ?? caseData.user_id, true, true);
       }

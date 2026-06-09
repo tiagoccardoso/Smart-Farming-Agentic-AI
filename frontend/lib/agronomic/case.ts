@@ -134,6 +134,7 @@ export type InternetResearchResult = {
 
 export type AgronomicPreAnalysis = {
   popularSummary?: string;
+  technicalDetails?: string;
   initialDiagnosis: string;
   probableHypotheses: string[];
   detailedHypotheses: AgronomicDetailedHypothesis[];
@@ -889,6 +890,14 @@ function buildFallbackPreAnalysis(
 
   return {
     initialDiagnosis: `Orientação inicial para ${caseData.crop} em ${location}: os sintomas relatados ainda precisam ser comparados com o padrão no talhão, histórico de manejo e condições recentes de clima antes de qualquer decisão.`,
+    technicalDetails: [
+      `Contexto técnico: cultura ${caseData.crop || "não informada"}, localização ${location}, estágio ${caseData.growth_stage || "não informado"}.`,
+      `Sintomas informados: ${caseData.symptoms || "não detalhados"}.`,
+      `Histórico de manejo: ${caseData.history || "não informado"}.`,
+      `Anexos: ${hasImages ? `${caseData.images.length} imagem(ns)` : "sem imagens"}; análise de solo ${hasSoilAnalysis ? "anexada" : "não anexada"}.`,
+      `Hipóteses iniciais: ${buildFallbackHypotheses(caseData).join(" | ")}.`,
+      `Recomendação segura: decisões de aplicação, dose ou intervenção devem ser validadas por especialista habilitado.`
+    ].join("\n\n"),
     probableHypotheses: buildFallbackHypotheses(caseData),
     detailedHypotheses: buildFallbackHypotheses(caseData).slice(0, 3).map((hypothesis) => ({
       name: hypothesis.split(":")[0] || "Hipótese agronômica inicial",
@@ -1230,6 +1239,14 @@ function normalizePreAnalysis(
   );
 
   return {
+    popularSummary: normalizeSafeText(
+      modelOutput.popularSummary,
+      fallback.popularSummary ?? fallback.initialDiagnosis,
+    ),
+    technicalDetails: normalizeSafeText(
+      modelOutput.technicalDetails,
+      fallback.technicalDetails ?? fallback.initialDiagnosis,
+    ),
     initialDiagnosis: normalizeSafeText(
       modelOutput.initialDiagnosis,
       fallback.initialDiagnosis,

@@ -147,6 +147,65 @@ function AnalysisCard({ title, children }: { title: string; children: ReactNode 
   return <section className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-400">{title}</h4><div className="mt-3 text-sm leading-7 text-slate-700">{children}</div></section>;
 }
 
+
+function LongTextBlock({ value, className = "" }: { value: string; className?: string }) {
+  return <div className={`mt-3 whitespace-pre-wrap break-words leading-7 text-slate-700 ${className}`}>{value}</div>;
+}
+
+function buildPopularSummaryForDisplay(analysis: AgronomicPreAnalysis | null, selectedCase: AgronomicCase | null) {
+  if (analysis?.popularSummary?.trim()) {
+    return analysis.popularSummary.trim();
+  }
+
+  if (!analysis) {
+    return null;
+  }
+
+  return [
+    analysis.initialDiagnosis,
+    analysis.probableHypotheses?.length ? `Principais possibilidades: ${analysis.probableHypotheses.join("; ")}.` : null,
+    analysis.productionImpact ? `Impacto possível: ${analysis.productionImpact}` : null,
+    analysis.safeInitialRecommendations?.length ? `Próximos passos seguros: ${analysis.safeInitialRecommendations.join("; ")}.` : analysis.initialRecommendation,
+    analysis.internetResearch?.summary ? `A pesquisa na internet acrescentou: ${analysis.internetResearch.summary}` : null,
+    selectedCase?.ai_summary && selectedCase.ai_summary !== analysis.initialDiagnosis ? selectedCase.ai_summary : null,
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildTechnicalDetailsForDisplay(analysis: AgronomicPreAnalysis | null, selectedCase: AgronomicCase | null) {
+  if (analysis?.technicalDetails?.trim()) {
+    return analysis.technicalDetails.trim();
+  }
+
+  if (!analysis) {
+    return selectedCase?.ai_summary || "Gere uma análise para obter dados técnicos completos.";
+  }
+
+  const detailedHypotheses = analysis.detailedHypotheses?.length
+    ? analysis.detailedHypotheses.map((hypothesis, index) => [
+        `${index + 1}. ${hypothesis.name} — probabilidade ${hypothesis.probability}`,
+        `Justificativa: ${hypothesis.justification}`,
+        hypothesis.favorableFactors?.length ? `Fatores favoráveis: ${hypothesis.favorableFactors.join("; ")}.` : null,
+        hypothesis.uncertaintyFactors?.length ? `Incertezas: ${hypothesis.uncertaintyFactors.join("; ")}.` : null,
+        hypothesis.potentialImpact ? `Impacto potencial: ${hypothesis.potentialImpact}` : null,
+      ].filter(Boolean).join("\n"))
+    : analysis.probableHypotheses;
+
+  return [
+    `Diagnóstico inicial: ${analysis.initialDiagnosis}`,
+    `Risco: ${analysis.riskLevel}. Confiança: ${analysis.confidenceLevel}.`,
+    `Impacto produtivo: ${analysis.productionImpact}`,
+    analysis.visualFindings?.length ? `Achados visuais/relatados:\n- ${analysis.visualFindings.join("\n- ")}` : null,
+    analysis.attentionPoints?.length ? `Pontos de atenção:\n- ${analysis.attentionPoints.join("\n- ")}` : null,
+    detailedHypotheses?.length ? `Hipóteses detalhadas:\n${detailedHypotheses.join("\n\n")}` : null,
+    analysis.possibleCauses?.length ? `Possíveis causas:\n- ${analysis.possibleCauses.join("\n- ")}` : null,
+    analysis.safeInitialRecommendations?.length ? `Recomendações seguras:\n- ${analysis.safeInitialRecommendations.join("\n- ")}` : `Recomendação inicial: ${analysis.initialRecommendation}`,
+    analysis.internetResearch ? `Pesquisa na internet: ${internetStatusLabel(analysis.internetResearch.status)}\nConsulta: ${analysis.internetResearch.query || "não informada"}\nSíntese: ${analysis.internetResearch.summary || "sem síntese registrada"}` : null,
+    analysis.knowledgeUsed?.length ? `Base interna usada:\n- ${analysis.knowledgeUsed.map((item) => `${item.title} (${item.category})`).join("\n- ")}` : "Base interna usada: nenhum conteúdo relevante registrado para esta análise.",
+    analysis.whenToCallHumanSpecialist ? `Quando acionar especialista: ${analysis.whenToCallHumanSpecialist}` : null,
+    analysis.disclaimer,
+  ].filter(Boolean).join("\n\n");
+}
+
 function ConsultoriaIAContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -280,6 +339,8 @@ function ConsultoriaIAContent() {
   }), [cases, debouncedQuery, filters]);
 
   const stats = useMemo(() => ({ total: cases.length, high: cases.filter((item) => item.risk_level === "high").length, review: cases.filter((item) => item.human_review_requested).length, pending: cases.filter((item) => item.status !== "completed").length }), [cases]);
+  const popularSummaryText = useMemo(() => buildPopularSummaryForDisplay(analysis, selectedCase), [analysis, selectedCase]);
+  const technicalDetailsText = useMemo(() => buildTechnicalDetailsForDisplay(analysis, selectedCase), [analysis, selectedCase]);
 
   async function handleGenerateAnalysis(caseId = selectedId) {
     const accessToken = getStoredSupabaseAccessToken();
@@ -571,8 +632,8 @@ function ConsultoriaIAContent() {
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
                       <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Área principal de análise IA</h3><div className="flex flex-wrap gap-2"><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Pré-consultoria estruturada</span>{analysis?.internetResearch && <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{internetStatusLabel(analysis.internetResearch.status)}</span>}{analysis?.knowledgeUsed?.length ? <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">Base interna usada</span> : null}{analysis?.riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(analysis.riskLevel)}`}>Risco {riskLabels[analysis.riskLevel]}</span>}</div></div>
                       {(generating || analysisStatus) && <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">{analysisStatus || "Pesquisando internet, base interna e gerando resposta..."}</div>}
-                      {analysis?.popularSummary ? <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Resumo em linguagem popular</p><p className="mt-3 leading-7 text-slate-700">{analysis.popularSummary}</p></div> : null}
-                      <div className="mt-5 rounded-[1.5rem] border border-leaf-100 bg-gradient-to-br from-leaf-50 via-white to-gold-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">Visão geral técnica do caso</p><p className="mt-3 leading-7 text-slate-700">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses detalhadas, causas prováveis, riscos e recomendações iniciais seguras."}</p></div>
+                      {popularSummaryText ? <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Resumo em linguagem popular</p><LongTextBlock value={popularSummaryText} /></div> : null}
+                      <div className="mt-5 rounded-[1.5rem] border border-leaf-100 bg-gradient-to-br from-leaf-50 via-white to-gold-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">Dados técnicos</p><LongTextBlock value={technicalDetailsText} /></div>
                       {analysis ? <div className="mt-5 grid gap-4 lg:grid-cols-3"><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Nível de risco</p><p className={`mt-3 inline-flex rounded-full border px-4 py-2 text-sm font-black ${levelBadgeClass(analysis.riskLevel)}`}>{riskLabels[analysis.riskLevel]}</p><p className="mt-3 text-sm leading-6 text-slate-600">{analysis.productionImpact}</p></div><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><ConfidenceBar level={analysis.confidenceLevel} /><p className="mt-4 text-sm leading-6 text-slate-600">A confiança considera qualidade das imagens, dados de manejo, estágio, histórico, solo, clima e necessidade de confirmação em campo.</p></div><div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Revisão humana</p><p className="mt-3 text-sm leading-6 text-amber-900">{analysis.humanReviewReason || analysis.whenToCallHumanSpecialist}</p></div></div> : null}
                       {analysis ? <div className="mt-5 grid gap-4 xl:grid-cols-2"><AnalysisCard title="O que foi identificado visualmente"><ul className="space-y-2">{analysis.visualFindings.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />{item}</li>)}</ul></AnalysisCard><AnalysisCard title="Pontos que chamaram atenção"><ul className="space-y-2">{analysis.attentionPoints.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{item}</li>)}</ul></AnalysisCard></div> : null}
                       {analysis?.detailedHypotheses?.length ? <div className="mt-5 space-y-4"><div><h4 className="text-lg font-black text-slate-950">Hipóteses prováveis detalhadas</h4><p className="mt-1 text-sm text-slate-500">Cada hipótese mostra o raciocínio técnico, fatores que favorecem, dúvidas e impacto potencial.</p></div>{analysis.detailedHypotheses.map((hypothesis) => <article key={`${hypothesis.name}-${hypothesis.probability}`} className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h5 className="text-lg font-black text-slate-950">{hypothesis.name}</h5><p className="mt-2 text-sm leading-7 text-slate-700">{hypothesis.justification}</p></div><span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(hypothesis.probability)}`}>Probabilidade {confidenceLabels[hypothesis.probability]}</span></div><div className="mt-4 grid gap-4 md:grid-cols-3"><ListSection title="O que favorece" items={hypothesis.favorableFactors} tone="leaf" /><ListSection title="O que reduz confiança" items={hypothesis.uncertaintyFactors} tone="amber" /><div className="rounded-[1.25rem] bg-red-50 p-5 text-red-800"><h6 className="font-bold text-slate-950">Impacto potencial</h6><p className="mt-3 text-sm leading-6">{hypothesis.potentialImpact}</p></div></div></article>)}</div> : <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Hipóteses prováveis" items={analysis?.probableHypotheses ?? []} /><ListSection title="Perguntas pendentes" items={analysis?.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} /><ListSection title="Recomendações iniciais" items={[analysis?.initialRecommendation || selectedCase.ai_recommendation || "Aguardando análise."]} /></div>}

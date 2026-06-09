@@ -22,8 +22,8 @@ type SpecialistKnowledgeRow = {
 };
 
 const PRIORITY = ["protocolo", "doencas", "doenças", "pragas", "manejo", "solo", "recomendacoes", "recomendações"];
-const MAX_ITEMS = 6;
-const MAX_CONTENT = 1200;
+const MAX_ITEMS = 8;
+const MAX_CONTENT = 2400;
 
 function getSupabaseConfig() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

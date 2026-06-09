@@ -81,6 +81,7 @@ export type InternetResearchResult = {
 
 export type AgronomicAnalysisOutput = {
   popularSummary: string;
+  technicalDetails: string;
   initialDiagnosis: string;
   probableHypotheses: string[];
   detailedHypotheses: AgronomicDetailedHypothesis[];

@@ -22,8 +22,8 @@ type OpenAiResponseOutput = {
 };
 
 const MAX_QUERY_CHARS = 260;
-const MAX_SUMMARY_CHARS = 2200;
-const MAX_SOURCES = 6;
+const MAX_SUMMARY_CHARS = 6000;
+const MAX_SOURCES = 8;
 
 function cleanText(value?: string | null) {
   return (value ?? "").replace(/\s+/g, " ").trim();
@@ -170,7 +170,7 @@ export async function searchInternetForAgronomicCase(
     ],
     tools: [{ type: "web_search_preview" }],
     tool_choice: "auto",
-    max_output_tokens: 900,
+    max_output_tokens: 1800,
   };
 
   if (modelSupportsTemperature(model)) {
