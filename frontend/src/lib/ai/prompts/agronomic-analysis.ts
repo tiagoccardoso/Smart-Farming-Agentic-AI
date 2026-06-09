@@ -76,7 +76,7 @@ export function buildAgronomicAnalysisPrompt(
         internetResearch.sources.length
           ? `Fontes externas encontradas:\n${internetResearch.sources
               .map((source, index) =>
-                `${index + 1}. ${source.title}${source.url ? ` — ${source.url}` : ""}`,
+                `${index + 1}. ${source.title}${source.url ? `: ${source.url}` : ""}`,
               )
               .join("\n")}`
           : "Fontes externas encontradas: nenhuma fonte estruturada retornada pelo provedor.",
@@ -167,6 +167,8 @@ Regras específicas:
 - Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
 - Inclua sempre popularSummary com resumo completo em linguagem popular: simples, fácil de entender, mas cobrindo as principais conclusões da pesquisa externa, base interna, hipóteses, riscos e próximos passos seguros. Não reduza a resposta a 1 frase.
 - Inclua sempre technicalDetails com dados técnicos completos: contexto do caso, hipóteses detalhadas, achados, causas, impacto produtivo, recomendações seguras, limitações, pesquisa externa aproveitada e conteúdo relevante da base interna.
+- Não use o caractere de travessão Unicode U+2014 em nenhum campo textual. Quando precisar separar ideias, use ponto, vírgula, dois-pontos ou listas bem formatadas.
+- Evite hífens duplicados, markdown quebrado, quebras de linha excessivas e bullets sem texto.
 - O popularSummary e o technicalDetails devem ser gerados com base no conjunto completo: dados do caso + pesquisa externa obrigatória + base specialist_knowledge + cadastro da cultura.
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.

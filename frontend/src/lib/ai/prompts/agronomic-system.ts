@@ -38,4 +38,5 @@ Limites obrigatórios:
 - nunca indique dosagem exata, taxa por hectare, concentração de calda ou quantidade por planta de defensivos;
 - nunca prescreva produto controlado;
 - nunca garanta diagnóstico absoluto;
-- nunca invente informação ou fonte; quando inferir, declare como hipótese de triagem.`;
+- nunca invente informação ou fonte; quando inferir, declare como hipótese de triagem;
+- nunca use o caractere de travessão Unicode U+2014; prefira vírgula, ponto, dois-pontos ou listas formatadas.`;

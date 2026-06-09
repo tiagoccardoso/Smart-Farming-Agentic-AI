@@ -4,6 +4,7 @@ import {
   generateEmbeddingIfConfigured,
 } from "../ai/embeddings";
 import { normalizeCropInput } from "../crop/normalization";
+import { normalizeAiResponseText, normalizeAiTextFields } from "./ai-response-formatting";
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -1136,32 +1137,33 @@ function parseModelJson(text: string) {
 }
 
 function sanitizeAiSafetyText(value: string) {
+  const normalized = normalizeAiResponseText(value);
   const exactDosagePattern =
     /\b\d+(?:[,.]\d+)?\s*(?:m\s*l|ml|l|litros?|g|gramas?|kg|quilos?)\s*(?:\/|por)\s*(?:ha|hectare|hectares|planta|plantas|litro|litros|l)\b/gi;
-  const sanitized = value.replace(
+  const sanitized = normalized.replace(
     exactDosagePattern,
     EXACT_PESTICIDE_DOSAGE_WARNING,
   );
 
   if (
-    sanitized !== value &&
+    sanitized !== normalized &&
     !sanitized.includes(EXACT_PESTICIDE_DOSAGE_WARNING)
   ) {
-    return `${sanitized.trim()} ${EXACT_PESTICIDE_DOSAGE_WARNING}`.trim();
+    return normalizeAiResponseText(`${sanitized.trim()} ${EXACT_PESTICIDE_DOSAGE_WARNING}`);
   }
 
-  return sanitized.trim();
+  return normalizeAiResponseText(sanitized);
 }
 
 function normalizeSafeText(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim()
     ? sanitizeAiSafetyText(value)
-    : fallback;
+    : sanitizeAiSafetyText(fallback);
 }
 
 function normalizeStringArray(value: unknown, fallback: string[]) {
   if (!Array.isArray(value)) {
-    return fallback;
+    return fallback.map(sanitizeAiSafetyText);
   }
 
   const normalized = value
@@ -1170,7 +1172,7 @@ function normalizeStringArray(value: unknown, fallback: string[]) {
         typeof item === "string" && item.trim().length > 0,
     )
     .map((item) => sanitizeAiSafetyText(item));
-  return normalized.length > 0 ? normalized : fallback;
+  return normalized.length > 0 ? normalized : fallback.map(sanitizeAiSafetyText);
 }
 
 function normalizeRiskLevel(
@@ -1238,7 +1240,7 @@ function normalizePreAnalysis(
     fallback.riskLevel,
   );
 
-  return {
+  return normalizeAiTextFields({
     popularSummary: normalizeSafeText(
       modelOutput.popularSummary,
       fallback.popularSummary ?? fallback.initialDiagnosis,
@@ -1270,7 +1272,7 @@ function normalizePreAnalysis(
       typeof modelOutput.initialRecommendation === "string" &&
       modelOutput.initialRecommendation.trim()
         ? sanitizeAiSafetyText(modelOutput.initialRecommendation)
-        : fallback.initialRecommendation,
+        : sanitizeAiSafetyText(fallback.initialRecommendation),
     safeInitialRecommendations: normalizeStringArray(
       modelOutput.safeInitialRecommendations,
       fallback.safeInitialRecommendations,
@@ -1279,7 +1281,7 @@ function normalizePreAnalysis(
       typeof modelOutput.whenToCallHumanSpecialist === "string" &&
       modelOutput.whenToCallHumanSpecialist.trim()
         ? sanitizeAiSafetyText(modelOutput.whenToCallHumanSpecialist)
-        : fallback.whenToCallHumanSpecialist,
+        : sanitizeAiSafetyText(fallback.whenToCallHumanSpecialist),
     humanReviewReason: normalizeSafeText(modelOutput.humanReviewReason, fallback.humanReviewReason),
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     knowledgeUsed: normalizeKnowledgeUsed(
@@ -1289,7 +1291,7 @@ function normalizePreAnalysis(
     conversationalAnswer: fallback.conversationalAnswer
       ? sanitizeAiSafetyText(fallback.conversationalAnswer)
       : undefined,
-  };
+  });
 }
 
 export async function generateAgronomicPreAnalysis(

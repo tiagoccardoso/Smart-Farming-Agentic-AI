@@ -23,6 +23,7 @@ import {
   estimateTokens,
 } from "../utils/token-estimator";
 import { classifyAgronomicRisk } from "./classify-risk";
+import { normalizeAiResponseText, normalizeAiTextFields } from "../../../../lib/agronomic/ai-response-formatting";
 
 type AgronomicCaseForAI = {
   id?: string;
@@ -361,17 +362,19 @@ function buildFallbackAnalysis(
 function sanitizeAiSafetyText(value: string) {
   const warning =
     "Não posso indicar dosagem exata de defensivos. Consulte rótulo/bula, legislação aplicável e responsável técnico habilitado.";
-  return value
-    .replace(
+  const normalized = normalizeAiResponseText(value);
+
+  return normalizeAiResponseText(
+    normalized.replace(
       /\b\d+(?:[,.]\d+)?\s*(?:m\s*l|ml|l|litros?|g|gramas?|kg|quilos?)\s*(?:\/|por)\s*(?:ha|hectare|hectares|planta|plantas|litro|litros|l)\b/gi,
       warning,
-    )
-    .trim();
+    ),
+  );
 }
 
 function normalizeStringArray(value: unknown, fallback: string[]) {
   if (!Array.isArray(value)) {
-    return fallback;
+    return fallback.map(sanitizeAiSafetyText);
   }
   const normalized = value
     .filter(
@@ -379,7 +382,7 @@ function normalizeStringArray(value: unknown, fallback: string[]) {
         typeof item === "string" && item.trim().length > 0,
     )
     .map(sanitizeAiSafetyText);
-  return normalized.length ? normalized : fallback;
+  return normalized.length ? normalized : fallback.map(sanitizeAiSafetyText);
 }
 
 function normalizeKnowledgeUsed(value: unknown, allowed: KnowledgeDocument[]) {
@@ -486,7 +489,7 @@ function normalizeDetailedHypotheses(
 function normalizeSafeText(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim()
     ? sanitizeAiSafetyText(value)
-    : fallback;
+    : sanitizeAiSafetyText(fallback);
 }
 
 
@@ -506,7 +509,7 @@ function sourceList(internetResearch: InternetResearchResult) {
   }
 
   return internetResearch.sources
-    .map((source) => `- ${source.title}${source.url ? ` — ${source.url}` : ""}`)
+    .map((source) => `- ${source.title}${source.url ? `: ${source.url}` : ""}`)
     .join("\n");
 }
 
@@ -517,7 +520,7 @@ function knowledgeBlock(knowledge: KnowledgeDocument[]) {
 
   return knowledge
     .map((item, index) => [
-      `${index + 1}. ${item.title} (${item.category})${item.crop ? ` — cultura: ${item.crop}` : ""}`,
+      `${index + 1}. ${item.title} (${item.category})${item.crop ? `, cultura: ${item.crop}` : ""}`,
       truncateForBlock(item.content, 2400),
     ].join("\n"))
     .join("\n\n");
@@ -545,12 +548,12 @@ function composeCompletePopularSummary(
       ? `O que a pesquisa na internet acrescentou: ${internetResearch.summary}`
       : `A pesquisa na internet foi solicitada, mas retornou status "${internetResearch.status}". Por isso, essa parte foi usada com cautela: ${internetResearch.summary}`,
     knowledge.length
-      ? `O que a base interna acrescentou: ${knowledge.map((item) => `${item.title} (${item.category}) — ${truncateForBlock(item.content, 900)}`).join(" | ")}`
+      ? `O que a base interna acrescentou: ${knowledge.map((item) => `${item.title} (${item.category}): ${truncateForBlock(item.content, 900)}`).join(" | ")}`
       : "Nenhum material interno relevante foi encontrado; a resposta continua usando os dados do caso, cadastro da cultura e pesquisa externa disponível.",
     analysis.whenToCallHumanSpecialist,
   ].filter((item): item is string => Boolean(item && item.trim()));
 
-  return parts.join("\n\n");
+  return normalizeAiResponseText(parts.join("\n\n"));
 }
 
 function composeCompleteTechnicalDetails(
@@ -562,7 +565,7 @@ function composeCompleteTechnicalDetails(
 ) {
   const detailedHypotheses = analysis.detailedHypotheses.length
     ? analysis.detailedHypotheses.map((item, index) => [
-        `${index + 1}. ${item.name} — probabilidade ${item.probability}`,
+        `${index + 1}. ${item.name}: probabilidade ${item.probability}`,
         `Justificativa: ${item.justification}`,
         `Fatores favoráveis:\n${bulletList(item.favorableFactors)}`,
         `Fatores de incerteza:\n${bulletList(item.uncertaintyFactors)}`,
@@ -571,8 +574,7 @@ function composeCompleteTechnicalDetails(
     : bulletList(analysis.probableHypotheses);
 
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
-
-  return [
+  const details = [
     "Dados técnicos completos",
     `Contexto do caso: cultura ${caseData.crop || "não informada"}; estádio ${caseData.growth_stage || "não informado"}; local ${location}; solo ${caseData.farm?.soil_type || "não informado"}; imagens ${caseData.images.length}; análise de solo ${caseData.soil_analysis_url ? "anexada" : "não anexada"}.`,
     modelTechnicalDetails,
@@ -591,6 +593,8 @@ function composeCompleteTechnicalDetails(
     `Base interna do sistema\n${knowledgeBlock(knowledge)}`,
     `Aviso de segurança: ${AGRONOMIC_AI_DISCLAIMER}`,
   ].filter((item) => item.trim()).join("\n\n");
+
+  return normalizeAiResponseText(details);
 }
 
 function normalizeAnalysis(
@@ -660,7 +664,7 @@ function normalizeAnalysis(
     fallback.technicalDetails || fallback.initialDiagnosis,
   );
 
-  return {
+  return normalizeAiTextFields({
     popularSummary: composeCompletePopularSummary(
       modelPopularSummary,
       baseWithoutLongBlocks,
@@ -675,7 +679,7 @@ function normalizeAnalysis(
       caseData,
     ),
     ...baseWithoutLongBlocks,
-  };
+  });
 }
 
 async function writeUsageLog(input: AIUsageLogInput) {

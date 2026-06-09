@@ -9,6 +9,7 @@ import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import { analyzeAgronomicCase, getAgronomicCase, getAgronomicCases } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase, AgronomicPreAnalysis, AgronomicRiskLevel } from "../../lib/agronomic/case";
+import { normalizeAiResponseText, normalizeAiTextFields, splitAiResponseIntoBlocks } from "../../lib/agronomic/ai-response-formatting";
 
 type CaseStatus = "draft" | "submitted" | "ai_analyzed" | "waiting_payment_human_review" | "waiting_human_review" | "human_reviewed" | "completed" | "deleted";
 type PlanSlug = "gratuito" | "ia-basica" | "ia-profissional" | "premium";
@@ -149,19 +150,48 @@ function AnalysisCard({ title, children }: { title: string; children: ReactNode 
 
 
 function LongTextBlock({ value, className = "" }: { value: string; className?: string }) {
-  return <div className={`mt-3 whitespace-pre-wrap break-words leading-7 text-slate-700 ${className}`}>{value}</div>;
+  const blocks = splitAiResponseIntoBlocks(value);
+
+  if (!blocks.length) {
+    return null;
+  }
+
+  return (
+    <div className={`mt-3 space-y-3 break-words leading-7 text-slate-700 ${className}`}>
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          return <p key={`${block.type}-${index}`} className="font-black text-slate-900">{block.text}</p>;
+        }
+
+        if (block.type === "list") {
+          return (
+            <ul key={`${block.type}-${index}`} className="space-y-2 pl-1">
+              {block.items.map((item, itemIndex) => (
+                <li key={`${item}-${itemIndex}`} className="flex gap-2">
+                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+
+        return <p key={`${block.type}-${index}`}>{block.text}</p>;
+      })}
+    </div>
+  );
 }
 
 function buildPopularSummaryForDisplay(analysis: AgronomicPreAnalysis | null, selectedCase: AgronomicCase | null) {
   if (analysis?.popularSummary?.trim()) {
-    return analysis.popularSummary.trim();
+    return normalizeAiResponseText(analysis.popularSummary);
   }
 
   if (!analysis) {
     return null;
   }
 
-  return [
+  const summary = [
     analysis.initialDiagnosis,
     analysis.probableHypotheses?.length ? `Principais possibilidades: ${analysis.probableHypotheses.join("; ")}.` : null,
     analysis.productionImpact ? `Impacto possível: ${analysis.productionImpact}` : null,
@@ -169,28 +199,30 @@ function buildPopularSummaryForDisplay(analysis: AgronomicPreAnalysis | null, se
     analysis.internetResearch?.summary ? `A pesquisa na internet acrescentou: ${analysis.internetResearch.summary}` : null,
     selectedCase?.ai_summary && selectedCase.ai_summary !== analysis.initialDiagnosis ? selectedCase.ai_summary : null,
   ].filter(Boolean).join("\n\n");
+
+  return normalizeAiResponseText(summary);
 }
 
 function buildTechnicalDetailsForDisplay(analysis: AgronomicPreAnalysis | null, selectedCase: AgronomicCase | null) {
   if (analysis?.technicalDetails?.trim()) {
-    return analysis.technicalDetails.trim();
+    return normalizeAiResponseText(analysis.technicalDetails);
   }
 
   if (!analysis) {
-    return selectedCase?.ai_summary || "Gere uma análise para obter dados técnicos completos.";
+    return normalizeAiResponseText(selectedCase?.ai_summary || "Gere uma análise para obter dados técnicos completos.");
   }
 
   const detailedHypotheses = analysis.detailedHypotheses?.length
     ? analysis.detailedHypotheses.map((hypothesis, index) => [
-        `${index + 1}. ${hypothesis.name} — probabilidade ${hypothesis.probability}`,
+        `${index + 1}. ${hypothesis.name}: probabilidade ${hypothesis.probability}`,
         `Justificativa: ${hypothesis.justification}`,
-        hypothesis.favorableFactors?.length ? `Fatores favoráveis: ${hypothesis.favorableFactors.join("; ")}.` : null,
-        hypothesis.uncertaintyFactors?.length ? `Incertezas: ${hypothesis.uncertaintyFactors.join("; ")}.` : null,
+        hypothesis.favorableFactors?.length ? `Fatores favoráveis:\n- ${hypothesis.favorableFactors.join("\n- ")}` : null,
+        hypothesis.uncertaintyFactors?.length ? `Incertezas:\n- ${hypothesis.uncertaintyFactors.join("\n- ")}` : null,
         hypothesis.potentialImpact ? `Impacto potencial: ${hypothesis.potentialImpact}` : null,
       ].filter(Boolean).join("\n"))
     : analysis.probableHypotheses;
 
-  return [
+  const details = [
     `Diagnóstico inicial: ${analysis.initialDiagnosis}`,
     `Risco: ${analysis.riskLevel}. Confiança: ${analysis.confidenceLevel}.`,
     `Impacto produtivo: ${analysis.productionImpact}`,
@@ -204,6 +236,30 @@ function buildTechnicalDetailsForDisplay(analysis: AgronomicPreAnalysis | null, 
     analysis.whenToCallHumanSpecialist ? `Quando acionar especialista: ${analysis.whenToCallHumanSpecialist}` : null,
     analysis.disclaimer,
   ].filter(Boolean).join("\n\n");
+
+  return normalizeAiResponseText(details);
+}
+
+function normalizeAnalysisForDisplay(value?: AgronomicPreAnalysis | null) {
+  return value ? normalizeAiTextFields(value) : null;
+}
+
+function normalizeCaseAiTextForDisplay(caseData: AgronomicCase): AgronomicCase {
+  return {
+    ...caseData,
+    ai_summary: normalizeAiResponseText(caseData.ai_summary),
+    ai_recommendation: normalizeAiResponseText(caseData.ai_recommendation),
+    ai_analysis_json: normalizeAnalysisForDisplay(caseData.ai_analysis_json),
+    pending_questions: caseData.pending_questions?.map((item) => ({
+      ...item,
+      question: normalizeAiResponseText(item.question),
+      answer: normalizeAiResponseText(item.answer),
+    })),
+    chat_messages: caseData.chat_messages?.map((message) => ({
+      ...message,
+      message: normalizeAiResponseText(message.message),
+    })),
+  };
 }
 
 function ConsultoriaIAContent() {
@@ -282,30 +338,33 @@ function ConsultoriaIAContent() {
     setError(null);
     try {
       const response = await getAgronomicCase(caseId, accessToken) as { case: AgronomicCase; activityLogs?: ActivityLog[] };
-      setSelectedCase(response.case);
-      const storedAnalysis = response.case.ai_analysis_json;
-      setAnalysis(storedAnalysis ? {
+      const caseForDisplay = normalizeCaseAiTextForDisplay(response.case);
+      setSelectedCase(caseForDisplay);
+      const storedAnalysis = normalizeAnalysisForDisplay(caseForDisplay.ai_analysis_json);
+      const pendingQuestions = (caseForDisplay.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question);
+      const nextAnalysis = storedAnalysis ? {
         ...storedAnalysis,
-        missingQuestions: (response.case.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question),
-      } : response.case.ai_summary ? {
-        initialDiagnosis: response.case.ai_summary,
+        missingQuestions: pendingQuestions,
+      } : caseForDisplay.ai_summary ? {
+        initialDiagnosis: caseForDisplay.ai_summary,
         probableHypotheses: [],
         detailedHypotheses: [],
         visualFindings: ["Análise gerada antes da nova estrutura detalhada; gere uma nova análise para obter leitura visual completa."],
         possibleCauses: [],
-        missingQuestions: (response.case.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question),
-        riskLevel: response.case.risk_level ?? "medium",
+        missingQuestions: pendingQuestions,
+        riskLevel: caseForDisplay.risk_level ?? "medium",
         confidenceLevel: "medium",
         productionImpact: "Gere uma nova análise para estimar impacto produtivo com mais profundidade.",
         attentionPoints: [],
-        initialRecommendation: response.case.ai_recommendation ?? "Aguardando recomendações da IA.",
-        safeInitialRecommendations: response.case.ai_recommendation ? [response.case.ai_recommendation] : [],
+        initialRecommendation: caseForDisplay.ai_recommendation ?? "Aguardando recomendações da IA.",
+        safeInitialRecommendations: caseForDisplay.ai_recommendation ? [caseForDisplay.ai_recommendation] : [],
         whenToCallHumanSpecialist: "Solicite revisão humana como continuidade especializada para decisões de alto impacto agronômico.",
         humanReviewReason: "A revisão humana complementa a triagem da IA quando há risco, incerteza ou necessidade de decisão técnica com responsabilidade profissional.",
         disclaimer: "As orientações geradas por IA são informativas e não substituem avaliação profissional.",
         knowledgeUsed: [],
-      } : null);
-      setChatMessages((response.case.chat_messages ?? []).map((message) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
+      } : null;
+      setAnalysis(normalizeAnalysisForDisplay(nextAnalysis));
+      setChatMessages((caseForDisplay.chat_messages ?? []).map((message) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
       setActivityLogs(response.activityLogs ?? []);
       setEditForm({ crop: response.case.crop ?? "", farmName: response.case.farm?.name ?? "", city: response.case.farm?.city ?? "", state: response.case.farm?.state ?? "", areaHectares: response.case.farm?.area_hectares ? String(response.case.farm.area_hectares) : "", soilType: response.case.farm?.soil_type ?? "", growthStage: response.case.growth_stage ?? "", symptoms: response.case.symptoms ?? "", managementHistory: response.case.history ?? "" });
       setBrokenAttachmentIds({});
@@ -350,7 +409,7 @@ function ConsultoriaIAContent() {
     setError(null);
     try {
       const response = await analyzeAgronomicCase(caseId, accessToken);
-      setAnalysis(response.analysis);
+      setAnalysis(normalizeAnalysisForDisplay(response.analysis));
       await loadCases(caseId);
       await loadSelectedCase(caseId);
     } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível gerar a análise."; setError(message); showToast("error", message); }
@@ -370,8 +429,8 @@ function ConsultoriaIAContent() {
       const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}/chat`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: (() => { const data = new FormData(); data.append("message", value); data.append("messageType", "text"); return data; })() });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Não foi possível continuar a conversa.");
-      setChatMessages((payload.messages ?? []).map((message: { id: string; role: "user" | "assistant"; message: string; created_at: string | null }) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
-      if (payload.analysis) setAnalysis(payload.analysis);
+      setChatMessages((payload.messages ?? []).map((message: { id: string; role: "user" | "assistant"; message: string; created_at: string | null }) => ({ id: message.id, role: message.role, content: normalizeAiResponseText(message.message), created_at: message.created_at })));
+      if (payload.analysis) setAnalysis(normalizeAnalysisForDisplay(payload.analysis));
       await loadSelectedCase(selectedId);
     } catch (err) { const message = err instanceof Error ? err.message : "Erro ao conversar com a IA."; setError(message); showToast("error", message); }
     finally { setChatLoading(false); setChatStatus(null); }
