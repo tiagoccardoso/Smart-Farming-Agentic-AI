@@ -342,7 +342,7 @@ function ConsultoriaIAContent() {
       setSelectedCase(caseForDisplay);
       const storedAnalysis = normalizeAnalysisForDisplay(caseForDisplay.ai_analysis_json);
       const pendingQuestions = (caseForDisplay.pending_questions ?? []).filter((item) => item.status === "pending").map((item) => item.question);
-      const nextAnalysis = storedAnalysis ? {
+      const nextAnalysis: AgronomicPreAnalysis | null = storedAnalysis ? {
         ...storedAnalysis,
         missingQuestions: pendingQuestions,
       } : caseForDisplay.ai_summary ? {
