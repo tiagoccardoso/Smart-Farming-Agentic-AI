@@ -3,6 +3,40 @@ export type FormattedAiTextBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] };
 
+
+const INTERNAL_METADATA_KEYS = [
+  "searchAttempted",
+  "searchSucceeded",
+  "internalKnowledgeAttempted",
+  "internalKnowledgeUsed",
+  "internalKnowledgeAvailable",
+  "modelFallbackUsed",
+  "cacheUsed",
+];
+
+const INTERNAL_METADATA_KEY_PATTERN = INTERNAL_METADATA_KEYS.join("|");
+const INTERNAL_METADATA_VALUE_PATTERN = String.raw`(?:true|false|null|undefined|sim|não|nao|[^;\n.]+)`;
+const INTERNAL_METADATA_BLOCK_PATTERN = new RegExp(
+  String.raw`(?:^|[\n.?!])?\s*(?:Metadados?\s+de\s+origem\s*:)?\s*(?:${INTERNAL_METADATA_KEY_PATTERN})\s*=\s*${INTERNAL_METADATA_VALUE_PATTERN}(?:\s*;\s*(?:${INTERNAL_METADATA_KEY_PATTERN})\s*=\s*${INTERNAL_METADATA_VALUE_PATTERN})*\.?`,
+  "gi",
+);
+const INTERNAL_METADATA_SINGLE_PAIR_PATTERN = new RegExp(
+  String.raw`\b(?:${INTERNAL_METADATA_KEY_PATTERN})\s*=\s*${INTERNAL_METADATA_VALUE_PATTERN}\s*;?`,
+  "gi",
+);
+const INTERNAL_METADATA_LABEL_PATTERN = /(^|\n)\s*Metadados?\s+de\s+origem\s*:?\s*(?=\n|$)/gi;
+const INTERNAL_CACHE_LINE_PATTERN = /(^|\n)\s*Cache\s*:\s*(?:análise anterior reutilizada|analise anterior reutilizada|não usado|nao usado)[^\n]*(?=\n|$)/gi;
+const INTERNAL_CACHE_SOURCE_NOTE_PATTERN = /\s*\(cache\s+da\s+análise\s+anterior\)/gi;
+
+function removeInternalMetadata(value: string) {
+  return value
+    .replace(INTERNAL_METADATA_BLOCK_PATTERN, "\n")
+    .replace(INTERNAL_METADATA_SINGLE_PAIR_PATTERN, "")
+    .replace(INTERNAL_METADATA_LABEL_PATTERN, "\n")
+    .replace(INTERNAL_CACHE_LINE_PATTERN, "\n")
+    .replace(INTERNAL_CACHE_SOURCE_NOTE_PATTERN, "");
+}
+
 const URL_LIKE_KEYS = new Set([
   "url",
   "image_url",
@@ -30,8 +64,7 @@ function normalizeInlineSpacing(value: string) {
 export function normalizeAiResponseText(value?: string | null) {
   if (!value) return "";
 
-  return value
-    .replace(/\r\n?/g, "\n")
+  return removeInternalMetadata(value.replace(/\r\n?/g, "\n"))
     .replace(/(^|\n)[ \t]*[—–][ \t]+/g, "$1- ")
     .replace(/[ \t]*[—–][ \t]*/g, ": ")
     .replace(/[ \t]*-{2,}[ \t]*/g, ". ")

@@ -146,7 +146,7 @@ function buildSourceMetadata(input: SourceMetadataInput): AgronomicAnalysisOutpu
     modelFallbackUsed,
     cacheUsed: Boolean(input.cacheUsed),
     sources,
-    sourceLabel: input.cacheUsed ? `${sourceLabel} (cache da análise anterior)` : sourceLabel,
+    sourceLabel,
     ...(errorMessage ? { errorMessage } : {}),
   };
 }
@@ -666,7 +666,6 @@ function composeCompleteTechnicalDetails(
   const details = [
     "Dados técnicos completos",
     `Origem da resposta: ${sourceMetadata.sourceLabel}. ${sourceTransparencyAlert(sourceMetadata)}`,
-    `Metadados de origem: searchAttempted=${sourceMetadata.searchAttempted}; searchSucceeded=${sourceMetadata.searchSucceeded}; internalKnowledgeUsed=${sourceMetadata.internalKnowledgeUsed}; modelFallbackUsed=${sourceMetadata.modelFallbackUsed}; cacheUsed=${sourceMetadata.cacheUsed}.`,
     `Contexto do caso: cultura ${caseData.crop || "não informada"}; estádio ${caseData.growth_stage || "não informado"}; local ${location}; solo ${caseData.farm?.soil_type || "não informado"}; imagens ${caseData.images.length}; análise de solo ${caseData.soil_analysis_url ? "anexada" : "não anexada"}.`,
     modelTechnicalDetails,
     `Diagnóstico inicial: ${analysis.initialDiagnosis}`,

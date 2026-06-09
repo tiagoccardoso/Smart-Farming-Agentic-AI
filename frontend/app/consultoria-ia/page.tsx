@@ -173,6 +173,11 @@ function buildSourceMetadataForDisplay(analysis: AgronomicPreAnalysis) {
   return analysis.sourceMetadata ?? fallbackMetadata;
 }
 
+function sourceLabelForDisplay(label?: string | null) {
+  const normalized = normalizeAiResponseText(label || "");
+  return normalized || "Origem da resposta registrada pelo sistema";
+}
+
 function sourceTransparencyText(analysis: AgronomicPreAnalysis) {
   const metadata = buildSourceMetadataForDisplay(analysis);
 
@@ -202,21 +207,11 @@ function SourceTransparencyPanel({ analysis }: { analysis: AgronomicPreAnalysis 
     : metadata.searchSucceeded
       ? "border-emerald-200 bg-emerald-50 text-emerald-950"
       : "border-sky-200 bg-sky-50 text-sky-950";
-  const flags = [
-    `Internet: ${metadata.searchSucceeded ? "sucesso" : metadata.searchAttempted ? "sem sucesso" : "não executada"}`,
-    `Base interna: ${metadata.internalKnowledgeUsed ? "usada" : metadata.internalKnowledgeAvailable ? "disponível, mas não usada" : "sem conteúdo usado"}`,
-    `Conhecimento geral da IA: ${metadata.modelFallbackUsed ? "usado como fallback" : "não usado como única fonte"}`,
-    metadata.cacheUsed ? "Cache: análise anterior reutilizada" : "Cache: não usado",
-  ];
-
   return (
     <div className={`mt-5 rounded-[1.5rem] border p-5 ${tone}`}>
       <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70">Origem da resposta</p>
-      <p className="mt-2 text-base font-black">{metadata.sourceLabel}</p>
+      <p className="mt-2 text-base font-black">{sourceLabelForDisplay(metadata.sourceLabel)}</p>
       <p className="mt-2 text-sm leading-6">{sourceTransparencyText(analysis)}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {flags.map((flag) => <span key={flag} className="rounded-full bg-white/70 px-3 py-1 text-xs font-bold shadow-sm">{flag}</span>)}
-      </div>
       {metadata.errorMessage ? <p className="mt-3 text-sm font-semibold opacity-85">Detalhe da pesquisa externa: {metadata.errorMessage}</p> : null}
     </div>
   );
