@@ -1,5 +1,5 @@
 import { AGRONOMIC_AI_DISCLAIMER } from "./agronomic-system";
-import type { KnowledgeDocument } from "../providers/types";
+import type { InternetResearchResult, KnowledgeDocument } from "../providers/types";
 
 type AgronomicPromptCase = {
   crop?: string | null;
@@ -40,6 +40,7 @@ export function buildAgronomicAnalysisPrompt(
   caseData: AgronomicPromptCase,
   question?: string,
   knowledge: KnowledgeDocument[] = [],
+  internetResearch?: InternetResearchResult,
 ) {
   const location =
     [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") ||
@@ -67,6 +68,20 @@ export function buildAgronomicAnalysisPrompt(
   const allowedSources = knowledge.length
     ? knowledge.map((item) => `- ${item.title} (${item.category})`).join("\n")
     : "- Nenhuma fonte fornecida.";
+  const internetContext = internetResearch
+    ? [
+        `Status: ${internetResearch.status}`,
+        `Consulta enviada: ${internetResearch.query || "não informada"}`,
+        `Síntese externa: ${internetResearch.summary || "sem síntese disponível"}`,
+        internetResearch.sources.length
+          ? `Fontes externas encontradas:\n${internetResearch.sources
+              .map((source, index) =>
+                `${index + 1}. ${source.title}${source.url ? ` — ${source.url}` : ""}`,
+              )
+              .join("\n")}`
+          : "Fontes externas encontradas: nenhuma fonte estruturada retornada pelo provedor.",
+      ].join("\n")
+    : "Pesquisa externa não foi executada.";
 
   const hasQuestion = Boolean(question?.trim());
   const crop = caseData.crop_context;
@@ -125,12 +140,18 @@ ${cropContext}
 Base specialist_knowledge relevante:
 ${knowledgeContext}
 
+Pesquisa externa obrigatória na internet:
+${internetContext}
+
 Fontes permitidas em knowledgeUsed:
 ${allowedSources}
 
 Regras específicas:
 - Use o contexto da tabela crops para ajustar hipóteses, riscos, solo, clima, ciclo, doenças comuns, pragas e manejo da cultura selecionada.
+- Use a pesquisa externa da internet para atualizar e validar hipóteses, riscos, cautelas e próximos passos.
+- Se a pesquisa externa estiver com status "error" ou "unavailable", informe a limitação com linguagem clara e continue usando o caso, a tabela crops e a base interna.
 - Use a base specialist_knowledge somente quando relevante.
+- Diferencie conteúdo externo e base interna quando fizer sentido, sem inventar fontes.
 - Não invente fontes; knowledgeUsed só pode conter títulos e categorias listados acima.
 - Se houver risco médio ou alto, recomende revisão humana, mas somente depois de entregar hipóteses, contexto técnico, recomendações iniciais seguras e explicação do raciocínio.
 - A recomendação humana deve soar como continuidade especializada, nunca como encerramento abrupto ou falha da IA.
@@ -144,13 +165,15 @@ Regras específicas:
 - Se faltarem informações na análise inicial, liste missingQuestions apenas como sugestões para o backend criar a fila progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
 - Faça perguntas específicas para a cultura: por exemplo soja (chuva, umidade, ferrugem, manchas), tomate (folhas inferiores, irrigação, manchas), milho (lagarta, cigarrinha, coloração, solo).
 - Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
-- Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições e dados do caso.
+- Inclua sempre popularSummary com resumo em linguagem popular, simples, objetivo e sem jargão.
+- Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
 
 Formato obrigatório:
 {
-  "initialDiagnosis": "Visão geral rica do caso, com cultura, contexto, sintomas e leitura inicial sem diagnóstico definitivo.",
+  "popularSummary": "Resumo em linguagem popular para usuário não técnico, dizendo o que pode estar acontecendo, o que observar e o próximo passo seguro.",
+  "initialDiagnosis": "Visão geral rica do caso, com cultura, contexto, sintomas, base interna e pesquisa externa, sem diagnóstico definitivo.",
   "probableHypotheses": ["Resumo textual das hipóteses principais com raciocínio técnico."],
   "detailedHypotheses": [
     {
@@ -175,6 +198,12 @@ Formato obrigatório:
   "humanReviewReason": "Explicação clara do motivo da revisão humana, sem parecer falha da IA.",
   "conversationalAnswer": ${hasQuestion ? '"resposta conversacional direta para a pergunta complementar"' : "null"},
   "knowledgeUsed": [],
+  "internetResearch": {
+    "status": "success | unavailable | error",
+    "query": "consulta feita na internet",
+    "summary": "síntese do que foi aproveitado da pesquisa externa ou limitação encontrada",
+    "sources": [{ "title": "título da fonte externa", "url": "URL quando disponível" }]
+  },
   "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
 }`;
 }

@@ -1,4 +1,5 @@
 import { searchSpecialistKnowledge } from "../embeddings/knowledge-search";
+import { searchInternetForAgronomicCase } from "../research/internet-search";
 import {
   AGRONOMIC_AI_DISCLAIMER,
   AGRONOMIC_SYSTEM_PROMPT,
@@ -12,6 +13,7 @@ import type {
   AIProvider,
   AIProviderResult,
   AIUsageLogInput,
+  InternetResearchResult,
   KnowledgeDocument,
 } from "../providers/types";
 import { retry } from "../utils/retry";
@@ -74,6 +76,10 @@ type AnalyzeAgronomicCaseOptions = {
 
 const responseCache = new Map<string, AgronomicAnalysisOutput>();
 
+function isCacheEnabled() {
+  return process.env.AGRONOMIC_AI_CACHE === "true";
+}
+
 function cacheKey(caseData: AgronomicCaseForAI, question?: string) {
   return JSON.stringify({
     id: caseData.id,
@@ -96,6 +102,27 @@ function cropDisplayName(caseData: AgronomicCaseForAI) {
     caseData.crop ||
     "cultura informada"
   );
+}
+
+function buildPopularSummary(
+  caseData: AgronomicCaseForAI,
+  riskLevel: "low" | "medium" | "high",
+  internetResearch?: InternetResearchResult,
+) {
+  const cropName = cropDisplayName(caseData);
+  const symptoms = caseData.symptoms?.trim() || "sintomas informados";
+  const riskText =
+    riskLevel === "high"
+      ? "merece atenção rápida"
+      : riskLevel === "medium"
+        ? "merece acompanhamento de perto"
+        : "parece exigir monitoramento, sem sinal claro de urgência alta pelos dados enviados";
+  const internetNote =
+    internetResearch?.status === "success"
+      ? "A resposta também considerou uma pesquisa atual na internet."
+      : "A pesquisa externa foi solicitada, mas ficou limitada nesta execução.";
+
+  return `Em palavras simples: na cultura ${cropName}, os sinais descritos (${symptoms}) indicam algo que ${riskText}. Antes de qualquer aplicação ou gasto maior, observe se o problema está aumentando, registre fotos e compare plantas sadias e afetadas. ${internetNote}`;
 }
 
 function confidenceFromRisk(riskLevel: "low" | "medium" | "high") {
@@ -250,7 +277,15 @@ function buildFallbackAnalysis(
     });
   }
 
+  const internetResearch = {
+    status: "unavailable" as const,
+    query: "",
+    summary: "Pesquisa externa ainda não executada para este fallback local.",
+    sources: [],
+  };
+
   return {
+    popularSummary: buildPopularSummary(caseData, riskLevel, internetResearch),
     initialDiagnosis: `Pré-consultoria para ${cropName} em ${location}: os sinais relatados (${symptoms}) indicam um caso que merece triagem técnica estruturada. Ainda não é um diagnóstico definitivo, mas já permite levantar hipóteses úteis, separar causas prováveis e orientar próximos passos seguros antes de qualquer intervenção de alto impacto.`,
     probableHypotheses: detailedHypotheses.map(
       (item) => `${item.name}: ${item.justification}`,
@@ -303,6 +338,7 @@ function buildFallbackAnalysis(
         ? "A IA consegue organizar a triagem inicial, mas a confirmação depende de observação de campo quando houver evolução ou decisão técnica."
         : "Há incerteza agronômica e potencial de impacto produtivo; um especialista pode confirmar sinais em campo, diferenciar causas parecidas e orientar manejo dentro das normas técnicas.",
     knowledgeUsed: [],
+    internetResearch,
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer: question?.trim()
       ? `Sobre sua pergunta: a triagem deve combinar os sintomas relatados com distribuição no talhão, evolução recente e contexto de ${cropName}. Mesmo com incerteza, as hipóteses principais são sanitárias, pragas/vetores e estresse de manejo/ambiente; decisões de aplicação ou intervenção devem ser validadas por responsável técnico.`
@@ -365,6 +401,31 @@ function normalizeKnowledgeUsed(value: unknown, allowed: KnowledgeDocument[]) {
     );
 }
 
+function normalizeInternetResearch(
+  value: unknown,
+  fallback: InternetResearchResult,
+): InternetResearchResult {
+  const result = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const status =
+    result.status === "success" || result.status === "unavailable" || result.status === "error"
+      ? result.status
+      : fallback.status;
+  const sources = Array.isArray(fallback.sources) ? fallback.sources : [];
+
+  return {
+    status,
+    query:
+      typeof result.query === "string" && result.query.trim()
+        ? sanitizeAiSafetyText(result.query)
+        : fallback.query,
+    summary:
+      typeof result.summary === "string" && result.summary.trim()
+        ? sanitizeAiSafetyText(result.summary)
+        : fallback.summary,
+    sources,
+  };
+}
+
 function normalizeConfidenceLevel(value: unknown, fallback: "low" | "medium" | "high") {
   return value === "low" || value === "medium" || value === "high"
     ? value
@@ -420,6 +481,7 @@ function normalizeAnalysis(
   output: Partial<AgronomicAnalysisOutput>,
   fallback: AgronomicAnalysisOutput,
   knowledge: KnowledgeDocument[],
+  internetResearch: InternetResearchResult,
 ): AgronomicAnalysisOutput {
   const riskLevel = normalizeConfidenceLevel(output.riskLevel, fallback.riskLevel);
   const detailedHypotheses = normalizeDetailedHypotheses(
@@ -428,6 +490,7 @@ function normalizeAnalysis(
   );
 
   return {
+    popularSummary: normalizeSafeText(output.popularSummary, fallback.popularSummary),
     initialDiagnosis: normalizeSafeText(output.initialDiagnosis, fallback.initialDiagnosis),
     probableHypotheses: normalizeStringArray(
       output.probableHypotheses,
@@ -464,6 +527,7 @@ function normalizeAnalysis(
       fallback.humanReviewReason,
     ),
     knowledgeUsed: normalizeKnowledgeUsed(output.knowledgeUsed, knowledge),
+    internetResearch: normalizeInternetResearch(output.internetResearch, internetResearch),
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer:
       typeof output.conversationalAnswer === "string" &&
@@ -570,22 +634,29 @@ export async function analyzeAgronomicCase(
   options: AnalyzeAgronomicCaseOptions = {},
 ): Promise<AgronomicAnalysisOutput> {
   const key = cacheKey(caseData, options.question);
-  const cached = responseCache.get(key);
+  const cacheEnabled = isCacheEnabled();
+  const cached = cacheEnabled ? responseCache.get(key) : null;
   if (cached) {
     return cached;
   }
 
-  const fallback = buildFallbackAnalysis(caseData, options.question);
   const complexity = classifyCaseComplexity(caseData, options.question);
-  const shouldUseKnowledge =
-    options.enableKnowledgeSearch !== false && complexity !== "simple";
-  const knowledge = shouldUseKnowledge
-    ? await searchSpecialistKnowledge(caseData, options.question)
-    : [];
+  const [knowledge, internetResearch] = await Promise.all([
+    options.enableKnowledgeSearch === false
+      ? Promise.resolve([])
+      : searchSpecialistKnowledge(caseData, options.question),
+    searchInternetForAgronomicCase(caseData, options.question),
+  ]);
+  const fallback = {
+    ...buildFallbackAnalysis(caseData, options.question),
+    popularSummary: buildPopularSummary(caseData, classifyAgronomicRisk(caseData), internetResearch),
+    internetResearch,
+  };
   const prompt = buildAgronomicAnalysisPrompt(
     caseData,
     options.question,
     knowledge,
+    internetResearch,
   );
   const messages = [
     { role: "system" as const, content: AGRONOMIC_SYSTEM_PROMPT },
@@ -599,11 +670,11 @@ export async function analyzeAgronomicCase(
       selected.model,
       messages,
     );
-    const normalized = normalizeAnalysis(result.content, fallback, knowledge);
+    const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch);
     if (options.logUsage !== false) {
       await logResult(result, options.userId ?? caseData.user_id, false, true);
     }
-    responseCache.set(key, normalized);
+    if (cacheEnabled) responseCache.set(key, normalized);
     return normalized;
   } catch (primaryError) {
     console.warn(
@@ -619,11 +690,11 @@ export async function analyzeAgronomicCase(
         fallbackModel,
         messages,
       );
-      const normalized = normalizeAnalysis(result.content, fallback, knowledge);
+      const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch);
       if (options.logUsage !== false) {
         await logResult(result, options.userId ?? caseData.user_id, true, true);
       }
-      responseCache.set(key, normalized);
+      if (cacheEnabled) responseCache.set(key, normalized);
       return normalized;
     } catch (fallbackError) {
       console.warn(

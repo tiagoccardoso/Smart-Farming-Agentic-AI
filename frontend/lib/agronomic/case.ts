@@ -119,7 +119,21 @@ export type KnowledgeUsed = {
   category: string;
 };
 
+export type InternetResearchSource = {
+  title: string;
+  url?: string;
+  snippet?: string;
+};
+
+export type InternetResearchResult = {
+  status: "success" | "unavailable" | "error";
+  query: string;
+  summary: string;
+  sources: InternetResearchSource[];
+};
+
 export type AgronomicPreAnalysis = {
+  popularSummary?: string;
   initialDiagnosis: string;
   probableHypotheses: string[];
   detailedHypotheses: AgronomicDetailedHypothesis[];
@@ -136,6 +150,7 @@ export type AgronomicPreAnalysis = {
   humanReviewReason: string;
   disclaimer: string;
   knowledgeUsed: KnowledgeUsed[];
+  internetResearch?: InternetResearchResult;
   conversationalAnswer?: string;
 };
 

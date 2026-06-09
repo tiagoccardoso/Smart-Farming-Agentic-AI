@@ -200,10 +200,11 @@ export async function POST(request: NextRequest) {
           }
 
 ${nextPendingQuestion.question}`
-        : "Com as informações fornecidas, a triagem inicial foi concluída. Ainda pode existir alguma incerteza natural devido às limitações da análise remota, mas no momento não há perguntas pendentes obrigatórias. " +
-          (analysis.riskLevel === "medium" || analysis.riskLevel === "high"
-            ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
-            : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
+        : analysis.conversationalAnswer?.trim() ||
+          "Com as informações fornecidas, a triagem inicial foi concluída. Ainda pode existir alguma incerteza natural devido às limitações da análise remota, mas no momento não há perguntas pendentes obrigatórias. " +
+            (analysis.riskLevel === "medium" || analysis.riskLevel === "high"
+              ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
+              : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
 
       await insertCaseChatMessage(
         {

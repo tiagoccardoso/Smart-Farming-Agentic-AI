@@ -64,7 +64,23 @@ export interface AIProvider {
   healthCheck(): Promise<AIHealthCheck>;
 }
 
+export type InternetResearchStatus = "success" | "unavailable" | "error";
+
+export type InternetResearchSource = {
+  title: string;
+  url?: string;
+  snippet?: string;
+};
+
+export type InternetResearchResult = {
+  status: InternetResearchStatus;
+  query: string;
+  summary: string;
+  sources: InternetResearchSource[];
+};
+
 export type AgronomicAnalysisOutput = {
+  popularSummary: string;
   initialDiagnosis: string;
   probableHypotheses: string[];
   detailedHypotheses: AgronomicDetailedHypothesis[];
@@ -80,6 +96,7 @@ export type AgronomicAnalysisOutput = {
   whenToCallHumanSpecialist: string;
   humanReviewReason: string;
   knowledgeUsed: Array<{ title: string; category: string }>;
+  internetResearch: InternetResearchResult;
   disclaimer: string;
   conversationalAnswer?: string;
 };

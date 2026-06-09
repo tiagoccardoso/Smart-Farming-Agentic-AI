@@ -136,6 +136,13 @@ function ConfidenceBar({ level }: { level?: string | null }) {
   return <div><div className="flex items-center justify-between text-xs font-black uppercase tracking-[0.16em] text-slate-400"><span>Confiança</span><span>{confidenceLabels[level ?? ""] ?? "Não informada"}</span></div><div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${level === "high" ? "bg-leaf-600" : level === "medium" ? "bg-amber-500" : "bg-red-400"}`} style={{ width: `${percent}%` }} /></div></div>;
 }
 
+function internetStatusLabel(status?: string | null) {
+  if (status === "success") return "Pesquisa externa realizada";
+  if (status === "error") return "Pesquisa externa com instabilidade";
+  if (status === "unavailable") return "Pesquisa externa indisponível";
+  return "Pesquisa externa pendente";
+}
+
 function AnalysisCard({ title, children }: { title: string; children: ReactNode }) {
   return <section className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-400">{title}</h4><div className="mt-3 text-sm leading-7 text-slate-700">{children}</div></section>;
 }
@@ -157,6 +164,8 @@ function ConsultoriaIAContent() {
   const [loadingCase, setLoadingCase] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string | null>(null);
+  const [chatStatus, setChatStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<{ slug: PlanSlug; label: string; remaining: number | null; subscriptionStatus: string }>({ slug: "gratuito", label: "Gratuito", remaining: 1, subscriptionStatus: "Sem assinatura ativa" });
   const [showEdit, setShowEdit] = useState(false);
@@ -276,14 +285,15 @@ function ConsultoriaIAContent() {
     const accessToken = getStoredSupabaseAccessToken();
     if (!accessToken || !caseId) return;
     setGenerating(true);
+    setAnalysisStatus("Pesquisando na internet, consultando a base interna e gerando a resposta técnica...");
     setError(null);
     try {
       const response = await analyzeAgronomicCase(caseId, accessToken);
       setAnalysis(response.analysis);
       await loadCases(caseId);
       await loadSelectedCase(caseId);
-    } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível gerar a análise."); }
-    finally { setGenerating(false); }
+    } catch (err) { const message = err instanceof Error ? err.message : "Não foi possível gerar a análise."; setError(message); showToast("error", message); }
+    finally { setGenerating(false); setAnalysisStatus(null); }
   }
 
   async function handleAskQuestion(event: FormEvent) {
@@ -294,6 +304,7 @@ function ConsultoriaIAContent() {
     setQuestion("");
     setChatMessages((current) => [...current, { role: "user", content: value }]);
     setChatLoading(true);
+    setChatStatus("Pesquisando na internet, consultando a base interna e atualizando a resposta...");
     try {
       const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(selectedId)}/chat`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: (() => { const data = new FormData(); data.append("message", value); data.append("messageType", "text"); return data; })() });
       const payload = await response.json().catch(() => null);
@@ -301,8 +312,8 @@ function ConsultoriaIAContent() {
       setChatMessages((payload.messages ?? []).map((message: { id: string; role: "user" | "assistant"; message: string; created_at: string | null }) => ({ id: message.id, role: message.role, content: message.message, created_at: message.created_at })));
       if (payload.analysis) setAnalysis(payload.analysis);
       await loadSelectedCase(selectedId);
-    } catch (err) { setError(err instanceof Error ? err.message : "Erro ao conversar com a IA."); }
-    finally { setChatLoading(false); }
+    } catch (err) { const message = err instanceof Error ? err.message : "Erro ao conversar com a IA."; setError(message); showToast("error", message); }
+    finally { setChatLoading(false); setChatStatus(null); }
   }
 
   function handleNewImagesChange(event: ChangeEvent<HTMLInputElement>) {
@@ -548,7 +559,7 @@ function ConsultoriaIAContent() {
                   <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><DetailBlock label="Área" value={selectedCase.farm?.area_hectares ? `${selectedCase.farm.area_hectares} ha` : null} /><DetailBlock label="Tipo de solo" value={selectedCase.farm?.soil_type} /><DetailBlock label="Estágio" value={selectedCase.growth_stage} /><DetailBlock label="Última atualização" value={formatDate(selectedListItem?.updated_at ?? selectedCase.created_at)} /></div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2"><DetailBlock label="Sintomas" value={selectedCase.symptoms} /><DetailBlock label="Histórico operacional" value={selectedCase.history} /></div>
                   <div className="mt-5 grid gap-3 sm:flex sm:flex-wrap">
-                    <button onClick={() => handleGenerateAnalysis()} disabled={generating} className="w-full rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white shadow-soft disabled:bg-slate-300 sm:w-auto">{generating ? "Gerando análise..." : hasAnalysis ? "Gerar nova análise IA" : "Gerar análise IA"}</button>
+                    <button onClick={() => handleGenerateAnalysis()} disabled={generating} className="w-full rounded-full bg-leaf-600 px-5 py-3 text-sm font-black text-white shadow-soft disabled:bg-slate-300 sm:w-auto">{generating ? "Pesquisando e gerando..." : hasAnalysis ? "Gerar nova análise IA" : "Gerar análise IA"}</button>
                     <button onClick={() => requestHumanReview()} disabled={humanReviewingId === selectedId} className="w-full rounded-full bg-leaf-700 px-5 py-3 text-sm font-black text-white shadow-soft hover:bg-leaf-800 disabled:bg-slate-300 sm:w-auto">{humanReviewingId === selectedId ? "Enviando..." : "Enviar para revisão humana"}</button>
                     <button onClick={() => setShowEdit(true)} className="w-full rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 sm:w-auto">Editar caso completo</button>
                     <button onClick={() => { setDeleteConfirmation(""); setDeleteFeedback(null); setShowDelete(true); }} className="w-full rounded-full border border-red-200 bg-red-50 px-5 py-3 text-sm font-black text-red-700 sm:w-auto">Excluir</button>
@@ -558,20 +569,23 @@ function ConsultoriaIAContent() {
                 <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_420px]">
                   <div className="space-y-6">
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
-                      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Área principal de análise IA</h3><div className="flex flex-wrap gap-2"><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Pré-consultoria estruturada</span>{analysis?.riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(analysis.riskLevel)}`}>Risco {riskLabels[analysis.riskLevel]}</span>}</div></div>
-                      <div className="mt-5 rounded-[1.5rem] border border-leaf-100 bg-gradient-to-br from-leaf-50 via-white to-gold-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">Visão geral do caso</p><p className="mt-3 leading-7 text-slate-700">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses detalhadas, causas prováveis, riscos e recomendações iniciais seguras."}</p></div>
+                      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Área principal de análise IA</h3><div className="flex flex-wrap gap-2"><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Pré-consultoria estruturada</span>{analysis?.internetResearch && <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{internetStatusLabel(analysis.internetResearch.status)}</span>}{analysis?.knowledgeUsed?.length ? <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">Base interna usada</span> : null}{analysis?.riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(analysis.riskLevel)}`}>Risco {riskLabels[analysis.riskLevel]}</span>}</div></div>
+                      {(generating || analysisStatus) && <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">{analysisStatus || "Pesquisando internet, base interna e gerando resposta..."}</div>}
+                      {analysis?.popularSummary ? <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Resumo em linguagem popular</p><p className="mt-3 leading-7 text-slate-700">{analysis.popularSummary}</p></div> : null}
+                      <div className="mt-5 rounded-[1.5rem] border border-leaf-100 bg-gradient-to-br from-leaf-50 via-white to-gold-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">Visão geral técnica do caso</p><p className="mt-3 leading-7 text-slate-700">{analysis?.initialDiagnosis || selectedCase.ai_summary || "Gere uma análise para obter resumo técnico, hipóteses detalhadas, causas prováveis, riscos e recomendações iniciais seguras."}</p></div>
                       {analysis ? <div className="mt-5 grid gap-4 lg:grid-cols-3"><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Nível de risco</p><p className={`mt-3 inline-flex rounded-full border px-4 py-2 text-sm font-black ${levelBadgeClass(analysis.riskLevel)}`}>{riskLabels[analysis.riskLevel]}</p><p className="mt-3 text-sm leading-6 text-slate-600">{analysis.productionImpact}</p></div><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><ConfidenceBar level={analysis.confidenceLevel} /><p className="mt-4 text-sm leading-6 text-slate-600">A confiança considera qualidade das imagens, dados de manejo, estágio, histórico, solo, clima e necessidade de confirmação em campo.</p></div><div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Revisão humana</p><p className="mt-3 text-sm leading-6 text-amber-900">{analysis.humanReviewReason || analysis.whenToCallHumanSpecialist}</p></div></div> : null}
                       {analysis ? <div className="mt-5 grid gap-4 xl:grid-cols-2"><AnalysisCard title="O que foi identificado visualmente"><ul className="space-y-2">{analysis.visualFindings.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />{item}</li>)}</ul></AnalysisCard><AnalysisCard title="Pontos que chamaram atenção"><ul className="space-y-2">{analysis.attentionPoints.map((item) => <li key={item} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{item}</li>)}</ul></AnalysisCard></div> : null}
                       {analysis?.detailedHypotheses?.length ? <div className="mt-5 space-y-4"><div><h4 className="text-lg font-black text-slate-950">Hipóteses prováveis detalhadas</h4><p className="mt-1 text-sm text-slate-500">Cada hipótese mostra o raciocínio técnico, fatores que favorecem, dúvidas e impacto potencial.</p></div>{analysis.detailedHypotheses.map((hypothesis) => <article key={`${hypothesis.name}-${hypothesis.probability}`} className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h5 className="text-lg font-black text-slate-950">{hypothesis.name}</h5><p className="mt-2 text-sm leading-7 text-slate-700">{hypothesis.justification}</p></div><span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(hypothesis.probability)}`}>Probabilidade {confidenceLabels[hypothesis.probability]}</span></div><div className="mt-4 grid gap-4 md:grid-cols-3"><ListSection title="O que favorece" items={hypothesis.favorableFactors} tone="leaf" /><ListSection title="O que reduz confiança" items={hypothesis.uncertaintyFactors} tone="amber" /><div className="rounded-[1.25rem] bg-red-50 p-5 text-red-800"><h6 className="font-bold text-slate-950">Impacto potencial</h6><p className="mt-3 text-sm leading-6">{hypothesis.potentialImpact}</p></div></div></article>)}</div> : <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Hipóteses prováveis" items={analysis?.probableHypotheses ?? []} /><ListSection title="Perguntas pendentes" items={analysis?.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} /><ListSection title="Recomendações iniciais" items={[analysis?.initialRecommendation || selectedCase.ai_recommendation || "Aguardando análise."]} /></div>}
                       {analysis ? <div className="mt-5 grid gap-4 md:grid-cols-3"><ListSection title="Possíveis causas" items={analysis.possibleCauses} tone="slate" /><ListSection title="Recomendações seguras" items={analysis.safeInitialRecommendations.length ? analysis.safeInitialRecommendations : [analysis.initialRecommendation]} tone="leaf" /><ListSection title="Perguntas pendentes" items={analysis.missingQuestions ?? (selectedCase.pending_questions ?? []).filter((q) => q.status === "pending").map((q) => q.question)} tone="amber" /></div> : null}
                       {analysis ? <div className="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Quando acionar especialista</p><p className="mt-3 text-sm leading-7 text-amber-950">{analysis.whenToCallHumanSpecialist}</p></div> : null}
+                      {analysis ? <div className="mt-5 grid gap-4 xl:grid-cols-2"><AnalysisCard title="Pesquisa na internet"><p className="font-bold text-slate-800">{internetStatusLabel(analysis.internetResearch?.status)}</p><p className="mt-2 text-sm leading-7 text-slate-700">{analysis.internetResearch?.summary || "Nenhuma síntese externa registrada para esta análise."}</p>{analysis.internetResearch?.sources?.length ? <ul className="mt-3 space-y-2">{analysis.internetResearch.sources.map((source, index) => <li key={`${source.title}-${index}`} className="text-sm"><a href={source.url || "#"} target={source.url ? "_blank" : undefined} rel={source.url ? "noreferrer" : undefined} className="font-bold text-leaf-700 underline-offset-4 hover:underline">{source.title || source.url}</a></li>)}</ul> : <p className="mt-3 text-sm font-semibold text-slate-500">Nenhuma fonte externa estruturada foi retornada pelo provedor.</p>}</AnalysisCard><AnalysisCard title="Base interna do sistema"><p className="text-sm leading-7 text-slate-700">{analysis.knowledgeUsed?.length ? "A resposta foi enriquecida com materiais internos relevantes da base specialist_knowledge." : "Nenhum material interno relevante foi encontrado ou utilizado nesta consulta."}</p>{analysis.knowledgeUsed?.length ? <ul className="mt-3 space-y-2">{analysis.knowledgeUsed.map((item) => <li key={`${item.title}-${item.category}`} className="flex gap-2"><span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-purple-600" /><span><strong>{item.title}</strong> · {item.category}</span></li>)}</ul> : null}</AnalysisCard></div> : null}
                     </div>
 
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h3 className="text-xl font-black">Interação contextual com IA</h3><div className="flex flex-wrap gap-2"><button onClick={() => setQuestion("Explique as recomendações em linguagem simples.")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">Explicar</button><button onClick={() => setQuestion("Quais informações faltam para aumentar a confiança da análise?")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">Perguntas</button></div></div>
                       <div className="mt-5 max-h-[440px] space-y-3 overflow-y-auto rounded-[1.5rem] bg-slate-50 p-4">
                         {chatMessages.length === 0 ? <EmptyState title="Conversa técnica vazia" description="Use a IA para complementar sintomas, interpretar recomendações e continuar a análise do caso atual." /> : chatMessages.map((message, index) => <div key={message.id ?? index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-6 sm:max-w-[82%] ${message.role === "user" ? "bg-leaf-700 text-white" : "bg-white text-slate-700 shadow-sm"}`}><p className="text-xs font-black uppercase tracking-wide opacity-60">{message.role === "user" ? "Produtor" : "IA agronômica"}</p><p className="mt-1 whitespace-pre-wrap">{message.content}</p></div></div>)}
-                        {chatLoading && <div className="text-sm font-bold text-leaf-700">IA processando contexto do caso...</div>}<div ref={chatEndRef} />
+                        {chatLoading && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold text-sky-800">{chatStatus || "IA pesquisando internet, consultando base interna e processando contexto do caso..."}</div>}<div ref={chatEndRef} />
                       </div>
                       <form onSubmit={handleAskQuestion} className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]"><textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} placeholder="Faça uma pergunta complementar mantendo o contexto do caso atual..." className="resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-leaf-400" /><button disabled={chatLoading || !question.trim()} className="rounded-2xl bg-leaf-600 px-6 py-3 text-sm font-black text-white disabled:bg-slate-300">Enviar para IA</button></form>
                     </div>
