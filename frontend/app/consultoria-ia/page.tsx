@@ -148,6 +148,80 @@ function AnalysisCard({ title, children }: { title: string; children: ReactNode 
   return <section className="rounded-[1.5rem] border border-slate-100 bg-white p-5 shadow-sm"><h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-400">{title}</h4><div className="mt-3 text-sm leading-7 text-slate-700">{children}</div></section>;
 }
 
+function buildSourceMetadataForDisplay(analysis: AgronomicPreAnalysis) {
+  const searchSucceeded = analysis.internetResearch?.status === "success";
+  const internalKnowledgeUsed = Boolean(analysis.knowledgeUsed?.length);
+  const fallbackMetadata = {
+    searchAttempted: Boolean(analysis.internetResearch),
+    searchSucceeded,
+    internalKnowledgeAttempted: true,
+    internalKnowledgeUsed,
+    internalKnowledgeAvailable: internalKnowledgeUsed,
+    modelFallbackUsed: !searchSucceeded && !internalKnowledgeUsed,
+    cacheUsed: false,
+    sources: searchSucceeded ? analysis.internetResearch?.sources ?? [] : [],
+    sourceLabel: searchSucceeded && internalKnowledgeUsed
+      ? "Fonte usada: pesquisa na internet + base interna"
+      : searchSucceeded
+        ? "Fonte usada: pesquisa na internet"
+        : internalKnowledgeUsed
+          ? "Fonte usada: base interna do sistema"
+          : "Fonte usada: conhecimento geral da IA",
+    errorMessage: !searchSucceeded ? analysis.internetResearch?.summary : undefined,
+  };
+
+  return analysis.sourceMetadata ?? fallbackMetadata;
+}
+
+function sourceTransparencyText(analysis: AgronomicPreAnalysis) {
+  const metadata = buildSourceMetadataForDisplay(analysis);
+
+  if (metadata.modelFallbackUsed) {
+    return "A pesquisa externa não entregou conteúdo aproveitável e nenhum material interno foi usado. Esta resposta foi gerada apenas como triagem com os dados do caso e conhecimento geral da IA.";
+  }
+
+  if (!metadata.searchSucceeded && metadata.internalKnowledgeUsed) {
+    return "A pesquisa externa falhou ou ficou indisponível. A resposta foi mantida com base interna do sistema e dados do caso, sem considerar a internet como fonte bem-sucedida.";
+  }
+
+  if (metadata.searchSucceeded && metadata.internalKnowledgeUsed) {
+    return "A resposta combinou pesquisa externa bem-sucedida com materiais relevantes da base interna.";
+  }
+
+  if (metadata.searchSucceeded) {
+    return "A resposta usou pesquisa externa bem-sucedida. Nenhum material interno relevante foi aplicado nesta análise.";
+  }
+
+  return "A resposta mostra as fontes realmente disponíveis nesta execução.";
+}
+
+function SourceTransparencyPanel({ analysis }: { analysis: AgronomicPreAnalysis }) {
+  const metadata = buildSourceMetadataForDisplay(analysis);
+  const tone = metadata.modelFallbackUsed
+    ? "border-amber-200 bg-amber-50 text-amber-950"
+    : metadata.searchSucceeded
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : "border-sky-200 bg-sky-50 text-sky-950";
+  const flags = [
+    `Internet: ${metadata.searchSucceeded ? "sucesso" : metadata.searchAttempted ? "sem sucesso" : "não executada"}`,
+    `Base interna: ${metadata.internalKnowledgeUsed ? "usada" : metadata.internalKnowledgeAvailable ? "disponível, mas não usada" : "sem conteúdo usado"}`,
+    `Conhecimento geral da IA: ${metadata.modelFallbackUsed ? "usado como fallback" : "não usado como única fonte"}`,
+    metadata.cacheUsed ? "Cache: análise anterior reutilizada" : "Cache: não usado",
+  ];
+
+  return (
+    <div className={`mt-5 rounded-[1.5rem] border p-5 ${tone}`}>
+      <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70">Origem da resposta</p>
+      <p className="mt-2 text-base font-black">{metadata.sourceLabel}</p>
+      <p className="mt-2 text-sm leading-6">{sourceTransparencyText(analysis)}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {flags.map((flag) => <span key={flag} className="rounded-full bg-white/70 px-3 py-1 text-xs font-bold shadow-sm">{flag}</span>)}
+      </div>
+      {metadata.errorMessage ? <p className="mt-3 text-sm font-semibold opacity-85">Detalhe da pesquisa externa: {metadata.errorMessage}</p> : null}
+    </div>
+  );
+}
+
 
 function LongTextBlock({ value, className = "" }: { value: string; className?: string }) {
   const blocks = splitAiResponseIntoBlocks(value);
@@ -691,6 +765,7 @@ function ConsultoriaIAContent() {
                     <div className="rounded-[2rem] border border-white/80 bg-white p-6 shadow-soft">
                       <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-black">Área principal de análise IA</h3><div className="flex flex-wrap gap-2"><span className="rounded-full bg-leaf-50 px-3 py-1 text-xs font-bold text-leaf-700">Pré-consultoria estruturada</span>{analysis?.internetResearch && <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{internetStatusLabel(analysis.internetResearch.status)}</span>}{analysis?.knowledgeUsed?.length ? <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">Base interna usada</span> : null}{analysis?.riskLevel && <span className={`rounded-full border px-3 py-1 text-xs font-black ${levelBadgeClass(analysis.riskLevel)}`}>Risco {riskLabels[analysis.riskLevel]}</span>}</div></div>
                       {(generating || analysisStatus) && <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">{analysisStatus || "Pesquisando internet, base interna e gerando resposta..."}</div>}
+                      {analysis ? <SourceTransparencyPanel analysis={analysis} /> : null}
                       {popularSummaryText ? <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Resumo em linguagem popular</p><LongTextBlock value={popularSummaryText} /></div> : null}
                       <div className="mt-5 rounded-[1.5rem] border border-leaf-100 bg-gradient-to-br from-leaf-50 via-white to-gold-50 p-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">Dados técnicos</p><LongTextBlock value={technicalDetailsText} /></div>
                       {analysis ? <div className="mt-5 grid gap-4 lg:grid-cols-3"><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Nível de risco</p><p className={`mt-3 inline-flex rounded-full border px-4 py-2 text-sm font-black ${levelBadgeClass(analysis.riskLevel)}`}>{riskLabels[analysis.riskLevel]}</p><p className="mt-3 text-sm leading-6 text-slate-600">{analysis.productionImpact}</p></div><div className="rounded-[1.25rem] border border-slate-100 bg-slate-50 p-5"><ConfidenceBar level={analysis.confidenceLevel} /><p className="mt-4 text-sm leading-6 text-slate-600">A confiança considera qualidade das imagens, dados de manejo, estágio, histórico, solo, clima e necessidade de confirmação em campo.</p></div><div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-5"><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Revisão humana</p><p className="mt-3 text-sm leading-6 text-amber-900">{analysis.humanReviewReason || analysis.whenToCallHumanSpecialist}</p></div></div> : null}

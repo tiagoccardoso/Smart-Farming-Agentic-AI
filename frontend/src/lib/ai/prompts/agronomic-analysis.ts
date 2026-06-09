@@ -148,8 +148,9 @@ ${allowedSources}
 
 Regras específicas:
 - Use o contexto da tabela crops para ajustar hipóteses, riscos, solo, clima, ciclo, doenças comuns, pragas e manejo da cultura selecionada.
-- Use a pesquisa externa da internet para atualizar e validar hipóteses, riscos, cautelas e próximos passos.
-- Se a pesquisa externa estiver com status "error" ou "unavailable", informe a limitação com linguagem clara e continue usando o caso, a tabela crops e a base interna.
+- Use a pesquisa externa da internet para atualizar e validar hipóteses, riscos, cautelas e próximos passos somente quando o status for "success".
+- Se a pesquisa externa estiver com status "error" ou "unavailable", não afirme que houve pesquisa externa bem-sucedida e não atribua nenhuma conclusão à internet.
+- Se a pesquisa externa falhar e a base specialist_knowledge não trouxer conteúdo relevante, declare de forma explícita que a resposta é uma triagem baseada apenas nos dados do caso, cadastro da cultura e conhecimento geral da IA.
 - Use a base specialist_knowledge somente quando relevante.
 - Diferencie conteúdo externo e base interna quando fizer sentido, sem inventar fontes.
 - Não invente fontes; knowledgeUsed só pode conter títulos e categorias listados acima.
@@ -169,7 +170,7 @@ Regras específicas:
 - Inclua sempre technicalDetails com dados técnicos completos: contexto do caso, hipóteses detalhadas, achados, causas, impacto produtivo, recomendações seguras, limitações, pesquisa externa aproveitada e conteúdo relevante da base interna.
 - Não use o caractere de travessão Unicode U+2014 em nenhum campo textual. Quando precisar separar ideias, use ponto, vírgula, dois-pontos ou listas bem formatadas.
 - Evite hífens duplicados, markdown quebrado, quebras de linha excessivas e bullets sem texto.
-- O popularSummary e o technicalDetails devem ser gerados com base no conjunto completo: dados do caso + pesquisa externa obrigatória + base specialist_knowledge + cadastro da cultura.
+- O popularSummary e o technicalDetails devem ser gerados com base apenas nas fontes realmente disponíveis nesta execução: dados do caso, cadastro da cultura, pesquisa externa quando bem-sucedida e base specialist_knowledge quando houver conteúdo relevante. Nunca trate uma fonte com erro como fonte usada.
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
@@ -208,6 +209,17 @@ Formato obrigatório:
     "query": "consulta feita na internet",
     "summary": "síntese do que foi aproveitado da pesquisa externa ou limitação encontrada",
     "sources": [{ "title": "título da fonte externa", "url": "URL quando disponível" }]
+  },
+  "sourceMetadata": {
+    "searchAttempted": true,
+    "searchSucceeded": true,
+    "internalKnowledgeAttempted": true,
+    "internalKnowledgeUsed": false,
+    "internalKnowledgeAvailable": false,
+    "modelFallbackUsed": false,
+    "cacheUsed": false,
+    "sources": [],
+    "sourceLabel": "Fonte usada: pesquisa na internet"
   },
   "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
 }`;

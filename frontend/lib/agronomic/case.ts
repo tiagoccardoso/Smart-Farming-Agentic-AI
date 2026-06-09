@@ -133,6 +133,19 @@ export type InternetResearchResult = {
   sources: InternetResearchSource[];
 };
 
+export type AgronomicSourceMetadata = {
+  searchAttempted: boolean;
+  searchSucceeded: boolean;
+  internalKnowledgeAttempted: boolean;
+  internalKnowledgeUsed: boolean;
+  internalKnowledgeAvailable: boolean;
+  modelFallbackUsed: boolean;
+  cacheUsed: boolean;
+  sources: InternetResearchSource[];
+  sourceLabel: string;
+  errorMessage?: string;
+};
+
 export type AgronomicPreAnalysis = {
   popularSummary?: string;
   technicalDetails?: string;
@@ -153,6 +166,7 @@ export type AgronomicPreAnalysis = {
   disclaimer: string;
   knowledgeUsed: KnowledgeUsed[];
   internetResearch?: InternetResearchResult;
+  sourceMetadata?: AgronomicSourceMetadata;
   conversationalAnswer?: string;
 };
 

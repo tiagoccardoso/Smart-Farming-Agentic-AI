@@ -105,6 +105,85 @@ function cropDisplayName(caseData: AgronomicCaseForAI) {
   );
 }
 
+type SourceMetadataInput = {
+  internetResearch?: InternetResearchResult;
+  knowledgeUsed: Array<{ title: string; category: string }>;
+  internalKnowledgeAttempted?: boolean;
+  internalKnowledgeAvailable?: boolean;
+  modelFallbackUsed?: boolean;
+  cacheUsed?: boolean;
+};
+
+function buildSourceMetadata(input: SourceMetadataInput): AgronomicAnalysisOutput["sourceMetadata"] {
+  const internetResearch = input.internetResearch;
+  const searchSucceeded = internetResearch?.status === "success";
+  const internalKnowledgeUsed = input.knowledgeUsed.length > 0;
+  const internalKnowledgeAvailable = input.internalKnowledgeAvailable ?? internalKnowledgeUsed;
+  const modelFallbackUsed = Boolean(
+    input.modelFallbackUsed ?? (!searchSucceeded && !internalKnowledgeUsed),
+  );
+  const sources = searchSucceeded ? internetResearch?.sources ?? [] : [];
+  const sourceLabel = searchSucceeded && internalKnowledgeUsed
+    ? "Fonte usada: pesquisa na internet + base interna"
+    : searchSucceeded
+      ? "Fonte usada: pesquisa na internet"
+      : internalKnowledgeUsed
+        ? "Fonte usada: base interna do sistema"
+        : modelFallbackUsed
+          ? "Fonte usada: conhecimento geral da IA"
+          : "Fonte usada: dados do caso";
+
+  const errorMessage = !searchSucceeded && internetResearch
+    ? internetResearch.summary || "A pesquisa externa foi solicitada, mas não retornou conteúdo aproveitável nesta execução."
+    : undefined;
+
+  return {
+    searchAttempted: Boolean(internetResearch),
+    searchSucceeded,
+    internalKnowledgeAttempted: input.internalKnowledgeAttempted ?? true,
+    internalKnowledgeUsed,
+    internalKnowledgeAvailable,
+    modelFallbackUsed,
+    cacheUsed: Boolean(input.cacheUsed),
+    sources,
+    sourceLabel: input.cacheUsed ? `${sourceLabel} (cache da análise anterior)` : sourceLabel,
+    ...(errorMessage ? { errorMessage } : {}),
+  };
+}
+
+function withCacheMetadata(analysis: AgronomicAnalysisOutput): AgronomicAnalysisOutput {
+  return {
+    ...analysis,
+    sourceMetadata: buildSourceMetadata({
+      internetResearch: analysis.internetResearch,
+      knowledgeUsed: analysis.knowledgeUsed ?? [],
+      internalKnowledgeAvailable: Boolean(analysis.sourceMetadata?.internalKnowledgeAvailable),
+      modelFallbackUsed: analysis.sourceMetadata?.modelFallbackUsed,
+      cacheUsed: true,
+    }),
+  };
+}
+
+function sourceTransparencyAlert(metadata: AgronomicAnalysisOutput["sourceMetadata"]) {
+  if (metadata.modelFallbackUsed) {
+    return "Atenção: a pesquisa externa não entregou conteúdo aproveitável e nenhum material interno foi usado. Esta resposta é uma triagem baseada nos dados do caso e no conhecimento geral da IA, não em pesquisa validada nesta execução.";
+  }
+
+  if (!metadata.searchSucceeded && metadata.internalKnowledgeUsed) {
+    return "A pesquisa externa falhou ou ficou indisponível. A resposta foi mantida usando a base interna do sistema e os dados do caso, sem marcar a internet como fonte bem-sucedida.";
+  }
+
+  if (metadata.searchSucceeded && !metadata.internalKnowledgeUsed) {
+    return "A pesquisa externa foi usada. Nenhum material interno relevante da base specialist_knowledge foi aplicado nesta análise.";
+  }
+
+  if (metadata.searchSucceeded && metadata.internalKnowledgeUsed) {
+    return "A resposta combinou pesquisa externa com materiais internos relevantes da base specialist_knowledge.";
+  }
+
+  return "A resposta foi gerada a partir dos dados do caso e das limitações registradas nesta execução.";
+}
+
 function buildPopularSummary(
   caseData: AgronomicCaseForAI,
   riskLevel: "low" | "medium" | "high",
@@ -352,6 +431,12 @@ function buildFallbackAnalysis(
         : "Há incerteza agronômica e potencial de impacto produtivo; um especialista pode confirmar sinais em campo, diferenciar causas parecidas e orientar manejo dentro das normas técnicas.",
     knowledgeUsed: [],
     internetResearch,
+    sourceMetadata: buildSourceMetadata({
+      internetResearch,
+      knowledgeUsed: [],
+      internalKnowledgeAvailable: false,
+      modelFallbackUsed: true,
+    }),
     disclaimer: AGRONOMIC_AI_DISCLAIMER,
     conversationalAnswer: question?.trim()
       ? `Sobre sua pergunta: a triagem deve combinar os sintomas relatados com distribuição no talhão, evolução recente e contexto de ${cropName}. Mesmo com incerteza, as hipóteses principais são sanitárias, pragas/vetores e estresse de manejo/ambiente; decisões de aplicação ou intervenção devem ser validadas por responsável técnico.`
@@ -528,11 +613,14 @@ function knowledgeBlock(knowledge: KnowledgeDocument[]) {
 
 function composeCompletePopularSummary(
   modelSummary: string,
-  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails">,
+  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails" | "sourceMetadata">,
   knowledge: KnowledgeDocument[],
   internetResearch: InternetResearchResult,
+  sourceMetadata: AgronomicAnalysisOutput["sourceMetadata"],
 ) {
   const parts = [
+    sourceMetadata.sourceLabel,
+    sourceTransparencyAlert(sourceMetadata),
     modelSummary,
     `Em termos práticos, o caso aponta risco ${analysis.riskLevel} e confiança ${analysis.confidenceLevel}. O principal é acompanhar a evolução dos sintomas, comparar plantas sadias e afetadas e evitar decisões de aplicação ou investimento alto sem confirmação técnica.`,
     analysis.probableHypotheses.length
@@ -549,7 +637,7 @@ function composeCompletePopularSummary(
       : `A pesquisa na internet foi solicitada, mas retornou status "${internetResearch.status}". Por isso, essa parte foi usada com cautela: ${internetResearch.summary}`,
     knowledge.length
       ? `O que a base interna acrescentou: ${knowledge.map((item) => `${item.title} (${item.category}): ${truncateForBlock(item.content, 900)}`).join(" | ")}`
-      : "Nenhum material interno relevante foi encontrado; a resposta continua usando os dados do caso, cadastro da cultura e pesquisa externa disponível.",
+      : "Nenhum material interno relevante foi encontrado ou usado nesta consulta.",
     analysis.whenToCallHumanSpecialist,
   ].filter((item): item is string => Boolean(item && item.trim()));
 
@@ -558,9 +646,10 @@ function composeCompletePopularSummary(
 
 function composeCompleteTechnicalDetails(
   modelTechnicalDetails: string,
-  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails">,
+  analysis: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails" | "sourceMetadata">,
   knowledge: KnowledgeDocument[],
   internetResearch: InternetResearchResult,
+  sourceMetadata: AgronomicAnalysisOutput["sourceMetadata"],
   caseData: AgronomicCaseForAI,
 ) {
   const detailedHypotheses = analysis.detailedHypotheses.length
@@ -576,6 +665,8 @@ function composeCompleteTechnicalDetails(
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
   const details = [
     "Dados técnicos completos",
+    `Origem da resposta: ${sourceMetadata.sourceLabel}. ${sourceTransparencyAlert(sourceMetadata)}`,
+    `Metadados de origem: searchAttempted=${sourceMetadata.searchAttempted}; searchSucceeded=${sourceMetadata.searchSucceeded}; internalKnowledgeUsed=${sourceMetadata.internalKnowledgeUsed}; modelFallbackUsed=${sourceMetadata.modelFallbackUsed}; cacheUsed=${sourceMetadata.cacheUsed}.`,
     `Contexto do caso: cultura ${caseData.crop || "não informada"}; estádio ${caseData.growth_stage || "não informado"}; local ${location}; solo ${caseData.farm?.soil_type || "não informado"}; imagens ${caseData.images.length}; análise de solo ${caseData.soil_analysis_url ? "anexada" : "não anexada"}.`,
     modelTechnicalDetails,
     `Diagnóstico inicial: ${analysis.initialDiagnosis}`,
@@ -610,7 +701,7 @@ function normalizeAnalysis(
     fallback.detailedHypotheses,
   );
   const normalizedInternetResearch = normalizeInternetResearch(output.internetResearch, internetResearch);
-  const baseWithoutLongBlocks: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails"> = {
+  const baseWithoutLongBlocks: Omit<AgronomicAnalysisOutput, "popularSummary" | "technicalDetails" | "sourceMetadata"> = {
     initialDiagnosis: normalizeSafeText(output.initialDiagnosis, fallback.initialDiagnosis),
     probableHypotheses: normalizeStringArray(
       output.probableHypotheses,
@@ -655,6 +746,12 @@ function normalizeAnalysis(
         ? sanitizeAiSafetyText(output.conversationalAnswer)
         : fallback.conversationalAnswer,
   };
+  const sourceMetadata = buildSourceMetadata({
+    internetResearch: normalizedInternetResearch,
+    knowledgeUsed: baseWithoutLongBlocks.knowledgeUsed,
+    internalKnowledgeAvailable: knowledge.length > 0,
+  });
+
   const modelPopularSummary = normalizeSafeText(
     output.popularSummary,
     fallback.popularSummary,
@@ -670,15 +767,18 @@ function normalizeAnalysis(
       baseWithoutLongBlocks,
       knowledge,
       normalizedInternetResearch,
+      sourceMetadata,
     ),
     technicalDetails: composeCompleteTechnicalDetails(
       modelTechnicalDetails,
       baseWithoutLongBlocks,
       knowledge,
       normalizedInternetResearch,
+      sourceMetadata,
       caseData,
     ),
     ...baseWithoutLongBlocks,
+    sourceMetadata,
   });
 }
 
@@ -782,7 +882,7 @@ export async function analyzeAgronomicCase(
   const cacheEnabled = isCacheEnabled();
   const cached = cacheEnabled ? responseCache.get(key) : null;
   if (cached) {
-    return cached;
+    return withCacheMetadata(cached);
   }
 
   const complexity = classifyCaseComplexity(caseData, options.question);
@@ -796,6 +896,12 @@ export async function analyzeAgronomicCase(
     ...buildFallbackAnalysis(caseData, options.question),
     popularSummary: buildPopularSummary(caseData, classifyAgronomicRisk(caseData), internetResearch),
     internetResearch,
+    sourceMetadata: buildSourceMetadata({
+      internetResearch,
+      knowledgeUsed: [],
+      internalKnowledgeAvailable: knowledge.length > 0,
+      modelFallbackUsed: internetResearch.status !== "success" && knowledge.length === 0,
+    }),
   };
   const prompt = buildAgronomicAnalysisPrompt(
     caseData,

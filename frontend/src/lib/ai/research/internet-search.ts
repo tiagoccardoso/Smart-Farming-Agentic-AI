@@ -199,7 +199,7 @@ export async function searchInternetForAgronomicCase(
         status: "error",
         query,
         summary:
-          "A pesquisa externa foi solicitada, mas o provedor de busca retornou instabilidade. A resposta foi gerada com os dados do caso e a base interna disponível.",
+          "A pesquisa externa foi solicitada, mas o provedor de busca retornou instabilidade. Nenhum conteúdo externo foi validado nesta etapa.",
         sources: [],
       };
     }
@@ -219,7 +219,7 @@ export async function searchInternetForAgronomicCase(
       status: "error",
       query,
       summary:
-        "A pesquisa externa foi solicitada, mas não pôde ser concluída por instabilidade temporária. A resposta foi gerada com fallback seguro e base interna disponível.",
+        "A pesquisa externa foi solicitada, mas não pôde ser concluída por instabilidade temporária. Nenhum conteúdo externo foi validado nesta etapa.",
       sources: [],
     };
   }

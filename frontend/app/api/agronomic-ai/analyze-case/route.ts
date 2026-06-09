@@ -170,6 +170,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         analysis,
+        sourceMetadata: analysis.sourceMetadata,
         pendingQuestions,
         currentQuestion: firstQuestion,
       });
@@ -231,6 +232,7 @@ ${nextPendingQuestion.question}`
 
       return NextResponse.json({
         analysis: { ...analysis, conversationalAnswer: assistantMessage },
+        sourceMetadata: analysis.sourceMetadata,
         answeredPendingQuestion,
         answeredQuestion: answeredPendingQuestion,
         currentQuestion: nextPendingQuestion,
@@ -238,7 +240,7 @@ ${nextPendingQuestion.question}`
       });
     }
 
-    return NextResponse.json({ analysis });
+    return NextResponse.json({ analysis, sourceMetadata: analysis.sourceMetadata });
   } catch (error) {
     if (error instanceof PlanLimitExceededError) {
       return NextResponse.json(
