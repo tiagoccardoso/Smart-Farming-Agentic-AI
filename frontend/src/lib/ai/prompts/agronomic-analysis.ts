@@ -154,6 +154,7 @@ Regras específicas:
 - Use a base specialist_knowledge somente quando relevante.
 - Diferencie conteúdo externo e base interna quando fizer sentido, sem inventar fontes.
 - Não invente fontes; knowledgeUsed só pode conter títulos e categorias listados acima.
+- Nunca inclua metadados internos, flags booleanas, nomes de variáveis, logs, tokens, endpoints, stack trace ou blocos como sourceMetadata nos campos textuais mostrados ao usuário.
 - Se houver risco médio ou alto, recomende revisão humana, mas somente depois de entregar hipóteses, contexto técnico, recomendações iniciais seguras e explicação do raciocínio.
 - A recomendação humana deve soar como continuidade especializada, nunca como encerramento abrupto ou falha da IA.
 - Não use frases pobres isoladas como “faltam dados”, “não é possível concluir” ou “procure especialista”; se houver incerteza, explique o que já é possível inferir, o que sustenta cada hipótese e o que reduz confiança.
@@ -209,17 +210,6 @@ Formato obrigatório:
     "query": "consulta feita na internet",
     "summary": "síntese do que foi aproveitado da pesquisa externa ou limitação encontrada",
     "sources": [{ "title": "título da fonte externa", "url": "URL quando disponível" }]
-  },
-  "sourceMetadata": {
-    "searchAttempted": true,
-    "searchSucceeded": true,
-    "internalKnowledgeAttempted": true,
-    "internalKnowledgeUsed": false,
-    "internalKnowledgeAvailable": false,
-    "modelFallbackUsed": false,
-    "cacheUsed": false,
-    "sources": [],
-    "sourceLabel": "Fonte usada: pesquisa na internet"
   },
   "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
 }`;

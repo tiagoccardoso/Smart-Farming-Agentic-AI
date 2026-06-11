@@ -174,11 +174,11 @@ function sourceTransparencyAlert(metadata: AgronomicAnalysisOutput["sourceMetada
   }
 
   if (metadata.searchSucceeded && !metadata.internalKnowledgeUsed) {
-    return "A pesquisa externa foi usada. Nenhum material interno relevante da base specialist_knowledge foi aplicado nesta análise.";
+    return "A pesquisa externa foi usada. Nenhum material interno relevante da base interna do sistema foi aplicado nesta análise.";
   }
 
   if (metadata.searchSucceeded && metadata.internalKnowledgeUsed) {
-    return "A resposta combinou pesquisa externa com materiais internos relevantes da base specialist_knowledge.";
+    return "A resposta combinou pesquisa externa com materiais internos relevantes da base interna do sistema.";
   }
 
   return "A resposta foi gerada a partir dos dados do caso e das limitações registradas nesta execução.";
@@ -600,7 +600,7 @@ function sourceList(internetResearch: InternetResearchResult) {
 
 function knowledgeBlock(knowledge: KnowledgeDocument[]) {
   if (!knowledge.length) {
-    return "Nenhum conteúdo interno relevante foi encontrado na base specialist_knowledge para esta consulta.";
+    return "Nenhum conteúdo interno relevante foi encontrado na base interna do sistema para esta consulta.";
   }
 
   return knowledge
@@ -618,9 +618,11 @@ function composeCompletePopularSummary(
   internetResearch: InternetResearchResult,
   sourceMetadata: AgronomicAnalysisOutput["sourceMetadata"],
 ) {
+  const internetSummary = internetResearch.status === "success" && internetResearch.summary
+    ? `O que a pesquisa na internet acrescentou: ${internetResearch.summary}`
+    : "A pesquisa externa foi tentada, mas não retornou conteúdo aproveitável nesta execução. As conclusões abaixo não dependem de internet validada nesta resposta.";
+
   const parts = [
-    sourceMetadata.sourceLabel,
-    sourceTransparencyAlert(sourceMetadata),
     modelSummary,
     `Em termos práticos, o caso aponta risco ${analysis.riskLevel} e confiança ${analysis.confidenceLevel}. O principal é acompanhar a evolução dos sintomas, comparar plantas sadias e afetadas e evitar decisões de aplicação ou investimento alto sem confirmação técnica.`,
     analysis.probableHypotheses.length
@@ -632,9 +634,7 @@ function composeCompletePopularSummary(
     analysis.safeInitialRecommendations.length
       ? `Próximos passos seguros: ${analysis.safeInitialRecommendations.join("; ")}.`
       : analysis.initialRecommendation,
-    internetResearch.status === "success" && internetResearch.summary
-      ? `O que a pesquisa na internet acrescentou: ${internetResearch.summary}`
-      : `A pesquisa na internet foi solicitada, mas retornou status "${internetResearch.status}". Por isso, essa parte foi usada com cautela: ${internetResearch.summary}`,
+    internetSummary,
     knowledge.length
       ? `O que a base interna acrescentou: ${knowledge.map((item) => `${item.title} (${item.category}): ${truncateForBlock(item.content, 900)}`).join(" | ")}`
       : "Nenhum material interno relevante foi encontrado ou usado nesta consulta.",
@@ -642,6 +642,33 @@ function composeCompletePopularSummary(
   ].filter((item): item is string => Boolean(item && item.trim()));
 
   return normalizeAiResponseText(parts.join("\n\n"));
+}
+
+function describeInternetResearchForTechnicalDetails(internetResearch: InternetResearchResult) {
+  if (internetResearch.status === "success") {
+    return [
+      "Pesquisa externa: realizada com conteúdo aproveitado nesta execução.",
+      `Consulta enviada: ${internetResearch.query || "não informada"}.`,
+      `Síntese aproveitada: ${internetResearch.summary || "sem síntese externa disponível"}.`,
+      `Fontes:\n${sourceList(internetResearch)}`,
+    ].join("\n");
+  }
+
+  if (internetResearch.status === "unavailable") {
+    return [
+      "Pesquisa externa: indisponível nesta execução.",
+      `Consulta preparada: ${internetResearch.query || "não informada"}.`,
+      "Nenhum conteúdo externo foi considerado como fonte bem-sucedida.",
+      internetResearch.summary,
+    ].filter(Boolean).join("\n");
+  }
+
+  return [
+    "Pesquisa externa: tentativa executada sem conteúdo externo validado.",
+    `Consulta enviada: ${internetResearch.query || "não informada"}.`,
+    "Nenhum resultado externo parcial ou completo foi considerado como fonte bem-sucedida.",
+    internetResearch.summary,
+  ].filter(Boolean).join("\n");
 }
 
 function composeCompleteTechnicalDetails(
@@ -665,7 +692,6 @@ function composeCompleteTechnicalDetails(
   const location = [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") || "não informada";
   const details = [
     "Dados técnicos completos",
-    `Origem da resposta: ${sourceMetadata.sourceLabel}. ${sourceTransparencyAlert(sourceMetadata)}`,
     `Contexto do caso: cultura ${caseData.crop || "não informada"}; estádio ${caseData.growth_stage || "não informado"}; local ${location}; solo ${caseData.farm?.soil_type || "não informado"}; imagens ${caseData.images.length}; análise de solo ${caseData.soil_analysis_url ? "anexada" : "não anexada"}.`,
     modelTechnicalDetails,
     `Diagnóstico inicial: ${analysis.initialDiagnosis}`,
@@ -679,7 +705,7 @@ function composeCompleteTechnicalDetails(
     `Perguntas ou informações pendentes:\n${bulletList(analysis.missingQuestions, "Nenhuma pergunta pendente estruturada foi retornada nesta etapa.")}`,
     `Quando acionar especialista: ${analysis.whenToCallHumanSpecialist}`,
     `Motivo técnico para revisão humana: ${analysis.humanReviewReason}`,
-    `Pesquisa na internet\nStatus: ${internetResearch.status}\nConsulta: ${internetResearch.query || "não informada"}\nSíntese aproveitada: ${internetResearch.summary || "sem síntese externa disponível"}\nFontes:\n${sourceList(internetResearch)}`,
+    describeInternetResearchForTechnicalDetails(internetResearch),
     `Base interna do sistema\n${knowledgeBlock(knowledge)}`,
     `Aviso de segurança: ${AGRONOMIC_AI_DISCLAIMER}`,
   ].filter((item) => item.trim()).join("\n\n");

@@ -18,12 +18,20 @@ type OpenAiResponseContent = {
 };
 
 type OpenAiResponseOutput = {
+  type?: string;
+  status?: string;
+  action?: {
+    type?: string;
+    query?: string;
+    sources?: unknown[];
+  };
   content?: OpenAiResponseContent[];
 };
 
 const MAX_QUERY_CHARS = 260;
 const MAX_SUMMARY_CHARS = 6000;
 const MAX_SOURCES = 8;
+const DEFAULT_WEB_SEARCH_MODEL = "gpt-4.1";
 
 function cleanText(value?: string | null) {
   return (value ?? "").replace(/\s+/g, " ").trim();
@@ -118,6 +126,84 @@ function getAnnotationSources(payload: any) {
   return sources;
 }
 
+function normalizeSourceCandidate(source: any): InternetResearchSource | null {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  const url = cleanText(
+    source.url ||
+      source.uri ||
+      source.link ||
+      source.source?.url ||
+      source.url_citation?.url,
+  );
+  const title = cleanText(
+    source.title ||
+      source.name ||
+      source.source?.title ||
+      source.url_citation?.title ||
+      url,
+  );
+
+  if (!url && !title) {
+    return null;
+  }
+
+  return { title: title || url, url: url || undefined };
+}
+
+function getActionSources(payload: any) {
+  const sources: InternetResearchSource[] = [];
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+
+  for (const item of output) {
+    const actionSources = Array.isArray(item?.action?.sources)
+      ? item.action.sources
+      : [];
+
+    for (const source of actionSources) {
+      const normalized = normalizeSourceCandidate(source);
+      if (normalized) {
+        sources.push(normalized);
+      }
+    }
+  }
+
+  return sources;
+}
+
+function dedupeSources(sources: InternetResearchSource[]) {
+  const seen = new Set<string>();
+  const normalized: InternetResearchSource[] = [];
+
+  for (const source of sources) {
+    const key = `${source.title}::${source.url ?? ""}`.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(source);
+    if (normalized.length >= MAX_SOURCES) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+function getWebSearchCallState(payload: any) {
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const calls = output.filter((item: OpenAiResponseOutput) => item?.type === "web_search_call");
+
+  return {
+    attempted: calls.length > 0,
+    completed: calls.some((item: OpenAiResponseOutput) => item.status === "completed"),
+  };
+}
+
+
 function unavailableResult(query: string, message: string): InternetResearchResult {
   return {
     status: "unavailable",
@@ -141,10 +227,7 @@ export async function searchInternetForAgronomicCase(
     );
   }
 
-  const model =
-    process.env.OPENAI_WEB_SEARCH_MODEL ||
-    process.env.OPENAI_CHAT_MODEL ||
-    "gpt-4o-mini";
+  const model = process.env.OPENAI_WEB_SEARCH_MODEL || DEFAULT_WEB_SEARCH_MODEL;
   const body: Record<string, unknown> = {
     model,
     input: [
@@ -168,8 +251,9 @@ export async function searchInternetForAgronomicCase(
         ],
       },
     ],
-    tools: [{ type: "web_search_preview" }],
-    tool_choice: "auto",
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    tool_choice: "required",
+    include: ["web_search_call.action.sources"],
     max_output_tokens: 1800,
   };
 
@@ -204,14 +288,34 @@ export async function searchInternetForAgronomicCase(
       };
     }
 
+    const searchCall = getWebSearchCallState(payload);
     const summary = truncate(normalizeTextFromOpenAiPayload(payload), MAX_SUMMARY_CHARS);
+    const sources = dedupeSources([
+      ...getAnnotationSources(payload),
+      ...getActionSources(payload),
+    ]);
+
+    if (!searchCall.attempted || !searchCall.completed) {
+      console.warn(
+        "Pesquisa externa agronômica não confirmou execução do web_search.",
+        { attempted: searchCall.attempted, completed: searchCall.completed },
+      );
+      return {
+        status: "error",
+        query,
+        summary:
+          "A pesquisa externa foi solicitada, mas o provedor não confirmou a execução da busca. Nenhum conteúdo externo foi validado nesta etapa.",
+        sources: [],
+      };
+    }
+
     return {
       status: summary ? "success" : "error",
       query,
       summary:
         summary ||
-        "A pesquisa externa foi solicitada, mas não retornou conteúdo aproveitável para esta consulta.",
-      sources: getAnnotationSources(payload),
+        "A pesquisa externa foi executada, mas não retornou conteúdo aproveitável para esta consulta.",
+      sources,
     };
   } catch (error) {
     console.warn("Falha ao executar pesquisa externa agronômica.", error);
