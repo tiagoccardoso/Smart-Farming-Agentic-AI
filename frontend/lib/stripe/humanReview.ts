@@ -1,6 +1,26 @@
+/**
+ * Servicos avulsos (pagamento unico) no Stripe.
+ *
+ * Inclui os servicos que ja existiam (revisao humana de caso, analise de solo,
+ * relatorio tecnico, acompanhamento mensal) e o novo "Parecer Tecnico Avulso",
+ * destinado a quem nao quer contratar a mensalidade da Consultoria Agronomica.
+ *
+ * Precos e identificadores Stripe vem de `plan_page_services`, configurados na
+ * area administrativa. Nada e fixado na interface nem no codigo.
+ */
+
 import { NextRequest } from "next/server";
 
+export { getSupabaseAdminConfig, supabaseAdminRequest } from "../server/supabaseAdmin";
+import { supabaseAdminRequest } from "../server/supabaseAdmin";
+
+/** Servicos avulsos vinculados a um caso agronomico existente. */
 export type HumanReviewServiceType = "human_case_review" | "soil_analysis_review" | "technical_report" | "monthly_farm_followup";
+
+/** Servico avulso que libera 1 demanda tecnica, sem exigir caso previo. */
+export const TECHNICAL_OPINION_SERVICE_TYPE = "technical_opinion_single";
+
+export type OneTimeServiceType = HumanReviewServiceType | typeof TECHNICAL_OPINION_SERVICE_TYPE;
 
 export const HUMAN_REVIEW_SERVICE_TYPES: HumanReviewServiceType[] = [
   "human_case_review",
@@ -9,14 +29,19 @@ export const HUMAN_REVIEW_SERVICE_TYPES: HumanReviewServiceType[] = [
   "monthly_farm_followup"
 ];
 
+export const ONE_TIME_SERVICE_TYPES: OneTimeServiceType[] = [
+  ...HUMAN_REVIEW_SERVICE_TYPES,
+  TECHNICAL_OPINION_SERVICE_TYPE
+];
+
 export type StripeCheckoutSession = {
   id?: string;
   url?: string;
   payment_status?: string;
+  payment_intent?: string | { id?: string } | null;
+  amount_total?: number | null;
   metadata?: Record<string, string | undefined> | null;
-  error?: {
-    message?: string;
-  };
+  error?: { message?: string };
 };
 
 export type OneTimeOrder = {
@@ -24,7 +49,9 @@ export type OneTimeOrder = {
   case_id?: string | null;
   user_id?: string | null;
   service_type?: string | null;
+  price_cents?: number | null;
   payment_status?: string | null;
+  stripe_checkout_session_id?: string | null;
 };
 
 export type HumanReviewCaseUpdate = {
@@ -43,22 +70,50 @@ export function isHumanReviewServiceType(value: unknown): value is HumanReviewSe
   return typeof value === "string" && HUMAN_REVIEW_SERVICE_TYPES.includes(value as HumanReviewServiceType);
 }
 
-export type ConfiguredHumanReviewService = {
+export function isOneTimeServiceType(value: unknown): value is OneTimeServiceType {
+  return typeof value === "string" && ONE_TIME_SERVICE_TYPES.includes(value as OneTimeServiceType);
+}
+
+export type ConfiguredOneTimeService = {
+  serviceType: OneTimeServiceType;
   label: string;
   priceCents: number;
+  stripeProductId: string | null;
+  stripePriceId: string | null;
 };
 
-export async function fetchConfiguredHumanReviewService(serviceType: HumanReviewServiceType) {
-  const rows = await supabaseAdminRequest<Array<{ name: string | null; price_cents: number | null }>>(
-    `/rest/v1/plan_page_services?service_type=eq.${encodeURIComponent(serviceType)}&active=eq.true&select=name,price_cents&limit=1`,
+export type ConfiguredHumanReviewService = ConfiguredOneTimeService;
+
+/**
+ * Um servico so pode ser cobrado quando esta ativo E tem preco configurado.
+ * Preco zero significa "ainda nao configurado": o servico nao e vendido.
+ */
+export async function fetchConfiguredOneTimeService(serviceType: OneTimeServiceType) {
+  const rows = await supabaseAdminRequest<
+    Array<{ name: string | null; price_cents: number | null; stripe_product_id: string | null; stripe_price_id: string | null }>
+  >(
+    `/rest/v1/plan_page_services?service_type=eq.${encodeURIComponent(serviceType)}&active=eq.true&select=name,price_cents,stripe_product_id,stripe_price_id&limit=1`,
     { method: "GET" }
   );
   const service = rows[0];
   const priceCents = service?.price_cents;
-  if (!service?.name || typeof priceCents !== "number" || !Number.isSafeInteger(priceCents) || priceCents < 0) {
+
+  if (!service?.name || typeof priceCents !== "number" || !Number.isSafeInteger(priceCents) || priceCents <= 0) {
     return null;
   }
-  return { label: service.name, priceCents } satisfies ConfiguredHumanReviewService;
+
+  return {
+    serviceType,
+    label: service.name,
+    priceCents,
+    stripeProductId: service.stripe_product_id ?? null,
+    stripePriceId: service.stripe_price_id ?? null
+  } satisfies ConfiguredOneTimeService;
+}
+
+/** Mantido para compatibilidade com as rotas ja existentes. */
+export async function fetchConfiguredHumanReviewService(serviceType: HumanReviewServiceType) {
+  return fetchConfiguredOneTimeService(serviceType);
 }
 
 export function getCaseUpdateForServiceType(serviceType: HumanReviewServiceType): HumanReviewCaseUpdate | null {
@@ -83,72 +138,32 @@ export function getRequestOrigin(request: NextRequest) {
   );
 }
 
-export function getSupabaseAdminConfig() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function applyOneTimeLineItem(params: URLSearchParams, service: ConfiguredOneTimeService) {
+  params.set("line_items[0][quantity]", "1");
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY para processar pagamentos.");
+  if (service.stripePriceId) {
+    params.set("line_items[0][price]", service.stripePriceId);
+    return;
   }
 
-  return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), serviceRoleKey };
-}
+  params.set("line_items[0][price_data][currency]", "brl");
+  params.set("line_items[0][price_data][unit_amount]", String(service.priceCents));
 
-export async function supabaseAdminRequest<T>(path: string, init: RequestInit, config = getSupabaseAdminConfig()) {
-  const response = await fetch(`${config.supabaseUrl}${path}`, {
-    ...init,
-    headers: {
-      apikey: config.serviceRoleKey,
-      Authorization: `Bearer ${config.serviceRoleKey}`,
-      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init.headers
-    },
-    cache: "no-store"
-  });
-
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase.");
+  if (service.stripeProductId) {
+    params.set("line_items[0][price_data][product]", service.stripeProductId);
+    return;
   }
 
-  return payload as T;
+  params.set("line_items[0][price_data][product_data][name]", service.label);
+  params.set("line_items[0][price_data][product_data][metadata][serviceType]", service.serviceType);
 }
 
-export async function createStripeCheckoutSession(
-  request: NextRequest,
-  orderId: string,
-  userId: string,
-  caseId: string,
-  serviceType: HumanReviewServiceType,
-  service: ConfiguredHumanReviewService
-) {
+async function postCheckoutSession(params: URLSearchParams) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
   if (!stripeSecretKey) {
     throw new Error("Configure STRIPE_SECRET_KEY para criar o checkout do Stripe.");
   }
-
-  const origin = getRequestOrigin(request);
-  const params = new URLSearchParams({
-    mode: "payment",
-    success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/checkout/cancelado`,
-    client_reference_id: orderId,
-    "line_items[0][price_data][currency]": "brl",
-    "line_items[0][price_data][unit_amount]": String(service.priceCents),
-    "line_items[0][price_data][product_data][name]": service.label,
-    "line_items[0][quantity]": "1",
-    "metadata[userId]": userId,
-    "metadata[caseId]": caseId,
-    "metadata[orderId]": orderId,
-    "metadata[serviceType]": serviceType,
-    "payment_intent_data[metadata][userId]": userId,
-    "payment_intent_data[metadata][caseId]": caseId,
-    "payment_intent_data[metadata][orderId]": orderId,
-    "payment_intent_data[metadata][serviceType]": serviceType
-  });
 
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -163,8 +178,66 @@ export async function createStripeCheckoutSession(
   const session = (await response.json().catch(() => null)) as StripeCheckoutSession | null;
 
   if (!response.ok || !session?.id || !session.url) {
-    throw new Error(session?.error?.message || "Não foi possível iniciar o checkout do Stripe.");
+    throw new Error(session?.error?.message || "Nao foi possivel iniciar o checkout do Stripe.");
   }
 
   return session;
+}
+
+export async function createStripeCheckoutSession(
+  request: NextRequest,
+  orderId: string,
+  userId: string,
+  caseId: string,
+  serviceType: HumanReviewServiceType,
+  service: ConfiguredOneTimeService
+) {
+  const origin = getRequestOrigin(request);
+  const params = new URLSearchParams({
+    mode: "payment",
+    success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/checkout/cancelado`,
+    client_reference_id: orderId,
+    "metadata[userId]": userId,
+    "metadata[caseId]": caseId,
+    "metadata[orderId]": orderId,
+    "metadata[serviceType]": serviceType,
+    "payment_intent_data[metadata][userId]": userId,
+    "payment_intent_data[metadata][caseId]": caseId,
+    "payment_intent_data[metadata][orderId]": orderId,
+    "payment_intent_data[metadata][serviceType]": serviceType
+  });
+
+  applyOneTimeLineItem(params, service);
+
+  return postCheckoutSession(params);
+}
+
+/**
+ * Checkout do Parecer Tecnico Avulso. Nao exige caso previo: o webhook libera
+ * exatamente 1 credito de demanda tecnica apos a confirmacao do pagamento.
+ */
+export async function createTechnicalOpinionCheckoutSession(
+  request: NextRequest,
+  orderId: string,
+  userId: string,
+  service: ConfiguredOneTimeService
+) {
+  const origin = getRequestOrigin(request);
+  const params = new URLSearchParams({
+    mode: "payment",
+    success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}&tipo=parecer`,
+    cancel_url: `${origin}/checkout/cancelado`,
+    client_reference_id: orderId,
+    "metadata[userId]": userId,
+    "metadata[orderId]": orderId,
+    "metadata[serviceType]": TECHNICAL_OPINION_SERVICE_TYPE,
+    "payment_intent_data[metadata][userId]": userId,
+    "payment_intent_data[metadata][orderId]": orderId,
+    "payment_intent_data[metadata][serviceType]": TECHNICAL_OPINION_SERVICE_TYPE
+  });
+
+  applyOneTimeLineItem(params, service);
+
+  return postCheckoutSession(params);
 }

@@ -51,3 +51,6 @@ uploads/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+
+# Saida compilada dos testes (node --test)
+frontend/.test-build/

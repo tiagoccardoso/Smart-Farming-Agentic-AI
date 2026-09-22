@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE, getCurrentProfile, getCurrentUser, hasRole, isActiveProfile } from "./lib/auth";
 
-const protectedRoutes = ["/perfil", "/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/dashboard"];
-const specialistRoutes = ["/painel-doutora", "/admin/agendamentos"];
+const protectedRoutes = ["/perfil", "/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/dashboard", "/minha-assinatura", "/pareceres"];
+const specialistRoutes = ["/painel-doutora", "/admin/agendamentos", "/admin/orcamentos"];
 const adminRoutes = ["/painel-doutora/site-pages/planos"];
 
 function matchesRoute(pathname: string, routes: string[]) {
@@ -62,5 +62,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/perfil/:path*", "/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/dashboard/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*"]
+  matcher: ["/perfil/:path*", "/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/dashboard/:path*", "/minha-assinatura/:path*", "/pareceres/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*", "/admin/orcamentos/:path*"]
 };

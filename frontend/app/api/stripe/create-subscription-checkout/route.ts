@@ -1,46 +1,73 @@
+/**
+ * Inicia a assinatura de um plano pago (Checkout Session, modo subscription).
+ *
+ * O plano so e liberado quando o webhook confirma o pagamento. Aqui apenas
+ * registramos a intencao (`checkout_pending`) e devolvemos a URL do Stripe.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE, extractBearerToken, getCurrentUser } from "../../../../lib/auth";
+import { isSubscribablePlanCode, resolveUserAccess } from "../../../../lib/billing/entitlements";
 import {
-  createStripeCustomer,
   createSubscriptionCheckoutSession,
   fetchPaidPlan,
-  findReusableStripeCustomerId,
-  isPaidPlanSlug,
+  resolveStripeCustomerId,
   upsertSubscriptionRecord
 } from "../../../../lib/stripe/subscription";
+import { errorMessage, errorStatus, requireUser } from "../../../../lib/server/request-auth";
 
 type CreateSubscriptionCheckoutPayload = {
   planSlug?: string;
 };
 
-function getRequestToken(request: NextRequest) {
-  return extractBearerToken(request.headers.get("authorization")) || request.cookies.get(AUTH_ACCESS_COOKIE)?.value || null;
-}
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getRequestToken(request);
-
-    if (!token) {
-      return NextResponse.json({ error: "Faça login para assinar um plano pago." }, { status: 401 });
-    }
-
+    const { user } = await requireUser(request);
     const payload = (await request.json().catch(() => null)) as CreateSubscriptionCheckoutPayload | null;
     const planSlug = payload?.planSlug?.trim();
 
-    if (!isPaidPlanSlug(planSlug)) {
-      return NextResponse.json({ error: "Informe um planSlug pago válido para assinatura." }, { status: 400 });
+    if (!isSubscribablePlanCode(planSlug)) {
+      return NextResponse.json({ error: "Informe um plano mensal valido para assinatura." }, { status: 400 });
     }
 
-    const [user, plan] = await Promise.all([getCurrentUser(token), fetchPaidPlan(planSlug)]);
-    const stripeCustomerId = (await findReusableStripeCustomerId(user.id)) || (await createStripeCustomer(user.id, user.email));
+    const [access, plan] = await Promise.all([resolveUserAccess(user.id), fetchPaidPlan(planSlug)]);
+
+    if (!access.profileActive) {
+      return NextResponse.json({ error: "Usuario inativo. Entre em contato com o suporte." }, { status: 403 });
+    }
+
+    if (access.planCode === planSlug && access.subscription?.entitled) {
+      return NextResponse.json(
+        { error: `Voce ja possui o plano ${access.planName} ativo.`, alreadySubscribed: true },
+        { status: 409 }
+      );
+    }
+
+    // Ja existe assinatura ativa em outro plano: a troca e feita por
+    // upgrade/downgrade na assinatura atual, nao por uma segunda cobranca.
+    if (access.subscription?.entitled && access.subscription.stripeSubscriptionId) {
+      return NextResponse.json(
+        {
+          error: "Voce ja possui uma assinatura ativa. Use a troca de plano para migrar sem cobranca duplicada.",
+          requiresPlanChange: true,
+          currentPlanCode: access.planCode,
+          targetPlanCode: planSlug
+        },
+        { status: 409 }
+      );
+    }
+
+    const stripeCustomerId = await resolveStripeCustomerId(user.id, user.email);
     const stripeSession = await createSubscriptionCheckoutSession(request, plan, user.id, stripeCustomerId);
 
     await upsertSubscriptionRecord({
       userId: user.id,
       planId: plan.id,
       stripeCustomerId,
-      status: "checkout_pending"
+      stripePriceId: plan.stripe_price_id ?? null,
+      status: "checkout_pending",
+      internalStatus: "payment_pending"
     });
 
     return NextResponse.json({
@@ -51,7 +78,9 @@ export async function POST(request: NextRequest) {
       stripeCustomerId
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível criar o checkout de assinatura.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: errorMessage(error, "Nao foi possivel criar o checkout de assinatura.") },
+      { status: errorStatus(error) }
+    );
   }
 }

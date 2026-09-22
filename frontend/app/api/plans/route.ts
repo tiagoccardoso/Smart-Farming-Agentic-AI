@@ -1,8 +1,21 @@
+/**
+ * Conteudo publico da pagina de planos.
+ *
+ * Nunca expoe identificadores sensiveis: `stripe_price_id`, `stripe_product_id`
+ * e os direitos internos ficam apenas na leitura administrativa.
+ */
+
 import { NextResponse } from "next/server";
 import { getSupabaseConfig, supabaseRequest } from "../../../lib/agronomic/case";
 import type { PlanPagePlan, PlanPageService, PlanPageSettings } from "../../../lib/plans-page";
 
 export const dynamic = "force-dynamic";
+
+const PUBLIC_PLAN_FIELDS =
+  "id,name,slug,eyebrow,audience,description,price_cents,billing_type,plan_kind,price_prefix,price_period,price_note,features,exclusions,button_label,highlighted,badge,active,display_order,updated_at";
+
+const PUBLIC_SERVICE_FIELDS =
+  "service_type,name,price_cents,price_prefix,price_period,description,button_label,active,display_order,updated_at";
 
 export async function GET() {
   try {
@@ -15,13 +28,13 @@ export async function GET() {
         config,
       ),
       supabaseRequest<PlanPagePlan[]>(
-        "/rest/v1/plans?active=eq.true&select=id,name,slug,eyebrow,audience,description,price_cents,billing_type,price_prefix,price_period,price_note,features,exclusions,button_label,highlighted,badge,active,display_order,updated_at&order=display_order.asc,created_at.asc",
+        `/rest/v1/plans?active=eq.true&select=${PUBLIC_PLAN_FIELDS}&order=display_order.asc,created_at.asc`,
         { method: "GET" },
         config.anonKey,
         config,
       ),
       supabaseRequest<PlanPageService[]>(
-        "/rest/v1/plan_page_services?active=eq.true&select=service_type,name,price_cents,price_prefix,price_period,description,button_label,active,display_order,updated_at&order=display_order.asc,created_at.asc",
+        `/rest/v1/plan_page_services?active=eq.true&select=${PUBLIC_SERVICE_FIELDS}&order=display_order.asc,created_at.asc`,
         { method: "GET" },
         config.anonKey,
         config,
@@ -29,7 +42,7 @@ export async function GET() {
     ]);
 
     if (!settings[0]) {
-      return NextResponse.json({ error: "A configuração da página de Planos ainda não foi criada." }, { status: 503 });
+      return NextResponse.json({ error: "A configuracao da pagina de Planos ainda nao foi criada." }, { status: 503 });
     }
 
     return NextResponse.json(
@@ -38,7 +51,7 @@ export async function GET() {
     );
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Não foi possível carregar os planos." },
+      { error: error instanceof Error ? error.message : "Nao foi possivel carregar os planos." },
       { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "incremental": false,
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "lib/billing/**/*.ts",
+    "lib/server/supabaseAdmin.ts",
+    "lib/stripe/signature.ts",
+    "lib/stripe/webhook-events.ts",
+    "lib/plans-page.ts",
+    "tests/**/*.ts"
+  ]
+}

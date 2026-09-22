@@ -16,6 +16,7 @@ const configLinks: { href: string; label: string; icon: string; allowedRoles?: U
   { href: "/painel-doutora/site-pages/agricultura-organica", label: "Editar página Agricultura Orgânica", icon: "🌿", allowedRoles: ["admin", "specialist"] },
   { href: "/painel-doutora/site-pages/planos", label: "Configuração da página de Planos", icon: "💳", allowedRoles: ["admin"] },
   { href: "/painel-doutora/base-conhecimento", label: "Base de conhecimento", icon: "📚", allowedRoles: ["admin", "specialist"] },
+  { href: "/admin/orcamentos", label: "Solicitações de orçamento (Presencial)", icon: "📝", allowedRoles: ["admin", "specialist"] },
 ];
 
 export default function ConfiguracoesPage() {

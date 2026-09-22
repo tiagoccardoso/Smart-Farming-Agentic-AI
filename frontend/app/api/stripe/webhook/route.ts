@@ -1,8 +1,25 @@
-import crypto from "crypto";
+/**
+ * Webhook do Stripe — fonte confiavel do estado de pagamento e assinatura.
+ *
+ * O retorno do navegador apos o Checkout nunca libera recursos: quem confirma
+ * pagamento, ativa assinatura, registra falha e libera parecer avulso e este
+ * endpoint. Toda entrega e idempotente (registro de `event.id`).
+ *
+ * Eventos tratados:
+ *   checkout.session.completed          -> checkout concluido (assinatura ou avulso)
+ *   customer.subscription.created       -> assinatura criada
+ *   customer.subscription.updated       -> alteracao (upgrade/downgrade/cancelamento agendado)
+ *   customer.subscription.deleted       -> assinatura cancelada/encerrada
+ *   invoice.payment_succeeded / invoice.paid -> pagamento recorrente confirmado
+ *   invoice.payment_failed              -> pagamento recorrente com falha
+ *   payment_intent.succeeded            -> pagamento avulso confirmado (reforco)
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import {
   OneTimeOrder,
   StripeCheckoutSession,
+  TECHNICAL_OPINION_SERVICE_TYPE,
   getCaseUpdateForServiceType,
   isHumanReviewServiceType,
   supabaseAdminRequest
@@ -13,122 +30,199 @@ import {
   StripeSubscriptionCheckoutSession,
   getStripeCustomerId,
   getStripeSubscriptionId,
-  stripeRequest,
+  retrieveStripeSubscription,
   stripeTimestampToIso,
   upsertSubscriptionRecord
 } from "../../../../lib/stripe/subscription";
+import { verifyStripeSignature } from "../../../../lib/stripe/signature";
+import {
+  claimStripeEvent,
+  markStripeEventFailed,
+  markStripeEventProcessed
+} from "../../../../lib/stripe/webhook-events";
+import { mapStripeSubscriptionStatus } from "../../../../lib/billing/subscription-state";
+import { grantTechnicalOpinionCredit } from "../../../../lib/billing/technical-opinions";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type StripeInvoice = {
+  id?: string;
+  subscription?: string | { id?: string } | null;
+  customer?: string | { id?: string } | null;
+  status?: string | null;
+  amount_paid?: number | null;
+  payment_intent?: string | { id?: string } | null;
+};
 
 type StripeEvent = {
   id?: string;
   type?: string;
-  data?: {
-    object?: StripeCheckoutSession | StripeSubscriptionCheckoutSession | StripeSubscription;
-  };
+  data?: { object?: Record<string, unknown> };
 };
 
-type PaidOrderResult = {
-  updated: boolean;
-  orderId?: string;
-  caseId?: string | null;
-  serviceType?: string | null;
-  reason?: string;
-};
-
-function verifyStripeSignature(payload: string, signatureHeader: string, webhookSecret: string) {
-  const signatureParts = signatureHeader.split(",").reduce<Record<string, string[]>>((accumulator, part) => {
-    const [key, value] = part.split("=", 2);
-
-    if (key && value) {
-      accumulator[key] = [...(accumulator[key] ?? []), value];
-    }
-
-    return accumulator;
-  }, {});
-  const timestamp = signatureParts.t?.[0];
-  const signatures = signatureParts.v1 ?? [];
-
-  if (!timestamp || signatures.length === 0) {
-    return false;
-  }
-
-  const signedPayload = `${timestamp}.${payload}`;
-  const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(signedPayload, "utf8").digest("hex");
-
-  return signatures.some((signature) => {
-    const expectedBuffer = Buffer.from(expectedSignature, "hex");
-    const actualBuffer = Buffer.from(signature, "hex");
-
-    return expectedBuffer.length === actualBuffer.length && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
-  });
-}
+type HandlerResult = Record<string, unknown> & { ignored?: boolean };
 
 function getMetadataValue(metadata: Record<string, string | undefined> | null | undefined, camelKey: string, snakeKey: string) {
   return metadata?.[camelKey] || metadata?.[snakeKey] || null;
 }
 
-
-function getStripeMetadataValue(metadata: Record<string, string | undefined> | null | undefined, camelKey: string, snakeKey: string) {
-  return metadata?.[camelKey] || metadata?.[snakeKey] || null;
+function toId(value: string | { id?: string } | null | undefined) {
+  return typeof value === "string" ? value : value?.id ?? null;
 }
 
-async function findPlanForSubscription(subscription: StripeSubscription, fallbackMetadata?: Record<string, string | undefined> | null) {
-  const planId = getStripeMetadataValue(subscription.metadata, "planId", "plan_id") || getStripeMetadataValue(fallbackMetadata, "planId", "plan_id");
-  const planSlug = getStripeMetadataValue(subscription.metadata, "planSlug", "plan_slug") || getStripeMetadataValue(fallbackMetadata, "planSlug", "plan_slug");
+// ---------------------------------------------------------------------------
+// Assinaturas
+// ---------------------------------------------------------------------------
+
+async function findPlanForSubscription(
+  subscription: StripeSubscription,
+  fallbackMetadata?: Record<string, string | undefined> | null
+) {
+  const planId =
+    getMetadataValue(subscription.metadata, "planId", "plan_id") || getMetadataValue(fallbackMetadata, "planId", "plan_id");
+  const planSlug =
+    getMetadataValue(subscription.metadata, "planSlug", "plan_slug") ||
+    getMetadataValue(fallbackMetadata, "planSlug", "plan_slug");
   const priceId = subscription.items?.data?.find((item) => item.price?.id)?.price?.id;
 
-  const filters = [
+  // O Price ID vence: apos um upgrade/downgrade o metadata pode estar defasado.
+  const orderedFilters = [
+    priceId ? `stripe_price_id=eq.${encodeURIComponent(priceId)}` : null,
     planId ? `id=eq.${encodeURIComponent(planId)}` : null,
-    planSlug ? `slug=eq.${encodeURIComponent(planSlug)}` : null,
-    priceId ? `stripe_price_id=eq.${encodeURIComponent(priceId)}` : null
-  ].filter(Boolean);
+    planSlug ? `slug=eq.${encodeURIComponent(planSlug)}` : null
+  ].filter((filter): filter is string => Boolean(filter));
 
-  if (filters.length === 0) {
+  for (const filter of orderedFilters) {
+    const plans = await supabaseAdminRequest<Plan[]>(
+      `/rest/v1/plans?${filter}&select=id,slug,name,price_cents,billing_type,stripe_product_id,stripe_price_id,active&limit=1`,
+      { method: "GET" }
+    );
+
+    if (plans[0]) {
+      return plans[0];
+    }
+  }
+
+  return null;
+}
+
+async function resolveUserIdForSubscription(
+  subscription: StripeSubscription,
+  fallbackMetadata?: Record<string, string | undefined> | null
+) {
+  const fromMetadata =
+    getMetadataValue(subscription.metadata, "userId", "user_id") || getMetadataValue(fallbackMetadata, "userId", "user_id");
+
+  if (fromMetadata) {
+    return fromMetadata;
+  }
+
+  // Assinaturas alteradas pelo Customer Portal podem chegar sem metadata.
+  const stripeSubscriptionId = subscription.id;
+  const stripeCustomerId = getStripeCustomerId(subscription);
+  const filter = stripeSubscriptionId
+    ? `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`
+    : stripeCustomerId
+      ? `stripe_customer_id=eq.${encodeURIComponent(stripeCustomerId)}`
+      : null;
+
+  if (!filter) {
     return null;
   }
 
-  const plans = await supabaseAdminRequest<Plan[]>(
-    `/rest/v1/plans?or=(${filters.join(",")})&select=id,slug,name,price_cents,billing_type,stripe_price_id,active&limit=1`,
+  const rows = await supabaseAdminRequest<Array<{ user_id: string | null }>>(
+    `/rest/v1/subscriptions?${filter}&select=user_id&order=created_at.desc&limit=1`,
     { method: "GET" }
   );
 
-  return plans[0] ?? null;
+  return rows[0]?.user_id ?? null;
 }
 
-async function handleSubscriptionChange(subscription: StripeSubscription, fallbackMetadata?: Record<string, string | undefined> | null) {
-  const userId = getStripeMetadataValue(subscription.metadata, "userId", "user_id") || getStripeMetadataValue(fallbackMetadata, "userId", "user_id");
+async function handleSubscriptionChange(
+  subscription: StripeSubscription,
+  fallbackMetadata?: Record<string, string | undefined> | null
+): Promise<HandlerResult> {
+  const [userId, plan] = await Promise.all([
+    resolveUserIdForSubscription(subscription, fallbackMetadata),
+    findPlanForSubscription(subscription, fallbackMetadata)
+  ]);
   const stripeCustomerId = getStripeCustomerId(subscription);
   const stripeSubscriptionId = subscription.id;
-  const plan = await findPlanForSubscription(subscription, fallbackMetadata);
 
   if (!userId || !stripeCustomerId || !stripeSubscriptionId || !plan) {
-    return { updated: false, reason: "missing_subscription_metadata" };
+    return { updated: false, ignored: true, reason: "missing_subscription_metadata" };
   }
+
+  const cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
+  const internalStatus = mapStripeSubscriptionStatus(subscription.status, cancelAtPeriodEnd);
 
   const subscriptionId = await upsertSubscriptionRecord({
     userId,
     planId: plan.id,
     stripeCustomerId,
     stripeSubscriptionId,
+    stripePriceId: subscription.items?.data?.find((item) => item.price?.id)?.price?.id ?? null,
     status: subscription.status || "unknown",
-    currentPeriodEnd: stripeTimestampToIso(subscription.current_period_end)
+    internalStatus,
+    currentPeriodStart: stripeTimestampToIso(subscription.current_period_start),
+    currentPeriodEnd: stripeTimestampToIso(subscription.current_period_end),
+    cancelAtPeriodEnd,
+    canceledAt: stripeTimestampToIso(subscription.canceled_at)
   });
 
-  return { updated: true, subscriptionId, userId, planId: plan.id, planSlug: plan.slug, stripeSubscriptionId };
+  return {
+    updated: true,
+    subscriptionId,
+    userId,
+    planId: plan.id,
+    planSlug: plan.slug,
+    internalStatus,
+    stripeSubscriptionId
+  };
 }
 
-async function handleSubscriptionCheckoutCompleted(session: StripeSubscriptionCheckoutSession) {
+async function handleSubscriptionCheckoutCompleted(session: StripeSubscriptionCheckoutSession): Promise<HandlerResult> {
   const stripeSubscriptionId = getStripeSubscriptionId(session);
 
   if (!stripeSubscriptionId) {
-    return { updated: false, reason: "missing_stripe_subscription_id" };
+    return { updated: false, ignored: true, reason: "missing_stripe_subscription_id" };
   }
 
-  const subscription = await stripeRequest<StripeSubscription>(`/subscriptions/${encodeURIComponent(stripeSubscriptionId)}`, { method: "GET" });
+  const subscription = await retrieveStripeSubscription(stripeSubscriptionId);
 
   return handleSubscriptionChange(subscription, session.metadata);
 }
+
+async function handleInvoiceEvent(invoice: StripeInvoice, paid: boolean): Promise<HandlerResult> {
+  const stripeSubscriptionId = toId(invoice.subscription);
+
+  if (!stripeSubscriptionId) {
+    return { updated: false, ignored: true, reason: "invoice_without_subscription" };
+  }
+
+  // Reconsulta a assinatura para gravar o estado real (e nao o da fatura).
+  const subscription = await retrieveStripeSubscription(stripeSubscriptionId);
+  const result = await handleSubscriptionChange(subscription);
+
+  await supabaseAdminRequest(
+    `/rest/v1/subscriptions?stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        last_payment_status: paid ? "paid" : "failed",
+        last_payment_at: new Date().toISOString()
+      })
+    }
+  ).catch(() => undefined);
+
+  return { ...result, invoiceId: invoice.id ?? null, paymentStatus: paid ? "paid" : "failed" };
+}
+
+// ---------------------------------------------------------------------------
+// Pagamentos avulsos
+// ---------------------------------------------------------------------------
 
 async function updateCaseAfterPayment(caseId: string | null | undefined, serviceType: string | null | undefined) {
   if (!caseId || !isHumanReviewServiceType(serviceType)) {
@@ -141,123 +235,175 @@ async function updateCaseAfterPayment(caseId: string | null | undefined, service
     return;
   }
 
-  await supabaseAdminRequest(
-    `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(caseId)}`,
-    {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(caseUpdate)
-    }
-  );
+  await supabaseAdminRequest(`/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(caseId)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify(caseUpdate)
+  });
 }
 
-async function markHumanReviewOrderAsPaid(session: StripeCheckoutSession): Promise<PaidOrderResult> {
+async function markOneTimeOrderAsPaid(session: StripeCheckoutSession): Promise<HandlerResult> {
   const orderId = getMetadataValue(session.metadata, "orderId", "order_id");
   const metadataUserId = getMetadataValue(session.metadata, "userId", "user_id");
   const metadataCaseId = getMetadataValue(session.metadata, "caseId", "case_id");
   const metadataServiceType = getMetadataValue(session.metadata, "serviceType", "service_type");
 
   if (!orderId) {
-    return { updated: false, reason: "missing_order_id" };
+    return { updated: false, ignored: true, reason: "missing_order_id" };
   }
 
   const orders = await supabaseAdminRequest<OneTimeOrder[]>(
-    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&select=id,case_id,user_id,service_type,payment_status&limit=1`,
+    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&select=id,case_id,user_id,service_type,price_cents,payment_status&limit=1`,
     { method: "GET" }
   );
   const order = orders[0];
 
   if (!order) {
-    return { updated: false, reason: "order_not_found" };
+    return { updated: false, ignored: true, reason: "order_not_found" };
   }
 
   const caseId = metadataCaseId || order.case_id;
   const serviceType = metadataServiceType || order.service_type;
+  const userId = order.user_id || metadataUserId;
 
   if (metadataUserId && order.user_id && metadataUserId !== order.user_id) {
-    return { updated: false, orderId, caseId, serviceType, reason: "metadata_user_mismatch" };
+    return { updated: false, ignored: true, orderId, reason: "metadata_user_mismatch" };
   }
 
   if (metadataCaseId && order.case_id && metadataCaseId !== order.case_id) {
-    return { updated: false, orderId, caseId, serviceType, reason: "metadata_case_mismatch" };
+    return { updated: false, ignored: true, orderId, reason: "metadata_case_mismatch" };
   }
 
   if (metadataServiceType && order.service_type && metadataServiceType !== order.service_type) {
-    return { updated: false, orderId, caseId, serviceType, reason: "metadata_service_mismatch" };
+    return { updated: false, ignored: true, orderId, reason: "metadata_service_mismatch" };
   }
 
-  if (!isHumanReviewServiceType(serviceType)) {
-    return { updated: false, orderId, caseId, serviceType, reason: "invalid_service_type" };
+  const alreadyPaid = order.payment_status === "paid";
+
+  if (!alreadyPaid) {
+    await supabaseAdminRequest(
+      `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&payment_status=neq.paid`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ payment_status: "paid", stripe_checkout_session_id: session.id ?? null })
+      }
+    );
   }
 
-  if (order.payment_status === "paid") {
-    await updateCaseAfterPayment(caseId, serviceType);
-    return { updated: false, orderId, caseId, serviceType, reason: "already_paid" };
-  }
-
-  await supabaseAdminRequest(
-    `/rest/v1/one_time_orders?id=eq.${encodeURIComponent(orderId)}&payment_status=neq.paid`,
-    {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        payment_status: "paid",
-        stripe_checkout_session_id: session.id ?? null
-      })
+  // Parecer tecnico avulso: libera exatamente 1 demanda tecnica.
+  // A unicidade de stripe_checkout_session_id / one_time_order_id garante que
+  // uma reentrega do mesmo evento nunca libere um segundo parecer.
+  if (serviceType === TECHNICAL_OPINION_SERVICE_TYPE) {
+    if (!userId) {
+      return { updated: false, ignored: true, orderId, reason: "missing_user_for_credit" };
     }
-  );
+
+    const credit = await grantTechnicalOpinionCredit({
+      userId,
+      oneTimeOrderId: orderId,
+      stripeCheckoutSessionId: session.id ?? null,
+      stripePaymentIntentId: toId(session.payment_intent),
+      amountCents: session.amount_total ?? order.price_cents ?? null
+    });
+
+    return {
+      updated: !alreadyPaid,
+      orderId,
+      serviceType,
+      creditGranted: credit.granted,
+      creditId: credit.creditId,
+      creditReason: credit.reason
+    };
+  }
 
   await updateCaseAfterPayment(caseId, serviceType);
 
-  return { updated: true, orderId, caseId, serviceType };
+  return { updated: !alreadyPaid, orderId, caseId, serviceType, reason: alreadyPaid ? "already_paid" : undefined };
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const payload = await request.text();
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    const signature = request.headers.get("stripe-signature");
+// ---------------------------------------------------------------------------
+// Roteamento dos eventos
+// ---------------------------------------------------------------------------
 
-    if (!webhookSecret) {
-      return NextResponse.json({ error: "Configure STRIPE_WEBHOOK_SECRET para validar webhooks do Stripe." }, { status: 500 });
-    }
-
-    if (!signature || !verifyStripeSignature(payload, signature, webhookSecret)) {
-      return NextResponse.json({ error: "Assinatura do Stripe inválida." }, { status: 400 });
-    }
-
-    const event = JSON.parse(payload) as StripeEvent;
-    const stripeObject = event.data?.object;
-
-    if (!stripeObject) {
-      return NextResponse.json({ error: "Objeto do Stripe ausente no webhook." }, { status: 400 });
-    }
-
-    if (event.type === "checkout.session.completed") {
+async function processEvent(event: StripeEvent, stripeObject: Record<string, unknown>): Promise<HandlerResult> {
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
       const session = stripeObject as StripeCheckoutSession & StripeSubscriptionCheckoutSession;
 
       if (session.mode === "subscription") {
-        const result = await handleSubscriptionCheckoutCompleted(session);
-        return NextResponse.json({ received: true, ...result });
+        return handleSubscriptionCheckoutCompleted(session);
       }
 
       if (session.payment_status && session.payment_status !== "paid") {
-        return NextResponse.json({ received: true, ignored: true, reason: "payment_not_paid" });
+        return { updated: false, ignored: true, reason: "payment_not_paid" };
       }
 
-      const result = await markHumanReviewOrderAsPaid(session);
-
-      return NextResponse.json({ received: true, ...result });
+      return markOneTimeOrderAsPaid(session);
     }
 
-    if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
-      const result = await handleSubscriptionChange(stripeObject as StripeSubscription);
-      return NextResponse.json({ received: true, ...result });
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted":
+      return handleSubscriptionChange(stripeObject as StripeSubscription);
+
+    case "invoice.paid":
+    case "invoice.payment_succeeded":
+      return handleInvoiceEvent(stripeObject as StripeInvoice, true);
+
+    case "invoice.payment_failed":
+      return handleInvoiceEvent(stripeObject as StripeInvoice, false);
+
+    default:
+      return { ignored: true, reason: "event_not_handled" };
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const payload = await request.text();
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const signature = request.headers.get("stripe-signature");
+
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "Configure STRIPE_WEBHOOK_SECRET para validar webhooks do Stripe." }, { status: 500 });
+  }
+
+  if (!signature || !verifyStripeSignature(payload, signature, webhookSecret)) {
+    return NextResponse.json({ error: "Assinatura do Stripe invalida." }, { status: 400 });
+  }
+
+  let event: StripeEvent;
+
+  try {
+    event = JSON.parse(payload) as StripeEvent;
+  } catch {
+    return NextResponse.json({ error: "Payload do Stripe invalido." }, { status: 400 });
+  }
+
+  const eventId = event.id;
+  const stripeObject = event.data?.object;
+
+  if (!eventId || !stripeObject) {
+    return NextResponse.json({ error: "Evento do Stripe incompleto." }, { status: 400 });
+  }
+
+  try {
+    const claim = await claimStripeEvent(eventId, event.type ?? "unknown");
+
+    if (!claim.claimed) {
+      return NextResponse.json({ received: true, duplicate: true, eventId });
     }
 
-    return NextResponse.json({ received: true, ignored: true });
+    const result = await processEvent(event, stripeObject);
+    await markStripeEventProcessed(eventId, result, Boolean(result.ignored));
+
+    return NextResponse.json({ received: true, eventId, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível processar o webhook do Stripe.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Nao foi possivel processar o webhook do Stripe.";
+    await markStripeEventFailed(eventId, message);
+
+    // 500 faz o Stripe reenviar o evento; o registro em `failed` permite o reprocessamento.
+    return NextResponse.json({ error: message, eventId }, { status: 500 });
   }
 }

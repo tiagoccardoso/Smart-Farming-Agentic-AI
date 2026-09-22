@@ -1,37 +1,25 @@
+/**
+ * Controle de limites de uso por plano.
+ *
+ * Esta camada NAO conhece regras comerciais: ela apenas traduz um tipo de
+ * evento de uso para o direito correspondente em `lib/billing/entitlements.ts`.
+ * Alterar "3 consultas" para "5 consultas" e uma alteracao de dado em
+ * `plans.entitlements`, feita pela area administrativa.
+ */
+
+import { getCurrentMonthlyPeriod } from "./billing-cycle";
+import { Entitlements, ResolvedAccess, resolveUserAccess } from "./entitlements";
+import { supabaseAdminRequest } from "../server/supabaseAdmin";
+
 export type UsageEventType = "ai_question" | "case_analysis" | "image_triage" | "pdf_report" | "human_review";
 
 export type PlanFeature = "photo_upload" | "soil_analysis_upload" | "simple_history";
 export type QuestionHistorySource = "qa" | "agronomic_case";
 
-type PlanSlug = "gratuito" | "ia-basica" | "ia-profissional" | "ia-revisao-humana";
-
 type UsageLimit = number | null;
-
-type PlanRules = {
-  label: string;
-  limits: Record<UsageEventType, UsageLimit>;
-  features: Record<PlanFeature, boolean>;
-};
-
-type SupabaseAdminConfig = {
-  supabaseUrl: string;
-  serviceRoleKey: string;
-};
-
-type SubscriptionWithPlan = {
-  id: string;
-  status: string | null;
-  current_period_end: string | null;
-  plans: { slug: string | null; name: string | null } | null;
-};
 
 type UsageEventRow = {
   count: number | null;
-};
-
-type UserAccessProfile = {
-  status: "active" | "inactive" | null;
-  unlimited_access: boolean | null;
 };
 
 type QuestionHistoryInput = {
@@ -54,7 +42,7 @@ export type QuestionHistoryEntry = {
 export type PlanLimitCheckResult = {
   allowed: boolean;
   userId: string;
-  planSlug: PlanSlug;
+  planSlug: string;
   planLabel: string;
   eventType: UsageEventType;
   limit: UsageLimit;
@@ -63,81 +51,85 @@ export type PlanLimitCheckResult = {
   periodStart: string;
   periodEnd: string;
   unlimitedAccess?: boolean;
+  /** Mensagem explicativa pronta para a interface. */
+  message?: string;
+  /** Chamada para acao sugerida quando o limite e atingido. */
+  cta?: { label: string; href: string } | null;
 };
 
-export const PLAN_LIMIT_REACHED_MESSAGE = "Você atingiu o limite do seu plano. Faça upgrade para continuar.";
+export const PLAN_LIMIT_REACHED_MESSAGE = "Voce atingiu o limite do seu plano neste ciclo.";
 
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
-
-const PLAN_RULES: Record<PlanSlug, PlanRules> = {
-  gratuito: {
-    label: "Plano Gratuito",
-    limits: {
-      ai_question: 3,
-      case_analysis: 1,
-      image_triage: 1,
-      pdf_report: 0,
-      human_review: 0
-    },
-    features: {
-      photo_upload: false,
-      soil_analysis_upload: false,
-      simple_history: true
-    }
-  },
-  "ia-basica": {
-    label: "IA Básica",
-    limits: {
-      ai_question: 50,
-      case_analysis: 50,
-      image_triage: 0,
-      pdf_report: 0,
-      human_review: 0
-    },
-    features: {
-      photo_upload: false,
-      soil_analysis_upload: false,
-      simple_history: true
-    }
-  },
-  "ia-profissional": {
-    label: "IA Profissional",
-    limits: {
-      ai_question: 300,
-      case_analysis: 300,
-      image_triage: 300,
-      pdf_report: 300,
-      human_review: 0
-    },
-    features: {
-      photo_upload: true,
-      soil_analysis_upload: true,
-      simple_history: true
-    }
-  },
-  "ia-revisao-humana": {
-    label: "IA + Revisão Humana",
-    limits: {
-      ai_question: 300,
-      case_analysis: 300,
-      image_triage: 300,
-      pdf_report: 300,
-      human_review: 1
-    },
-    features: {
-      photo_upload: true,
-      soil_analysis_upload: true,
-      simple_history: true
-    }
+/** Traduz um evento de uso no direito do plano que o autoriza. */
+function resolveLimit(eventType: UsageEventType, entitlements: Entitlements): UsageLimit {
+  switch (eventType) {
+    case "ai_question":
+      return entitlements.AI_MONTHLY_LIMIT;
+    case "case_analysis":
+      return entitlements.CASE_ANALYSIS_MONTHLY;
+    case "image_triage":
+      return entitlements.AI_IMAGES ? entitlements.IMAGE_TRIAGE_MONTHLY : 0;
+    case "pdf_report":
+      return entitlements.REPORTS ? null : 0;
+    case "human_review":
+      return entitlements.HUMAN_VALIDATION ? null : 0;
+    default:
+      return 0;
   }
-};
+}
+
+const UPGRADE_CTA = { label: "Conhecer IA Profissional", href: "/planos" };
+const CONSULTING_CTA = { label: "Quero Consultoria Agronomica", href: "/planos" };
+
+/**
+ * Mensagens explicam o motivo da restricao. Nunca "Voce nao possui permissao."
+ */
+function buildLimitMessage(
+  eventType: UsageEventType,
+  planLabel: string,
+  limit: UsageLimit,
+  used: number
+): { message: string; cta: { label: string; href: string } | null } {
+  if (limit === 0) {
+    if (eventType === "image_triage") {
+      return {
+        message: `Seu plano ${planLabel} nao inclui analise de fotos pela IA.`,
+        cta: UPGRADE_CTA
+      };
+    }
+    if (eventType === "pdf_report") {
+      return {
+        message: `Seu plano ${planLabel} nao inclui relatorios e recomendacoes em PDF.`,
+        cta: UPGRADE_CTA
+      };
+    }
+    if (eventType === "human_review") {
+      return {
+        message: `Seu plano ${planLabel} nao inclui validacao por especialista.`,
+        cta: CONSULTING_CTA
+      };
+    }
+    return { message: `Seu plano ${planLabel} nao inclui este recurso.`, cta: UPGRADE_CTA };
+  }
+
+  if (eventType === "ai_question") {
+    return {
+      message: `Seu plano ${planLabel} inclui ${limit} consultas a IA por mes. Voce ja utilizou as ${used} consultas deste ciclo.`,
+      cta: UPGRADE_CTA
+    };
+  }
+
+  return {
+    message: `Seu plano ${planLabel} inclui ${limit} usos deste recurso por ciclo. Voce ja utilizou ${used}.`,
+    cta: UPGRADE_CTA
+  };
+}
 
 export class PlanLimitExceededError extends Error {
   status: number;
   result?: PlanLimitCheckResult;
 
   constructor(result?: PlanLimitCheckResult) {
-    super(PLAN_LIMIT_REACHED_MESSAGE);
+    super(result?.message || PLAN_LIMIT_REACHED_MESSAGE);
     this.name = "PlanLimitExceededError";
     this.status = 402;
     this.result = result;
@@ -146,100 +138,24 @@ export class PlanLimitExceededError extends Error {
 
 export class PlanFeatureUnavailableError extends Error {
   status: number;
+  cta: { label: string; href: string } | null;
 
-  constructor(message = PLAN_LIMIT_REACHED_MESSAGE) {
+  constructor(message = PLAN_LIMIT_REACHED_MESSAGE, cta: { label: string; href: string } | null = UPGRADE_CTA) {
     super(message);
     this.name = "PlanFeatureUnavailableError";
     this.status = 402;
+    this.cta = cta;
   }
 }
 
 export class UserInactiveError extends Error {
   status: number;
 
-  constructor(message = "Usuário inativo. Entre em contato com o suporte.") {
+  constructor(message = "Usuario inativo. Entre em contato com o suporte.") {
     super(message);
     this.name = "UserInactiveError";
     this.status = 403;
   }
-}
-
-function getSupabaseAdminConfig(): SupabaseAdminConfig {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Configure NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY para controlar limites de uso.");
-  }
-
-  return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), serviceRoleKey };
-}
-
-async function supabaseAdminRequest<T>(path: string, init: RequestInit, config = getSupabaseAdminConfig()) {
-  const response = await fetch(`${config.supabaseUrl}${path}`, {
-    ...init,
-    headers: {
-      apikey: config.serviceRoleKey,
-      Authorization: `Bearer ${config.serviceRoleKey}`,
-      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init.headers
-    },
-    cache: "no-store"
-  });
-
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase.");
-  }
-
-  return payload as T;
-}
-
-function getCurrentMonthlyPeriod(now = new Date()) {
-  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
-
-  return {
-    periodStart: periodStart.toISOString(),
-    periodEnd: periodEnd.toISOString()
-  };
-}
-
-function normalizePlanSlug(value: string | null | undefined): PlanSlug {
-  return value && value in PLAN_RULES ? (value as PlanSlug) : "gratuito";
-}
-
-function isSubscriptionActive(subscription: SubscriptionWithPlan, now = new Date()) {
-  if (!subscription.status || !ACTIVE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
-    return false;
-  }
-
-  if (!subscription.current_period_end) {
-    return true;
-  }
-
-  return new Date(subscription.current_period_end).getTime() > now.getTime();
-}
-
-async function getUserAccessProfile(userId: string) {
-  const profiles = await supabaseAdminRequest<UserAccessProfile[]>(
-    `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=status,unlimited_access&limit=1`,
-    { method: "GET" }
-  );
-
-  return profiles[0] ?? { status: "active", unlimited_access: false };
-}
-
-async function getUserPlanSlug(userId: string) {
-  const subscriptions = await supabaseAdminRequest<SubscriptionWithPlan[]>(
-    `/rest/v1/subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,status,current_period_end,plans(slug,name)&order=created_at.desc&limit=10`,
-    { method: "GET" }
-  );
-  const activeSubscription = subscriptions.find((subscription) => isSubscriptionActive(subscription));
-
-  return normalizePlanSlug(activeSubscription?.plans?.slug);
 }
 
 async function getUsageCount(userId: string, eventType: UsageEventType, periodStart: string, periodEnd: string) {
@@ -251,38 +167,54 @@ async function getUsageCount(userId: string, eventType: UsageEventType, periodSt
   return events.reduce((total, event) => total + (event.count ?? 0), 0);
 }
 
-export async function getPlanLimitCheck(userId: string, eventType: UsageEventType, incrementBy = 1): Promise<PlanLimitCheckResult> {
-  const normalizedIncrement = Math.max(1, Math.floor(incrementBy));
-  const accessProfile = await getUserAccessProfile(userId);
-
-  if ((accessProfile.status ?? "active") !== "active") {
+function assertActiveProfile(access: ResolvedAccess) {
+  if (!access.profileActive) {
     throw new UserInactiveError();
   }
+}
 
-  const planSlug = await getUserPlanSlug(userId);
-  const rules = PLAN_RULES[planSlug];
+export async function getPlanLimitCheck(
+  userId: string,
+  eventType: UsageEventType,
+  incrementBy = 1,
+  preloadedAccess?: ResolvedAccess
+): Promise<PlanLimitCheckResult> {
+  const normalizedIncrement = Math.max(1, Math.floor(incrementBy));
+  const access = preloadedAccess ?? (await resolveUserAccess(userId));
+
+  assertActiveProfile(access);
+
   const { periodStart, periodEnd } = getCurrentMonthlyPeriod();
+  const limit = access.unlimitedAccess ? null : resolveLimit(eventType, access.entitlements);
   const used = await getUsageCount(userId, eventType, periodStart, periodEnd);
-  const limit = accessProfile.unlimited_access ? null : rules.limits[eventType];
-  const allowed = accessProfile.unlimited_access || limit === null || used + normalizedIncrement <= limit;
+  const allowed = limit === null || used + normalizedIncrement <= limit;
+  const planLabel = access.planName;
+  const explanation = allowed ? null : buildLimitMessage(eventType, planLabel, limit, used);
 
   return {
     allowed,
     userId,
-    planSlug,
-    planLabel: accessProfile.unlimited_access ? "Acesso ilimitado" : rules.label,
+    planSlug: access.planCode,
+    planLabel,
     eventType,
     limit,
     used,
     remaining: limit === null ? null : Math.max(0, limit - used),
     periodStart,
     periodEnd,
-    unlimitedAccess: Boolean(accessProfile.unlimited_access)
+    unlimitedAccess: access.unlimitedAccess,
+    message: explanation?.message,
+    cta: explanation?.cta ?? null
   };
 }
 
-export async function assertPlanLimit(userId: string, eventType: UsageEventType, incrementBy = 1) {
-  const result = await getPlanLimitCheck(userId, eventType, incrementBy);
+export async function assertPlanLimit(
+  userId: string,
+  eventType: UsageEventType,
+  incrementBy = 1,
+  preloadedAccess?: ResolvedAccess
+) {
+  const result = await getPlanLimitCheck(userId, eventType, incrementBy, preloadedAccess);
 
   if (!result.allowed) {
     throw new PlanLimitExceededError(result);
@@ -295,20 +227,17 @@ export async function recordUsageEvent(userId: string, eventType: UsageEventType
   const normalizedCount = Math.max(1, Math.floor(count));
   const { periodStart, periodEnd } = getCurrentMonthlyPeriod();
 
-  await supabaseAdminRequest(
-    "/rest/v1/usage_events",
-    {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        user_id: userId,
-        event_type: eventType,
-        count: normalizedCount,
-        period_start: periodStart,
-        period_end: periodEnd
-      })
-    }
-  );
+  await supabaseAdminRequest("/rest/v1/usage_events", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      user_id: userId,
+      event_type: eventType,
+      count: normalizedCount,
+      period_start: periodStart,
+      period_end: periodEnd
+    })
+  });
 }
 
 export async function getQuestionHistory(userId: string, source?: QuestionHistorySource, limit = 25) {
@@ -328,20 +257,17 @@ export async function recordQuestionHistory(input: QuestionHistoryInput) {
     return;
   }
 
-  await supabaseAdminRequest(
-    "/rest/v1/ai_question_history",
-    {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        user_id: input.userId,
-        case_id: input.caseId ?? null,
-        source: input.source ?? "qa",
-        question,
-        answer: input.answer ?? null
-      })
-    }
-  );
+  await supabaseAdminRequest("/rest/v1/ai_question_history", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      user_id: input.userId,
+      case_id: input.caseId ?? null,
+      source: input.source ?? "qa",
+      question,
+      answer: input.answer ?? null
+    })
+  });
 }
 
 export async function checkAndRecordUsageEvent(userId: string, eventType: UsageEventType, count = 1) {
@@ -350,22 +276,37 @@ export async function checkAndRecordUsageEvent(userId: string, eventType: UsageE
   return result;
 }
 
-export async function assertPlanFeature(userId: string, feature: PlanFeature) {
-  const accessProfile = await getUserAccessProfile(userId);
+const FEATURE_ENTITLEMENT: Record<PlanFeature, (entitlements: Entitlements) => boolean> = {
+  photo_upload: (entitlements) => entitlements.AI_IMAGES,
+  soil_analysis_upload: (entitlements) => entitlements.SOIL_ANALYSIS_UPLOAD,
+  // Historico simples permanece disponivel em todos os planos.
+  simple_history: () => true
+};
 
-  if ((accessProfile.status ?? "active") !== "active") {
-    throw new UserInactiveError();
+const FEATURE_MESSAGES: Record<PlanFeature, string> = {
+  photo_upload: "inclui analise e interpretacao de fotos",
+  soil_analysis_upload: "inclui upload de analise de solo",
+  simple_history: "inclui historico das consultas"
+};
+
+export async function assertPlanFeature(userId: string, feature: PlanFeature, preloadedAccess?: ResolvedAccess) {
+  const access = preloadedAccess ?? (await resolveUserAccess(userId));
+
+  assertActiveProfile(access);
+
+  if (access.unlimitedAccess) {
+    return { userId, planSlug: access.planCode, planLabel: "Acesso ilimitado", feature, unlimitedAccess: true };
   }
 
-  const planSlug = await getUserPlanSlug(userId);
-
-  if (accessProfile.unlimited_access) {
-    return { userId, planSlug, planLabel: "Acesso ilimitado", feature, unlimitedAccess: true };
+  if (!FEATURE_ENTITLEMENT[feature](access.entitlements)) {
+    throw new PlanFeatureUnavailableError(
+      `Seu plano ${access.planName} nao ${FEATURE_MESSAGES[feature]}.`,
+      UPGRADE_CTA
+    );
   }
 
-  if (!PLAN_RULES[planSlug].features[feature]) {
-    throw new PlanFeatureUnavailableError();
-  }
-
-  return { userId, planSlug, planLabel: PLAN_RULES[planSlug].label, feature, unlimitedAccess: false };
+  return { userId, planSlug: access.planCode, planLabel: access.planName, feature, unlimitedAccess: false };
 }
+
+export { resolveUserAccess };
+export type { ResolvedAccess };
