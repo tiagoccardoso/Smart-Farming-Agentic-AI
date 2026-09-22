@@ -2,6 +2,13 @@ import { NextRequest } from "next/server";
 
 export type HumanReviewServiceType = "human_case_review" | "soil_analysis_review" | "technical_report" | "monthly_farm_followup";
 
+export const HUMAN_REVIEW_SERVICE_TYPES: HumanReviewServiceType[] = [
+  "human_case_review",
+  "soil_analysis_review",
+  "technical_report",
+  "monthly_farm_followup"
+];
+
 export type StripeCheckoutSession = {
   id?: string;
   url?: string;
@@ -26,13 +33,6 @@ export type HumanReviewCaseUpdate = {
   status: "waiting_human_review";
 };
 
-export const HUMAN_REVIEW_SERVICES: Record<HumanReviewServiceType, { label: string; priceCents: number }> = {
-  human_case_review: { label: "Revisão humana de caso agronômico", priceCents: 19700 },
-  soil_analysis_review: { label: "Revisão de análise de solo", priceCents: 25000 },
-  technical_report: { label: "Relatório técnico agronômico", priceCents: 49700 },
-  monthly_farm_followup: { label: "Acompanhamento mensal da fazenda", priceCents: 99700 }
-};
-
 const HUMAN_REVIEW_CASE_STATUS_BY_SERVICE: Partial<Record<HumanReviewServiceType, HumanReviewCaseUpdate["human_review_status"]>> = {
   human_case_review: "waiting_review",
   soil_analysis_review: "waiting_soil_review",
@@ -40,7 +40,25 @@ const HUMAN_REVIEW_CASE_STATUS_BY_SERVICE: Partial<Record<HumanReviewServiceType
 };
 
 export function isHumanReviewServiceType(value: unknown): value is HumanReviewServiceType {
-  return typeof value === "string" && value in HUMAN_REVIEW_SERVICES;
+  return typeof value === "string" && HUMAN_REVIEW_SERVICE_TYPES.includes(value as HumanReviewServiceType);
+}
+
+export type ConfiguredHumanReviewService = {
+  label: string;
+  priceCents: number;
+};
+
+export async function fetchConfiguredHumanReviewService(serviceType: HumanReviewServiceType) {
+  const rows = await supabaseAdminRequest<Array<{ name: string | null; price_cents: number | null }>>(
+    `/rest/v1/plan_page_services?service_type=eq.${encodeURIComponent(serviceType)}&active=eq.true&select=name,price_cents&limit=1`,
+    { method: "GET" }
+  );
+  const service = rows[0];
+  const priceCents = service?.price_cents;
+  if (!service?.name || typeof priceCents !== "number" || !Number.isSafeInteger(priceCents) || priceCents < 0) {
+    return null;
+  }
+  return { label: service.name, priceCents } satisfies ConfiguredHumanReviewService;
 }
 
 export function getCaseUpdateForServiceType(serviceType: HumanReviewServiceType): HumanReviewCaseUpdate | null {
@@ -103,7 +121,8 @@ export async function createStripeCheckoutSession(
   orderId: string,
   userId: string,
   caseId: string,
-  serviceType: HumanReviewServiceType
+  serviceType: HumanReviewServiceType,
+  service: ConfiguredHumanReviewService
 ) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -112,7 +131,6 @@ export async function createStripeCheckoutSession(
   }
 
   const origin = getRequestOrigin(request);
-  const service = HUMAN_REVIEW_SERVICES[serviceType];
   const params = new URLSearchParams({
     mode: "payment",
     success_url: `${origin}/checkout/sucesso?session_id={CHECKOUT_SESSION_ID}`,

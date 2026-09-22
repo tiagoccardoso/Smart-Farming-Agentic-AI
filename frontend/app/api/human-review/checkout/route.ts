@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
+import { fetchConfiguredHumanReviewService } from "../../../../lib/stripe/humanReview";
 
 type OneTimeOrder = {
   id: string;
@@ -15,13 +16,6 @@ type StripeCheckoutSession = {
 };
 
 const HUMAN_REVIEW_SERVICE_TYPE = "human_case_review";
-const DEFAULT_HUMAN_REVIEW_PRICE_CENTS = 19700;
-
-function getHumanReviewPriceCents() {
-  const configuredPrice = Number(process.env.HUMAN_REVIEW_PRICE_CENTS);
-  return Number.isFinite(configuredPrice) && configuredPrice > 0 ? Math.round(configuredPrice) : DEFAULT_HUMAN_REVIEW_PRICE_CENTS;
-}
-
 function getRequestOrigin(request: NextRequest) {
   return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || request.nextUrl.origin;
 }
@@ -98,7 +92,11 @@ export async function POST(request: NextRequest) {
     await assertPlanLimit(user.id, "human_review");
 
     const config = getSupabaseConfig();
-    const priceCents = getHumanReviewPriceCents();
+    const service = await fetchConfiguredHumanReviewService("human_case_review");
+    if (!service) {
+      return NextResponse.json({ error: "O serviço de revisão humana está temporariamente indisponível." }, { status: 503 });
+    }
+    const priceCents = service.priceCents;
     const encodedCaseId = encodeURIComponent(caseId);
     const orders = await supabaseRequest<OneTimeOrder[]>(
       "/rest/v1/one_time_orders?select=id",

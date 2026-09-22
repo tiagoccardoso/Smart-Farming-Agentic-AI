@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE, getCurrentProfile, getCurrentUser, hasRole, isActiveProfile } from "./lib/auth";
 
-const protectedRoutes = ["/perfil", "/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/planos", "/dashboard"];
+const protectedRoutes = ["/perfil", "/consultoria-ia", "/enviar-caso", "/revisao-humana", "/meus-relatorios", "/dashboard"];
 const specialistRoutes = ["/painel-doutora", "/admin/agendamentos"];
+const adminRoutes = ["/painel-doutora/site-pages/planos"];
 
 function matchesRoute(pathname: string, routes: string[]) {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
@@ -17,7 +18,7 @@ function loginRedirect(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const requiresAuth = matchesRoute(pathname, protectedRoutes) || matchesRoute(pathname, specialistRoutes);
+  const requiresAuth = matchesRoute(pathname, protectedRoutes) || matchesRoute(pathname, specialistRoutes) || matchesRoute(pathname, adminRoutes);
 
   if (!requiresAuth) {
     return NextResponse.next();
@@ -47,6 +48,13 @@ export async function middleware(request: NextRequest) {
       }
     }
 
+    if (matchesRoute(pathname, adminRoutes) && !hasRole(profile, ["admin"])) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/configuracoes";
+      url.searchParams.set("auth", "forbidden");
+      return NextResponse.redirect(url);
+    }
+
     return NextResponse.next();
   } catch {
     return loginRedirect(request);
@@ -54,5 +62,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/perfil/:path*", "/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/planos/:path*", "/dashboard/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*"]
+  matcher: ["/perfil/:path*", "/consultoria-ia/:path*", "/enviar-caso/:path*", "/revisao-humana/:path*", "/meus-relatorios/:path*", "/dashboard/:path*", "/painel-doutora/:path*", "/admin/agendamentos/:path*"]
 };

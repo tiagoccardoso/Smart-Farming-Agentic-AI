@@ -57,13 +57,11 @@ const paymentStatusLabels: Record<string, string> = {
   expired: "Expirado",
 };
 
-function getHumanReviewPriceCents() {
-  const configuredPrice = Number(process.env.NEXT_PUBLIC_HUMAN_REVIEW_PRICE_CENTS);
-  return Number.isFinite(configuredPrice) && configuredPrice > 0 ? Math.round(configuredPrice) : 19700;
-}
-
-function formatCurrency(priceCents?: number | null) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format((priceCents ?? getHumanReviewPriceCents()) / 100);
+function formatCurrency(priceCents?: number | null, fallbackPriceCents?: number | null) {
+  const value = priceCents ?? fallbackPriceCents;
+  return value === null || value === undefined
+    ? "Consulte o valor atualizado"
+    : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value / 100);
 }
 
 function formatDate(value?: string | null) {
@@ -154,6 +152,7 @@ function RevisaoHumanaContent() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [configuredReviewPrice, setConfiguredReviewPrice] = useState<number | null>(null);
 
   async function loadDashboard() {
     const token = getStoredSupabaseAccessToken();
@@ -175,6 +174,13 @@ function RevisaoHumanaContent() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    fetch("/api/plans", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      const service = payload?.services?.find((item: { service_type?: string }) => item.service_type === "human_case_review");
+      setConfiguredReviewPrice(typeof service?.price_cents === "number" ? service.price_cents : null);
+    }).catch(() => null);
+  }, []);
 
   useEffect(() => { loadDashboard(); }, []);
   useEffect(() => {
@@ -358,7 +364,7 @@ function RevisaoHumanaContent() {
                       <p><strong>Análise:</strong> {formatDate(caseItem.created_at)}</p>
                       <p><strong>Atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                       <p><strong>Imagens:</strong> {caseItem.images_count ?? caseItem.images?.length ?? 0}</p>
-                      <p><strong>Valor:</strong> {formatCurrency(caseItem.review_price_cents)}</p>
+                      <p><strong>Valor:</strong> {formatCurrency(caseItem.review_price_cents, configuredReviewPrice)}</p>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap" onClick={(event) => event.stopPropagation()}>

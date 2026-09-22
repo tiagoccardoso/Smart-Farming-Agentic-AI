@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../../lib/agronomic/case";
 import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError } from "../../../../../lib/billing/check-plan-limits";
-import { HUMAN_REVIEW_SERVICES, supabaseAdminRequest } from "../../../../../lib/stripe/humanReview";
+import { fetchConfiguredHumanReviewService, supabaseAdminRequest } from "../../../../../lib/stripe/humanReview";
 
 type UpdatedCase = {
   id: string;
@@ -19,6 +19,8 @@ class FriendlyRequestError extends Error {
 
 async function ensurePendingHumanReviewOrder(userId: string, caseId: string, token: string) {
   const config = getSupabaseConfig();
+  const service = await fetchConfiguredHumanReviewService("human_case_review");
+  if (!service) throw new FriendlyRequestError("O serviço de revisão humana está temporariamente indisponível.", 503);
   const existing = await supabaseRequest<Array<{ id: string }>>(
     `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(userId)}&case_id=eq.${encodeURIComponent(caseId)}&service_type=eq.human_case_review&payment_status=eq.pending&select=id&limit=1`,
     { method: "GET" },
@@ -39,7 +41,7 @@ async function ensurePendingHumanReviewOrder(userId: string, caseId: string, tok
         user_id: userId,
         case_id: caseId,
         service_type: "human_case_review",
-        price_cents: HUMAN_REVIEW_SERVICES.human_case_review.priceCents,
+        price_cents: service.priceCents,
         payment_status: "pending",
       }),
     },
@@ -118,7 +120,7 @@ export async function POST(request: NextRequest, { params }: { params: { caseId:
     await logActivity(params.caseId, user.id, token);
     return NextResponse.json({ success: true, redirectTo: `/revisao-humana?caseId=${encodeURIComponent(params.caseId)}`, case: updatedCase });
   } catch (error) {
-    if (error instanceof PlanLimitExceededError) return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE, offers: [{ label: "Revisão avulsa", price: 19700 }, { label: "Premium mensal", price: 39700 }] }, { status: error.status });
+    if (error instanceof PlanLimitExceededError) return NextResponse.json({ error: PLAN_LIMIT_REACHED_MESSAGE }, { status: error.status });
     if (process.env.NODE_ENV !== "production") console.error("Erro ao solicitar revisão humana.", error);
     const message = error instanceof Error ? error.message : "Não foi possível solicitar revisão humana.";
     const status = error instanceof FriendlyRequestError ? error.status : 500;

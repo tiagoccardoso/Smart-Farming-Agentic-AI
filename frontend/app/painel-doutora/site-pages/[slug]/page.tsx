@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import MobileImagePicker from "../../../../components/MobileImagePicker";
+import AdminPlansPage from "../../../../components/AdminPlansPage";
 import { getCurrentAuthSession } from "../../../../lib/supabaseAuth";
 
 type SitePageForm = { title: string; subtitle: string; image_url: string; content: Record<string, any> };
@@ -16,6 +17,11 @@ const textListFields: Record<string, Array<{ key: string; label: string }>> = { 
 
 export default function SitePageEditor() {
   const { slug } = useParams<{ slug: string }>();
+  if (slug === "planos") return <AdminPlansPage />;
+  return <LegacySitePageEditor slug={slug} />;
+}
+
+function LegacySitePageEditor({ slug }: { slug: string }) {
   const router = useRouter();
   const [form, setForm] = useState<SitePageForm>({ title: "", subtitle: "", image_url: "", content: {} });
   const [loading, setLoading] = useState(true);

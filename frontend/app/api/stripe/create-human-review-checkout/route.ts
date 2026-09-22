@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
 import { PLAN_LIMIT_REACHED_MESSAGE, PlanLimitExceededError, UsageEventType, assertPlanLimit, recordUsageEvent } from "../../../../lib/billing/check-plan-limits";
-import { HUMAN_REVIEW_SERVICES, createStripeCheckoutSession, isHumanReviewServiceType } from "../../../../lib/stripe/humanReview";
+import { createStripeCheckoutSession, fetchConfiguredHumanReviewService, isHumanReviewServiceType } from "../../../../lib/stripe/humanReview";
 
 type CreateCheckoutPayload = {
   caseId?: string;
@@ -94,7 +94,10 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getSupabaseConfig();
-    const service = HUMAN_REVIEW_SERVICES[serviceType];
+    const service = await fetchConfiguredHumanReviewService(serviceType);
+    if (!service) {
+      return NextResponse.json({ error: "Este serviço está temporariamente indisponível." }, { status: 503 });
+    }
     const existingOrders = await supabaseRequest<CreatedOrder[]>(
       `/rest/v1/one_time_orders?user_id=eq.${encodeURIComponent(user.id)}&case_id=eq.${encodeURIComponent(caseId)}&service_type=eq.${encodeURIComponent(serviceType)}&payment_status=eq.pending&select=id,stripe_checkout_session_id,payment_status&order=created_at.desc&limit=1`,
       { method: "GET" },
@@ -139,7 +142,7 @@ export async function POST(request: NextRequest) {
       throw new Error("Não foi possível criar a ordem de revisão humana.");
     }
 
-    const stripeSession = await createStripeCheckoutSession(request, order.id, user.id, caseId, serviceType);
+    const stripeSession = await createStripeCheckoutSession(request, order.id, user.id, caseId, serviceType, service);
 
     if (usageEventType) {
       await recordUsageEvent(user.id, usageEventType);
