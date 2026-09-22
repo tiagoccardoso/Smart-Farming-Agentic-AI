@@ -1,7 +1,7 @@
 /**
  * Inicia a assinatura de um plano pago (Checkout Session, modo subscription).
  *
- * O plano so e liberado quando o webhook confirma o pagamento. Aqui apenas
+ * O plano só é liberado quando o webhook confirma o pagamento. Aqui apenas
  * registramos a intencao (`checkout_pending`) e devolvemos a URL do Stripe.
  */
 
@@ -28,28 +28,28 @@ export async function POST(request: NextRequest) {
     const planSlug = payload?.planSlug?.trim();
 
     if (!isSubscribablePlanCode(planSlug)) {
-      return NextResponse.json({ error: "Informe um plano mensal valido para assinatura." }, { status: 400 });
+      return NextResponse.json({ error: "Informe um plano mensal válido para assinatura." }, { status: 400 });
     }
 
     const [access, plan] = await Promise.all([resolveUserAccess(user.id), fetchPaidPlan(planSlug)]);
 
     if (!access.profileActive) {
-      return NextResponse.json({ error: "Usuario inativo. Entre em contato com o suporte." }, { status: 403 });
+      return NextResponse.json({ error: "Usuário inativo. Entre em contato com o suporte." }, { status: 403 });
     }
 
     if (access.planCode === planSlug && access.subscription?.entitled) {
       return NextResponse.json(
-        { error: `Voce ja possui o plano ${access.planName} ativo.`, alreadySubscribed: true },
+        { error: `Você já possui o plano ${access.planName} ativo.`, alreadySubscribed: true },
         { status: 409 }
       );
     }
 
-    // Ja existe assinatura ativa em outro plano: a troca e feita por
-    // upgrade/downgrade na assinatura atual, nao por uma segunda cobranca.
+    // Já existe assinatura ativa em outro plano: a troca é feita por
+    // upgrade/downgrade na assinatura atual, não por uma segunda cobrança.
     if (access.subscription?.entitled && access.subscription.stripeSubscriptionId) {
       return NextResponse.json(
         {
-          error: "Voce ja possui uma assinatura ativa. Use a troca de plano para migrar sem cobranca duplicada.",
+          error: "Você já possui uma assinatura ativa. Use a troca de plano para migrar sem cobrança duplicada.",
           requiresPlanChange: true,
           currentPlanCode: access.planCode,
           targetPlanCode: planSlug
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel criar o checkout de assinatura.") },
+      { error: errorMessage(error, "Não foi possível criar o checkout de assinatura.") },
       { status: errorStatus(error) }
     );
   }

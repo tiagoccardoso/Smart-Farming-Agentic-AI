@@ -1,27 +1,32 @@
 "use client";
 
 /**
- * Pagina publica de planos.
+ * Página publica de planos.
  *
- * Todo o conteudo vem de `/api/plans` (configuravel na area administrativa).
- * Nenhum preco e escrito aqui, e a categoria "sob consulta" nunca exibe um
- * preco ficticio.
+ * Todo o conteudo vem de `/api/plans` (configuravel na área administrativa).
+ * Nenhum preço e escrito aqui, e a categoria "sob consulta" nunca exibe um
+ * preço ficticio. Os benefícios de parecer agronômico humano de cada plano
+ * vêm de `plans.features` (mesma fonte editável dos demais benefícios).
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import SectionTitle from "../../components/SectionTitle";
 import {
   FREE_PLAN_CODE,
   PlanPagePlan,
-  PlanPageService,
   PlansPagePayload,
-  TECHNICAL_OPINION_SERVICE_TYPE,
   formatPlanPrice,
-  formatServicePrice,
   isFreePlan,
   isQuotePlan
 } from "../../lib/plans-page";
+
+/**
+ * Atendimento pontual (visitas técnicas, presencial, projetos especiais,
+ * demandas fora das assinaturas e orçamento personalizado) é tratado pela
+ * página oficial de Contato. Não há mais contratação avulsa nesta página.
+ */
+const CONTACT_HREF = "/contact?requestType=consultoria_geral";
 
 type Feedback = { type: "success" | "error" | "info"; message: string; action?: { label: string; href: string } | null };
 
@@ -82,7 +87,7 @@ function PlanCard({
 
       {plan.exclusions.length > 0 && (
         <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Nao inclui</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Não inclui</p>
           <ul className="mt-2 space-y-2 text-xs text-slate-600">
             {plan.exclusions.map((item) => (
               <li key={item}>• {item}</li>
@@ -124,14 +129,14 @@ export default function PlansPageClient() {
     fetch("/api/plans", { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error || "Nao foi possivel carregar os planos.");
+        if (!response.ok) throw new Error(payload?.error || "Não foi possível carregar os planos.");
         return payload as PlansPagePayload;
       })
       .then((payload) => {
         if (active) setData(payload);
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : "Nao foi possivel carregar os planos.");
+        if (active) setError(cause instanceof Error ? cause.message : "Não foi possível carregar os planos.");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -141,16 +146,6 @@ export default function PlansPageClient() {
       active = false;
     };
   }, []);
-
-  const singleOpinionService = useMemo<PlanPageService | null>(
-    () => data?.services.find((service) => service.service_type === TECHNICAL_OPINION_SERVICE_TYPE) ?? null,
-    [data]
-  );
-
-  const caseServices = useMemo<PlanPageService[]>(
-    () => data?.services.filter((service) => service.service_type !== TECHNICAL_OPINION_SERVICE_TYPE) ?? [],
-    [data]
-  );
 
   async function startSubscription(plan: PlanPagePlan) {
     const response = await fetch("/api/stripe/create-subscription-checkout", {
@@ -179,7 +174,7 @@ export default function PlansPageClient() {
     if (response.status === 401) {
       setFeedback({
         type: "info",
-        message: "Faca login para assinar este plano.",
+        message: "Faça login para assinar este plano.",
         action: { label: "Entrar", href: `/login?next=${encodeURIComponent("/planos")}` }
       });
       return;
@@ -187,7 +182,7 @@ export default function PlansPageClient() {
 
     setFeedback({
       type: payload?.alreadySubscribed ? "info" : "error",
-      message: payload?.error || "Nao foi possivel iniciar esta contratacao.",
+      message: payload?.error || "Não foi possível iniciar esta contratação.",
       action: payload?.alreadySubscribed ? { label: "Minha assinatura", href: "/minha-assinatura" } : null
     });
   }
@@ -210,42 +205,7 @@ export default function PlansPageClient() {
     try {
       await startSubscription(plan);
     } catch (cause) {
-      setFeedback({ type: "error", message: cause instanceof Error ? cause.message : "Nao foi possivel iniciar a contratacao." });
-    } finally {
-      setLoadingKey(null);
-    }
-  }
-
-  async function handleSingleOpinion() {
-    setFeedback(null);
-    setLoadingKey("service:technical_opinion_single");
-
-    try {
-      const response = await fetch("/api/stripe/create-technical-opinion-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({})
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (payload?.checkoutUrl) {
-        window.location.href = payload.checkoutUrl;
-        return;
-      }
-
-      if (response.status === 401) {
-        setFeedback({
-          type: "info",
-          message: "Faca login para solicitar um parecer tecnico avulso.",
-          action: { label: "Entrar", href: `/login?next=${encodeURIComponent("/planos")}` }
-        });
-        return;
-      }
-
-      setFeedback({ type: "error", message: payload?.error || "Nao foi possivel iniciar o pagamento do parecer avulso." });
-    } catch (cause) {
-      setFeedback({ type: "error", message: cause instanceof Error ? cause.message : "Nao foi possivel iniciar o pagamento." });
+      setFeedback({ type: "error", message: cause instanceof Error ? cause.message : "Não foi possível iniciar a contratação." });
     } finally {
       setLoadingKey(null);
     }
@@ -263,7 +223,7 @@ export default function PlansPageClient() {
     return (
       <main className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-800" role="alert">
-          {error || "Os planos nao estao disponiveis no momento."}
+          {error || "Os planos não estao disponíveis no momento."}
         </div>
       </main>
     );
@@ -351,70 +311,29 @@ export default function PlansPageClient() {
         </div>
 
         <section
-          id="parecer-avulso"
+          id="atendimento-pontual"
+          aria-labelledby="atendimento-pontual-titulo"
           className="mt-12 rounded-[2rem] border border-leaf-100 bg-white p-6 shadow-soft md:p-8"
         >
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-black text-slate-950 sm:text-3xl">{settings.onetime_title}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">{settings.onetime_description}</p>
-              {singleOpinionService && (
-                <p className="mt-4 text-2xl font-black text-leaf-800">{formatServicePrice(singleOpinionService)}</p>
+              <h2 id="atendimento-pontual-titulo" className="text-2xl font-black text-slate-950 sm:text-3xl">
+                {settings.onetime_title}
+              </h2>
+              {settings.onetime_description && (
+                <p className="mt-3 text-sm leading-6 text-slate-600">{settings.onetime_description}</p>
               )}
             </div>
 
-            {singleOpinionService ? (
-              <button
-                type="button"
-                onClick={handleSingleOpinion}
-                disabled={Boolean(loadingKey)}
-                className="shrink-0 rounded-full bg-leaf-700 px-6 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-wait disabled:opacity-70"
-              >
-                {loadingKey === "service:technical_opinion_single"
-                  ? "Preparando pagamento..."
-                  : settings.onetime_button_label}
-              </button>
-            ) : (
-              <p className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                Disponibilidade em breve. Fale com a equipe pela pagina de contato.
-              </p>
-            )}
+            <Link
+              href={CONTACT_HREF}
+              className="shrink-0 rounded-full bg-leaf-700 px-6 py-3 text-center text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 focus:outline-none focus:ring-4 focus:ring-leaf-200"
+            >
+              {settings.onetime_button_label || "Falar com a equipe"}
+            </Link>
           </div>
         </section>
 
-        {caseServices.length > 0 && (
-          <section className="mt-12 rounded-[2rem] border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-leaf-700">{settings.consulting_eyebrow}</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{settings.consulting_title}</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{settings.consulting_description}</p>
-              </div>
-              <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-                {settings.consulting_notice}
-              </p>
-            </div>
-
-            <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-              {caseServices.map((service) => (
-                <article
-                  key={service.service_type}
-                  className="flex min-h-full flex-col rounded-3xl border border-leaf-100 bg-gradient-to-b from-white to-leaf-50/70 p-5 shadow-soft"
-                >
-                  <h3 className="text-lg font-bold text-slate-950">{service.name}</h3>
-                  <p className="mt-3 text-2xl font-black text-leaf-800">{formatServicePrice(service)}</p>
-                  <p className="mt-3 flex-1 text-sm leading-6 text-slate-600">{service.description}</p>
-                  <Link
-                    href="/enviar-caso"
-                    className="mt-6 rounded-full border border-leaf-200 bg-white px-5 py-3 text-center text-sm font-bold text-leaf-700 shadow-sm transition hover:border-leaf-400 hover:bg-leaf-50"
-                  >
-                    {service.button_label}
-                  </Link>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
       </section>
     </main>
   );

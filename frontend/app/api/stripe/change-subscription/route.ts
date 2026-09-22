@@ -2,8 +2,8 @@
  * Upgrade e downgrade entre planos pagos.
  *
  * Regra de proration adotada: `create_prorations` (padrao do Stripe). O valor
- * nao utilizado do plano atual vira credito e a diferenca proporcional do novo
- * plano entra na proxima fatura. A regra e exibida ao usuario antes da troca.
+ * não utilizado do plano atual vira crédito e a diferenca proporcional do novo
+ * plano entra na próxima fatura. A regra é exibida ao usuário antes da troca.
  *
  * O estado final da assinatura NAO e gravado aqui: quem grava e o webhook
  * `customer.subscription.updated`.
@@ -17,7 +17,7 @@ import { errorMessage, errorStatus, requireUser } from "../../../../lib/server/r
 export const dynamic = "force-dynamic";
 
 const PRORATION_NOTICE =
-  "A troca usa cobranca proporcional (proration): o Stripe credita o periodo nao utilizado do plano atual e cobra a diferenca do novo plano na proxima fatura.";
+  "A troca usa cobrança proporcional (proration): o Stripe credita o período não utilizado do plano atual e cobra a diferenca do novo plano na próxima fatura.";
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,26 +26,26 @@ export async function POST(request: NextRequest) {
     const planSlug = payload?.planSlug?.trim();
 
     if (!isSubscribablePlanCode(planSlug)) {
-      return NextResponse.json({ error: "Informe um plano mensal valido." }, { status: 400 });
+      return NextResponse.json({ error: "Informe um plano mensal válido." }, { status: 400 });
     }
 
     const access = await resolveUserAccess(user.id);
 
     if (!access.profileActive) {
-      return NextResponse.json({ error: "Usuario inativo. Entre em contato com o suporte." }, { status: 403 });
+      return NextResponse.json({ error: "Usuário inativo. Entre em contato com o suporte." }, { status: 403 });
     }
 
     const subscription = access.subscription;
 
     if (!subscription?.entitled || !subscription.stripeSubscriptionId) {
       return NextResponse.json(
-        { error: "Nao ha assinatura ativa para trocar. Assine um plano para continuar.", requiresCheckout: true },
+        { error: "Não ha assinatura ativa para trocar. Assine um plano para continuar.", requiresCheckout: true },
         { status: 409 }
       );
     }
 
     if (access.planCode === planSlug) {
-      return NextResponse.json({ error: `Voce ja esta no plano ${access.planName}.` }, { status: 409 });
+      return NextResponse.json({ error: `Você já esta no plano ${access.planName}.` }, { status: 409 });
     }
 
     const plan = await fetchPaidPlan(planSlug);
@@ -63,11 +63,11 @@ export async function POST(request: NextRequest) {
       stripeStatus: updated.status ?? null,
       prorationBehavior: "create_prorations",
       notice: PRORATION_NOTICE,
-      message: `Troca solicitada para ${plan.name}. A confirmacao aparece assim que o Stripe processar a alteracao.`
+      message: `Troca solicitada para ${plan.name}. A confirmação aparece assim que o Stripe processar a alteração.`
     });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel trocar de plano.") },
+      { error: errorMessage(error, "Não foi possível trocar de plano.") },
       { status: errorStatus(error) }
     );
   }

@@ -1,5 +1,5 @@
 /**
- * Ciclos de cobranca: reinicio automatico dos contadores (itens 1 e 4).
+ * Ciclos de cobrança: reinicio automático dos contadores (itens 1 e 4).
  */
 
 import assert from "node:assert/strict";
@@ -7,7 +7,7 @@ import test from "node:test";
 import { getCalendarMonthCycle, resolveSubscriptionCycle } from "../lib/billing/billing-cycle";
 import type { ResolvedSubscription } from "../lib/billing/entitlements";
 
-test("ciclo de calendario cobre o mes inteiro e reinicia no mes seguinte", () => {
+test("ciclo de calendario cobre o mês inteiro e reinicia no mês seguinte", () => {
   const cycle = getCalendarMonthCycle(new Date("2026-09-22T12:00:00Z"));
   assert.equal(cycle.reference, "cal:2026-09");
   assert.equal(cycle.start, "2026-09-01T00:00:00.000Z");
@@ -17,7 +17,7 @@ test("ciclo de calendario cobre o mes inteiro e reinicia no mes seguinte", () =>
   assert.notEqual(next.reference, cycle.reference);
 });
 
-test("assinatura ativa usa o proprio ciclo de cobranca", () => {
+test("assinatura ativa usa o próprio ciclo de cobrança", () => {
   const subscription = {
     id: "sub-1",
     entitled: true,

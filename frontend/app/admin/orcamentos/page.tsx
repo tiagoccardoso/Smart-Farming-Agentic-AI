@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Acompanhamento administrativo das solicitacoes de orcamento
+ * Acompanhamento administrativo das solicitações de orcamento
  * (Presencial & Projetos Especiais).
  */
 
@@ -29,17 +29,17 @@ const STATUS_OPTIONS = [
   { value: "novo", label: "Novo" },
   { value: "em_contato", label: "Em contato" },
   { value: "confirmado", label: "Confirmado" },
-  { value: "concluido", label: "Concluido" },
+  { value: "concluido", label: "Concluído" },
   { value: "cancelado", label: "Cancelado" }
 ];
 
 const SERVICE_LABELS: Record<string, string> = {
-  visita_tecnica: "Visita tecnica",
-  diagnostico_de_campo: "Diagnostico de campo",
-  avaliacao_da_propriedade: "Avaliacao da propriedade",
+  visita_tecnica: "Visita técnica",
+  diagnostico_de_campo: "Diagnóstico de campo",
+  avaliacao_da_propriedade: "Avaliação da propriedade",
   projeto_personalizado: "Projeto personalizado",
   planejamento_e_acompanhamento: "Planejamento e acompanhamento",
-  transicao_organica: "Transicao para producao organica",
+  transicao_organica: "Transição para produção orgânica",
   outro: "Outro projeto presencial"
 };
 
@@ -51,7 +51,7 @@ export default function AdminQuotesPage() {
 
   async function authHeaders() {
     const session = await getCurrentAuthSession();
-    if (!session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+    if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
     return { Authorization: `Bearer ${session.access_token}` };
   }
 
@@ -60,10 +60,10 @@ export default function AdminQuotesPage() {
       const headers = await authHeaders();
       const response = await fetch("/api/admin/service-quotes", { headers, cache: "no-store" });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Nao foi possivel carregar as solicitacoes.");
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível carregar as solicitações.");
       setRequests(payload.requests ?? []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel carregar as solicitacoes.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível carregar as solicitações.");
     } finally {
       setLoading(false);
     }
@@ -86,10 +86,10 @@ export default function AdminQuotesPage() {
         body: JSON.stringify({ id, status })
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Nao foi possivel atualizar.");
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível atualizar.");
       setRequests((current) => current.map((item) => (item.id === id ? { ...item, status } : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel atualizar.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível atualizar.");
     } finally {
       setBusyId(null);
     }
@@ -103,8 +103,8 @@ export default function AdminQuotesPage() {
 
       <div className="mt-4">
         <SectionTitle
-          title="Solicitacoes de orcamento"
-          subtitle="Presencial & Projetos Especiais. Nenhuma cobranca automatica: o orcamento e definido caso a caso."
+          title="Solicitações de orcamento"
+          subtitle="Presencial & Projetos Especiais. Nenhuma cobrança automática: o orcamento e definido caso a caso."
         />
       </div>
 
@@ -115,10 +115,10 @@ export default function AdminQuotesPage() {
       )}
 
       <div className="mt-8 grid gap-4">
-        {loading && <p className="text-sm text-slate-600">Carregando solicitacoes...</p>}
+        {loading && <p className="text-sm text-slate-600">Carregando solicitações...</p>}
         {!loading && requests.length === 0 && (
           <p className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
-            Nenhuma solicitacao de orcamento registrada ainda.
+            Nenhuma solicitação de orcamento registrada ainda.
           </p>
         )}
 
@@ -132,7 +132,7 @@ export default function AdminQuotesPage() {
                   {item.email ? ` · ${item.email}` : ""}
                 </p>
                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-                  {SERVICE_LABELS[item.service_type ?? ""] ?? item.service_type ?? "Servico nao informado"}
+                  {SERVICE_LABELS[item.service_type ?? ""] ?? item.service_type ?? "Serviço não informado"}
                 </p>
               </div>
               <select
@@ -154,7 +154,7 @@ export default function AdminQuotesPage() {
                 {item.message}
               </p>
             )}
-            {item.notes && <p className="mt-3 text-sm text-slate-600">Observacoes: {item.notes}</p>}
+            {item.notes && <p className="mt-3 text-sm text-slate-600">Observações: {item.notes}</p>}
             <p className="mt-3 text-xs text-slate-400">
               Recebida em {new Date(item.created_at).toLocaleString("pt-BR")}
             </p>

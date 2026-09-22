@@ -65,7 +65,7 @@ a implementação reaproveita `plans`, `subscriptions`, `one_time_orders`,
 | `app/api/plans/route.ts` | Não expõe mais IDs Stripe nem entitlements na rota pública. |
 | `app/api/admin/plans-page/route.ts` | Edição de entitlements e IDs Stripe, com validação de formato. |
 | `components/AdminPlansPage.tsx` | Editor de direitos, IDs Stripe e blocos novos da página. |
-| `app/planos/PlansPageClient.tsx` | Página reformulada. |
+| `app/planos/PlansPageClient.tsx` | Página reformulada. A seção "Consultorias Especializadas" (4 serviços avulsos) foi removida. **Atualizado em 2026-09-22:** a venda avulsa foi encerrada e o parecer humano passou a ser benefício dos planos — ver `docs/PARECER_HUMANO_NOS_PLANOS.md`. |
 | `lib/plans-page.ts` | Tipos novos e formatação de preço ("Sob consulta"). |
 | `middleware.ts` | Protege `/minha-assinatura`, `/pareceres`, `/admin/orcamentos`. |
 | `app/configuracoes/page.tsx` | Link para as solicitações de orçamento. |

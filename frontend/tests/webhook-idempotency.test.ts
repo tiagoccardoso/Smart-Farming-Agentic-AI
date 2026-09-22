@@ -1,5 +1,5 @@
 /**
- * Idempotencia dos webhooks (item 10 do escopo): o mesmo event.id nunca e
+ * Idempotência dos webhooks (item 10 do escopo): o mesmo event.id nunca e
  * processado duas vezes, e um evento que falhou pode ser reprocessado.
  */
 
@@ -38,7 +38,7 @@ test("evento novo e reservado para processamento", async () => {
   }
 });
 
-test("evento ja processado e descartado", async () => {
+test("evento já processado e descartado", async () => {
   const mock = mockEvents({ status: "processed" });
 
   try {
@@ -66,6 +66,39 @@ test("entrega simultanea do mesmo evento: apenas uma processa", async () => {
   try {
     const claim = await claimStripeEvent("evt_1", "customer.subscription.updated");
     assert.equal(claim.claimed, false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("entrega concorrente enquanto o evento ainda está em processamento não reprocessa", async () => {
+  const mock = installFetchMock((call) => {
+    if (call.url.includes("/rest/v1/stripe_webhook_events") && call.method === "GET") {
+      return { body: [{ event_id: "evt_1", status: "processing", received_at: new Date().toISOString() }] };
+    }
+    return { status: 204, body: null };
+  });
+
+  try {
+    const claim = await claimStripeEvent("evt_1", "customer.subscription.updated");
+    assert.deepEqual(claim, { claimed: false, reason: "in_progress" });
+    assert.equal(mock.calls.filter((call) => call.method === "PATCH").length, 0);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("evento preso em processamento há mais de 2 minutos pode ser retomado", async () => {
+  const mock = installFetchMock((call) => {
+    if (call.url.includes("/rest/v1/stripe_webhook_events") && call.method === "GET") {
+      return { body: [{ event_id: "evt_1", status: "processing", received_at: new Date(Date.now() - 5 * 60 * 1000).toISOString() }] };
+    }
+    return { status: 204, body: null };
+  });
+
+  try {
+    const claim = await claimStripeEvent("evt_1", "customer.subscription.updated");
+    assert.equal(claim.claimed, true);
   } finally {
     mock.restore();
   }

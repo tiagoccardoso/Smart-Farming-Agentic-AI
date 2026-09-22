@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Detalhe de uma demanda tecnica: historico de mensagens, anexos e novas
+ * Detalhe de uma demanda técnica: histórico de mensagens, anexos e novas
  * perguntas. Nada aqui consome um novo parecer.
  */
 
@@ -28,10 +28,10 @@ type Message = {
 
 const STATUS_LABELS: Record<string, string> = {
   aberto: "Aberto",
-  em_analise: "Em analise",
-  aguardando_informacoes: "Aguardando informacoes",
+  em_analise: "Em análise",
+  aguardando_informacoes: "Aguardando informações",
   respondido: "Respondido",
-  concluido: "Concluido",
+  concluido: "Concluído",
   cancelado: "Cancelado"
 };
 
@@ -54,11 +54,11 @@ export default function TechnicalOpinionDetailPage() {
         credentials: "same-origin"
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Demanda nao encontrada.");
+      if (!response.ok) throw new Error(payload?.error || "Demanda não encontrada.");
       setOpinion(payload.opinion);
       setMessages(payload.messages ?? []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Demanda nao encontrada.");
+      setError(cause instanceof Error ? cause.message : "Demanda não encontrada.");
     } finally {
       setLoading(false);
     }
@@ -84,11 +84,11 @@ export default function TechnicalOpinionDetailPage() {
         body: JSON.stringify({ body })
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Nao foi possivel enviar a mensagem.");
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível enviar a mensagem.");
       setMessages(payload.messages ?? []);
       setBody("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel enviar a mensagem.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.");
     } finally {
       setSending(false);
     }
@@ -102,7 +102,7 @@ export default function TechnicalOpinionDetailPage() {
     return (
       <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-800" role="alert">
-          {error || "Demanda nao encontrada."}
+          {error || "Demanda não encontrada."}
         </div>
       </section>
     );
@@ -144,7 +144,7 @@ export default function TechnicalOpinionDetailPage() {
             }`}
           >
             <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">
-              {message.author_role === "client" ? "Voce" : message.author_role === "system" ? "Sistema" : "Especialista"}
+              {message.author_role === "client" ? "Você" : message.author_role === "system" ? "Sistema" : "Especialista"}
             </p>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{message.body}</p>
             {message.attachments.length > 0 && (
@@ -171,7 +171,7 @@ export default function TechnicalOpinionDetailPage() {
 
       {closed ? (
         <p className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          Esta demanda foi encerrada. Para um novo problema, abra uma nova demanda tecnica.
+          Esta demanda foi encerrada. Para um novo problema, abra uma nova demanda técnica.
         </p>
       ) : (
         <form onSubmit={send} className="mt-6 grid gap-3 rounded-[2rem] border border-leaf-100 bg-white p-6 shadow-soft">
@@ -185,7 +185,7 @@ export default function TechnicalOpinionDetailPage() {
               className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none transition focus:border-leaf-400 focus:ring-4 focus:ring-leaf-100"
             />
           </label>
-          <p className="text-xs text-slate-500">Mensagens desta demanda nao consomem pareceres adicionais.</p>
+          <p className="text-xs text-slate-500">Mensagens desta demanda não consomem pareceres adicionais.</p>
           <button
             type="submit"
             disabled={sending}

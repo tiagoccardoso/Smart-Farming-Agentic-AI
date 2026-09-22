@@ -1,12 +1,12 @@
 /**
- * Servicos avulsos (pagamento unico) no Stripe.
+ * Serviços avulsos (pagamento único) no Stripe.
  *
- * Inclui os servicos que ja existiam (revisao humana de caso, analise de solo,
- * relatorio tecnico, acompanhamento mensal) e o novo "Parecer Tecnico Avulso",
- * destinado a quem nao quer contratar a mensalidade da Consultoria Agronomica.
+ * Inclui os serviços que já existiam (revisao humana de caso, análise de solo,
+ * relatório técnico, acompanhamento mensal) e o novo "Parecer Técnico Avulso",
+ * destinado a quem não quer contratar a mensalidade da Consultoria Agronômica.
  *
- * Precos e identificadores Stripe vem de `plan_page_services`, configurados na
- * area administrativa. Nada e fixado na interface nem no codigo.
+ * Preços e identificadores Stripe vem de `plan_page_services`, configurados na
+ * área administrativa. Nada e fixado na interface nem no código.
  */
 
 import { NextRequest } from "next/server";
@@ -14,10 +14,10 @@ import { NextRequest } from "next/server";
 export { getSupabaseAdminConfig, supabaseAdminRequest } from "../server/supabaseAdmin";
 import { supabaseAdminRequest } from "../server/supabaseAdmin";
 
-/** Servicos avulsos vinculados a um caso agronomico existente. */
+/** Serviços avulsos vinculados a um caso agronômico existente. */
 export type HumanReviewServiceType = "human_case_review" | "soil_analysis_review" | "technical_report" | "monthly_farm_followup";
 
-/** Servico avulso que libera 1 demanda tecnica, sem exigir caso previo. */
+/** Serviço avulso que libera 1 demanda técnica, sem exigir caso previo. */
 export const TECHNICAL_OPINION_SERVICE_TYPE = "technical_opinion_single";
 
 export type OneTimeServiceType = HumanReviewServiceType | typeof TECHNICAL_OPINION_SERVICE_TYPE;
@@ -85,8 +85,8 @@ export type ConfiguredOneTimeService = {
 export type ConfiguredHumanReviewService = ConfiguredOneTimeService;
 
 /**
- * Um servico so pode ser cobrado quando esta ativo E tem preco configurado.
- * Preco zero significa "ainda nao configurado": o servico nao e vendido.
+ * Um serviço só pode ser cobrado quando está ativo E tem preço configurado.
+ * Preço zero significa "ainda não configurado": o serviço não e vendido.
  */
 export async function fetchConfiguredOneTimeService(serviceType: OneTimeServiceType) {
   const rows = await supabaseAdminRequest<
@@ -111,7 +111,7 @@ export async function fetchConfiguredOneTimeService(serviceType: OneTimeServiceT
   } satisfies ConfiguredOneTimeService;
 }
 
-/** Mantido para compatibilidade com as rotas ja existentes. */
+/** Mantido para compatibilidade com as rotas já existentes. */
 export async function fetchConfiguredHumanReviewService(serviceType: HumanReviewServiceType) {
   return fetchConfiguredOneTimeService(serviceType);
 }
@@ -178,7 +178,7 @@ async function postCheckoutSession(params: URLSearchParams) {
   const session = (await response.json().catch(() => null)) as StripeCheckoutSession | null;
 
   if (!response.ok || !session?.id || !session.url) {
-    throw new Error(session?.error?.message || "Nao foi possivel iniciar o checkout do Stripe.");
+    throw new Error(session?.error?.message || "Não foi possível iniciar o checkout do Stripe.");
   }
 
   return session;
@@ -214,8 +214,8 @@ export async function createStripeCheckoutSession(
 }
 
 /**
- * Checkout do Parecer Tecnico Avulso. Nao exige caso previo: o webhook libera
- * exatamente 1 credito de demanda tecnica apos a confirmacao do pagamento.
+ * Checkout do Parecer Técnico Avulso. Não exige caso previo: o webhook libera
+ * exatamente 1 crédito de demanda técnica após a confirmação do pagamento.
  */
 export async function createTechnicalOpinionCheckoutSession(
   request: NextRequest,

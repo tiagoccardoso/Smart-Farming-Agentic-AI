@@ -3,7 +3,7 @@ import crypto from "crypto";
 export const STRIPE_SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
 /**
- * Validacao da assinatura do webhook (esquema `t=...,v1=...`), com comparacao
+ * Validação da assinatura do webhook (esquema `t=...,v1=...`), com comparacao
  * em tempo constante e tolerancia de horario para evitar replay.
  */
 export function verifyStripeSignature(

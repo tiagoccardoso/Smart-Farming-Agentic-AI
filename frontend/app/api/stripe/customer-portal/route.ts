@@ -1,5 +1,5 @@
 /**
- * Abre o Stripe Customer Portal para o assinante gerenciar cartao, faturas,
+ * Abre o Stripe Customer Portal para o assinante gerenciar cartão, faturas,
  * troca de plano e cancelamento. Nenhum dado de pagamento passa pela PlantaSa.
  */
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     if (!stripeCustomerId) {
       return NextResponse.json(
-        { error: "Voce ainda nao possui assinatura no Stripe. Assine um plano para gerenciar a cobranca." },
+        { error: "Você ainda não possui assinatura no Stripe. Assine um plano para gerenciar a cobrança." },
         { status: 409 }
       );
     }
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ portalUrl: session.url });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel abrir o portal de cobranca.") },
+      { error: errorMessage(error, "Não foi possível abrir o portal de cobrança.") },
       { status: errorStatus(error) }
     );
   }

@@ -4,11 +4,14 @@ import {
   ChangeEvent,
   FormEvent,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
@@ -20,9 +23,11 @@ import {
   ApiRequestError,
   analyzeAgronomicCase,
   getAgronomicCase,
+  getHumanOpinionStatus,
   submitAgronomicCase,
   updateAgronomicCase,
 } from "../../lib/api";
+import type { PublicHumanOpinionStatus } from "../../lib/billing/human-opinions";
 import {
   getNormalizedUploadFileType,
   isAllowedUploadFile,
@@ -95,6 +100,106 @@ const requiredLabels: Record<RequiredField, string> = {
 
 function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+/**
+ * Chave de idempotência de UMA tentativa de envio. É reaproveitada em duplo
+ * clique, retry e falha de rede, para que o mesmo envio nunca consuma dois
+ * pareceres. Só é trocada depois de um envio concluído.
+ */
+function createIdempotencyKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `envio-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+const SAO_PAULO_DATE = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+function isHumanOpinionStatus(value: unknown): value is PublicHumanOpinionStatus {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "eligible" in value &&
+      "reason" in value,
+  );
+}
+
+function HumanOpinionBalanceCard({
+  status,
+}: {
+  status: PublicHumanOpinionStatus;
+}) {
+  const blocked = !status.eligible;
+  const showPlansCta =
+    status.reason === "plan_without_benefit" || status.reason === "limit_reached";
+
+  return (
+    <section
+      aria-live="polite"
+      aria-labelledby="saldo-pareceres-titulo"
+      className={`mt-8 rounded-3xl border p-6 shadow-soft ${
+        blocked ? "border-amber-200 bg-amber-50" : "border-leaf-200 bg-leaf-50"
+      }`}
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="max-w-3xl">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            {status.planName}
+          </p>
+          <h2
+            id="saldo-pareceres-titulo"
+            className={`mt-1 text-lg font-black sm:text-xl ${
+              blocked ? "text-amber-950" : "text-leaf-900"
+            }`}
+          >
+            {status.reason === "plan_without_benefit"
+              ? "Parecer agronômico humano disponível nos planos elegíveis"
+              : status.reason === "inactive_profile"
+                ? "Conta inativa"
+                : status.balanceLabel}
+          </h2>
+          <p className={`mt-2 text-sm leading-6 ${blocked ? "text-amber-900" : "text-slate-700"}`}>
+            {status.message}
+          </p>
+          {!blocked && status.renewsAt && (
+            <p className="mt-1 text-xs text-slate-600">
+              Renovação do benefício: {SAO_PAULO_DATE.format(new Date(status.renewsAt))}.
+            </p>
+          )}
+          {!blocked && status.benefitEndsAt && (
+            <p className="mt-1 text-xs text-slate-600">
+              Assinatura com cancelamento agendado: benefício válido até{" "}
+              {SAO_PAULO_DATE.format(new Date(status.benefitEndsAt))}.
+            </p>
+          )}
+        </div>
+        {showPlansCta && (
+          <div className="grid shrink-0 gap-2 sm:flex">
+            <Link
+              href="/planos"
+              className="rounded-full bg-leaf-700 px-5 py-3 text-center text-sm font-bold text-white shadow-soft hover:bg-leaf-800"
+            >
+              Ver planos
+            </Link>
+            {status.reason === "limit_reached" && (
+              <Link
+                href="/minha-assinatura"
+                className="rounded-full border border-slate-200 bg-white px-5 py-3 text-center text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Minha assinatura
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function replaceFileExtension(fileName: string, extension: string) {
@@ -186,6 +291,11 @@ function EnviarCasoContent() {
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId")?.trim() ?? "";
   const isEditingExistingCase = Boolean(caseId);
+  // Caso apenas para a Consultoria IA (sem parecer humano): mantém o fluxo de
+  // análise automática que já existia, sem consumir o benefício do plano.
+  const isAiOnlyCase =
+    !isEditingExistingCase && searchParams.get("destino") === "consultoria-ia";
+  const requiresOpinion = !isEditingExistingCase && !isAiOnlyCase;
   const [form, setForm] = useState<FormState>(initialForm);
   const [photos, setPhotos] = useState<File[]>([]);
   const [soilAnalysis, setSoilAnalysis] = useState<File | null>(null);
@@ -202,6 +312,50 @@ function EnviarCasoContent() {
   const [existingSoilAnalysisUrl, setExistingSoilAnalysisUrl] = useState<
     string | null
   >(null);
+  const [opinionStatus, setOpinionStatus] =
+    useState<PublicHumanOpinionStatus | null>(null);
+  const [opinionLoading, setOpinionLoading] = useState(requiresOpinion);
+  const [opinionError, setOpinionError] = useState<string | null>(null);
+  const [submittedCaseId, setSubmittedCaseId] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
+  const submittingRef = useRef(false);
+
+  // Saldo sempre vem do servidor (assinatura, plano, ciclo e consumo).
+  const loadOpinionStatus = useCallback(async () => {
+    if (!requiresOpinion) return;
+
+    const accessToken = getStoredSupabaseAccessToken();
+    setOpinionLoading(true);
+    setOpinionError(null);
+
+    try {
+      const payload = (await getHumanOpinionStatus(accessToken)) as {
+        humanOpinion?: PublicHumanOpinionStatus;
+      };
+      setOpinionStatus(payload?.humanOpinion ?? null);
+      if (!payload?.humanOpinion) {
+        setOpinionError("Não foi possível verificar seus pareceres agora.");
+      }
+    } catch (error) {
+      setOpinionStatus(null);
+      setOpinionError(
+        error instanceof ApiRequestError && error.status === 401
+          ? "Faça login para enviar um caso para parecer agronômico."
+          : error instanceof Error
+            ? error.message
+            : "Não foi possível verificar seus pareceres agora.",
+      );
+    } finally {
+      setOpinionLoading(false);
+    }
+  }, [requiresOpinion]);
+
+  useEffect(() => {
+    void loadOpinionStatus();
+  }, [loadOpinionStatus]);
+
+  const canSubmitNewCase = Boolean(opinionStatus?.eligible) && !submittedCaseId;
+  const showForm = !requiresOpinion || canSubmitNewCase;
 
   const photoPreviews = useMemo<PhotoPreview[]>(
     () =>
@@ -425,7 +579,20 @@ function EnviarCasoContent() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (loading || loadingExistingCase || preparingPhotos) {
+    if (
+      submittingRef.current ||
+      loading ||
+      loadingExistingCase ||
+      preparingPhotos
+    ) {
+      return;
+    }
+
+    if (requiresOpinion && !opinionStatus?.eligible) {
+      setSubmitError(
+        opinionStatus?.message ||
+          "Não foi possível confirmar seu saldo de pareceres. Recarregue a página.",
+      );
       return;
     }
 
@@ -464,6 +631,14 @@ function EnviarCasoContent() {
       formData.append("soilAnalysis", soilAnalysis);
     }
 
+    if (requiresOpinion) {
+      // Apenas a intenção e a chave de idempotência: plano, limite e saldo
+      // são decididos exclusivamente no servidor.
+      formData.append("requestHumanOpinion", "true");
+      formData.append("idempotencyKey", idempotencyKey);
+    }
+
+    submittingRef.current = true;
     setLoading(true);
 
     try {
@@ -477,7 +652,7 @@ function EnviarCasoContent() {
           () => router.push(`/revisao-humana?caseId=${caseId}`),
           650,
         );
-      } else {
+      } else if (isAiOnlyCase) {
         const response = await submitAgronomicCase(formData, accessToken);
         setSuccessMessage(
           "Caso salvo com sucesso. Redirecionando para a Consultoria IA...",
@@ -486,10 +661,31 @@ function EnviarCasoContent() {
           () => router.push(`/consultoria-ia?caseId=${response.caseId}`),
           650,
         );
+      } else {
+        const response = (await submitAgronomicCase(formData, accessToken)) as {
+          caseId?: string | null;
+          message?: string;
+          humanOpinion?: PublicHumanOpinionStatus;
+        };
+        if (response?.humanOpinion) setOpinionStatus(response.humanOpinion);
+        setSubmittedCaseId(response?.caseId ?? "enviado");
+        setSuccessMessage(
+          response?.message ||
+            "Caso enviado para parecer agronômico humano. A especialista vai analisar as informações enviadas.",
+        );
+        // Próximo envio é uma nova tentativa, com nova chave.
+        setIdempotencyKey(createIdempotencyKey());
       }
     } catch (error) {
       if (error instanceof ApiRequestError && error.fieldErrors) {
         setErrors((prev) => ({ ...prev, ...error.fieldErrors }));
+      }
+
+      if (error instanceof ApiRequestError) {
+        const payload = error.payload as { humanOpinion?: unknown } | undefined;
+        if (isHumanOpinionStatus(payload?.humanOpinion)) {
+          setOpinionStatus(payload.humanOpinion);
+        }
       }
 
       setSubmitError(
@@ -498,8 +694,21 @@ function EnviarCasoContent() {
           : "Não foi possível enviar o caso. Tente novamente em instantes.",
       );
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
+  };
+
+  const resetForNewCase = () => {
+    setForm(initialForm);
+    setPhotos([]);
+    setSoilAnalysis(null);
+    setErrors({});
+    setAttachmentErrors({});
+    setSubmitError(null);
+    setSuccessMessage(null);
+    setSubmittedCaseId(null);
+    void loadOpinionStatus();
   };
 
   return (
@@ -507,22 +716,32 @@ function EnviarCasoContent() {
       <div className="rounded-3xl bg-hero-gradient p-6 shadow-soft md:p-10">
         <div className="max-w-3xl">
           <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-            Preparação do atendimento
+            {requiresOpinion
+              ? "Parecer agronômico humano"
+              : "Preparação do atendimento"}
           </p>
           <SectionTitle
             title={
-              isEditingExistingCase ? "Atualizar caso existente" : "Enviar Caso"
+              isEditingExistingCase
+                ? "Atualizar caso existente"
+                : isAiOnlyCase
+                  ? "Novo caso para a Consultoria IA"
+                  : "Enviar caso para parecer agronômico"
             }
             subtitle={
               isEditingExistingCase
                 ? "Edite informações, complemente histórico e anexe novas imagens sem criar outro caso."
-                : "Envie dados da cultura, sintomas, fotos e análise de solo para abrir um caso agronômico."
+                : isAiOnlyCase
+                  ? "Envie dados da cultura, sintomas, fotos e análise de solo para a pré-análise da IA."
+                  : "Envie dados da cultura, sintomas, fotos e análise de solo para que a especialista elabore o parecer agronômico."
             }
           />
           <p className="text-base leading-7 text-slate-700">
             {isEditingExistingCase
               ? "Você está atualizando o mesmo caseId. As imagens e conversas anteriores serão preservadas e a IA fará nova análise após salvar."
-              : "O envio apenas registra o caso e organiza os anexos para a próxima etapa da consultoria. Nenhuma recomendação técnica é gerada nesta tela."}
+              : isAiOnlyCase
+                ? "O caso é salvo para a Consultoria IA e não consome parecer agronômico humano. Se precisar da especialista, solicite o parecer depois, a partir do próprio caso."
+                : "O parecer agronômico humano está incluído nos planos PlantaSa IA Profissional e PlantaSa Consultoria Agronômica. Cada caso enviado consome 1 parecer do ciclo atual da sua assinatura."}
           </p>
           <SafetyDisclaimer className="mt-5 bg-white/90" />
         </div>
@@ -541,23 +760,92 @@ function EnviarCasoContent() {
             description: "Preencha cultura, sintomas, histórico e anexos.",
             status: "current",
           },
+          isAiOnlyCase
+            ? {
+                title: "Consultoria IA",
+                description: "Gere a pré-análise após o salvamento.",
+                status: "next",
+              }
+            : {
+                title: "Fila da especialista",
+                description: "O caso consome 1 parecer do seu plano no ciclo.",
+                status: submittedCaseId ? "done" : "next",
+              },
           {
-            title: "Consultoria IA",
-            description: "Gere a pré-análise após o salvamento.",
-            status: "next",
-          },
-          {
-            title: "Revisão humana",
-            description: "Pague a revisão se o risco for médio ou alto.",
+            title: "Parecer agronômico",
+            description: "Acompanhe o andamento em Revisão humana.",
             status: "next",
           },
           {
             title: "Meus relatórios",
-            description: "Acompanhe o parecer final revisado.",
+            description: "Consulte o parecer final revisado.",
             status: "next",
           },
         ]}
       />
+
+      {requiresOpinion && opinionLoading && (
+        <div className="mt-8" aria-busy="true">
+          <LoadingCard
+            title="Verificando seus pareceres"
+            description="Estamos conferindo sua assinatura e o saldo de pareceres deste ciclo."
+            rows={2}
+          />
+        </div>
+      )}
+
+      {requiresOpinion && !opinionLoading && opinionError && (
+        <div
+          role="alert"
+          className="mt-8 flex flex-col gap-3 rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{opinionError}</span>
+          <button
+            type="button"
+            onClick={() => void loadOpinionStatus()}
+            className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700 shadow-sm"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
+      {requiresOpinion && !opinionLoading && opinionStatus && (
+        <HumanOpinionBalanceCard status={opinionStatus} />
+      )}
+
+      {submittedCaseId && (
+        <section
+          role="status"
+          className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-soft"
+        >
+          <h2 className="text-lg font-black text-emerald-900">
+            Caso enviado para parecer agronômico
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-emerald-800">
+            {successMessage}
+          </p>
+          <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+            {submittedCaseId !== "enviado" && (
+              <Link
+                href={`/revisao-humana?caseId=${encodeURIComponent(submittedCaseId)}`}
+                className="rounded-full bg-leaf-700 px-5 py-3 text-center text-sm font-bold text-white shadow-soft hover:bg-leaf-800"
+              >
+                Acompanhar parecer
+              </Link>
+            )}
+            {opinionStatus?.eligible && (
+              <button
+                type="button"
+                onClick={resetForNewCase}
+                className="rounded-full border border-emerald-300 bg-white px-5 py-3 text-sm font-bold text-emerald-800"
+              >
+                Enviar outro caso
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       {(loading || loadingExistingCase || preparingPhotos) && (
         <div className="mt-8">
@@ -581,8 +869,10 @@ function EnviarCasoContent() {
         </div>
       )}
 
+      {showForm && (
       <form
         onSubmit={handleSubmit}
+        aria-busy={loading}
         className="mt-8 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]"
       >
         <div className="space-y-6">
@@ -847,7 +1137,9 @@ function EnviarCasoContent() {
             <p className="mt-2 text-sm leading-6 text-slate-700">
               {isEditingExistingCase
                 ? "Depois de salvar, a IA reprocessa o mesmo caso usando dados antigos e novos, e você volta para a revisão humana."
-                : "Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL. A análise técnica fica para a próxima etapa."}
+                : isAiOnlyCase
+                  ? "Depois de salvar o caso, você será direcionado para a Consultoria IA com o identificador do caso na URL."
+                  : "Depois do envio, o caso entra na fila da especialista e consome 1 parecer do ciclo atual. Você acompanha o andamento em Revisão humana."}
             </p>
           </div>
 
@@ -856,7 +1148,7 @@ function EnviarCasoContent() {
               {submitError}
             </div>
           )}
-          {successMessage && (
+          {successMessage && !requiresOpinion && (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
               {successMessage}
             </div>
@@ -870,13 +1162,16 @@ function EnviarCasoContent() {
             {preparingPhotos
               ? "Preparando imagem..."
               : loading
-                ? "Salvando e enviando..."
+                ? "Enviando..."
                 : isEditingExistingCase
                   ? "Atualizar mesmo caso e reanalisar"
-                  : "Salvar e enviar"}
+                  : isAiOnlyCase
+                    ? "Salvar e enviar"
+                    : "Enviar para parecer agronômico"}
           </button>
         </aside>
       </form>
+      )}
     </section>
   );
 }

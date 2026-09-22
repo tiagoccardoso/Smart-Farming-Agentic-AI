@@ -2,9 +2,9 @@
  * Direitos (entitlements) dos planos PlantaSa.
  *
  * Regra do projeto: NAO espalhar `if (plan === "consultoria") limit = 3` pelo
- * sistema. Toda decisao de liberacao consulta os direitos resolvidos aqui, que
- * vem da coluna `plans.entitlements` (editavel pela area administrativa).
- * Trocar "3 pareceres" por "5 pareceres" e uma alteracao de dado, nao de codigo.
+ * sistema. Toda decisao de liberação consulta os direitos resolvidos aqui, que
+ * vem da coluna `plans.entitlements` (editavel pela área administrativa).
+ * Trocar "3 pareceres" por "5 pareceres" e uma alteração de dado, não de código.
  */
 
 import { supabaseAdminRequest } from "../server/supabaseAdmin";
@@ -24,7 +24,7 @@ export const SUBSCRIBABLE_PLAN_CODES = [PROFESSIONAL_PLAN_CODE, CONSULTING_PLAN_
 export type SubscribablePlanCode = (typeof SUBSCRIBABLE_PLAN_CODES)[number];
 
 export type Entitlements = {
-  /** null = sem teto numerico (sujeito a politica de uso). */
+  /** null = sem teto numerico (sujeito a política de uso). */
   AI_MONTHLY_LIMIT: number | null;
   AI_IMAGES: boolean;
   REPORTS: boolean;
@@ -76,13 +76,13 @@ export type ResolvedAccess = {
   unlimitedAccess: boolean;
   profileActive: boolean;
   subscription: ResolvedSubscription | null;
-  /** Plano legado preservado: o assinante mantem a cobranca antiga. */
+  /** Plano legado preservado: o assinante mantem a cobrança antiga. */
   legacyPlanCode: string | null;
 };
 
 /**
- * Usado apenas quando a tabela `plans` ainda nao tem o plano (ambiente novo ou
- * migration nao aplicada). A fonte de verdade e sempre o banco.
+ * Usado apenas quando a tabela `plans` ainda não tem o plano (ambiente novo ou
+ * migration não aplicada). A fonte de verdade é sempre o banco.
  */
 const FALLBACK_ENTITLEMENTS: Record<string, Entitlements> = {
   [FREE_PLAN_CODE]: {
@@ -101,8 +101,8 @@ const FALLBACK_ENTITLEMENTS: Record<string, Entitlements> = {
     AI_IMAGES: true,
     REPORTS: true,
     PROPERTY_HISTORY: true,
-    TECHNICAL_OPINIONS_MONTHLY: 0,
-    HUMAN_VALIDATION: false,
+    TECHNICAL_OPINIONS_MONTHLY: 1,
+    HUMAN_VALIDATION: true,
     CASE_ANALYSIS_MONTHLY: 300,
     IMAGE_TRIAGE_MONTHLY: 300,
     SOIL_ANALYSIS_UPLOAD: true
@@ -185,13 +185,13 @@ export async function fetchPlanByCode(code: string, requireActive = false) {
 
 /**
  * Plano cobrado pelo Stripe. So aceita planos recorrentes ativos, para que a
- * desativacao de um plano na area administrativa realmente pare novas vendas.
+ * desativacao de um plano na área administrativa realmente pare novas vendas.
  */
 export async function fetchSubscribablePlan(code: string) {
   const plan = await fetchPlanByCode(code, true);
 
   if (!plan || plan.billing_type !== "monthly" || !plan.price_cents || plan.price_cents <= 0) {
-    throw new Error("Plano mensal nao encontrado ou inativo.");
+    throw new Error("Plano mensal não encontrado ou inativo.");
   }
 
   return plan;
@@ -264,7 +264,7 @@ async function loadProfileAccess(userId: string) {
 }
 
 /**
- * Resolve o que o usuario pode fazer AGORA.
+ * Resolve o que o usuário pode fazer AGORA.
  *
  * Ordem: perfil inativo -> sem direitos; acesso ilimitado -> tudo; assinatura
  * com estado que da direito -> direitos do plano (ou do plano-alvo, se o plano
@@ -303,7 +303,7 @@ export async function resolveUserAccess(userId: string): Promise<ResolvedAccess>
     const plan = entitledRow.plans;
     const planCode = plan.slug ?? FREE_PLAN_CODE;
 
-    // Plano legado: a cobranca antiga e preservada, mas os direitos passam a
+    // Plano legado: a cobrança antiga é preservada, mas os direitos passam a
     // ser os do plano novo equivalente.
     if (plan.is_legacy && plan.legacy_entitlement_code) {
       const target = await fetchPlanByCode(plan.legacy_entitlement_code).catch(() => null);

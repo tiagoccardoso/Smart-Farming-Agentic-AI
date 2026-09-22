@@ -53,10 +53,9 @@ const statusLabels: Record<string, string> = {
 };
 
 const offerStyles: Record<string, string> = {
-  "Revisão humana R$ 197": "bg-leaf-50 text-leaf-800 ring-leaf-100",
-  "Interpretação de análise de solo R$ 250": "bg-sky-50 text-sky-800 ring-sky-100",
-  "Relatório técnico R$ 500": "bg-amber-50 text-amber-800 ring-amber-100",
-  "Acompanhamento mensal R$ 997+": "bg-purple-50 text-purple-800 ring-purple-100"
+  "IA Profissional (1 parecer/mês)": "bg-leaf-50 text-leaf-800 ring-leaf-100",
+  "Consultoria Agronômica (até 3 pareceres/mês)": "bg-purple-50 text-purple-800 ring-purple-100",
+  "Atendimento pontual (Contato)": "bg-amber-50 text-amber-800 ring-amber-100"
 };
 
 function parseResponse(response: Response) {

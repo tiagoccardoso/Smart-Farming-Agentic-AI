@@ -1,9 +1,9 @@
 /**
- * Pareceres tecnicos (demandas tecnicas).
+ * Pareceres técnicos (demandas técnicas).
  *
- * Regra comercial: 1 parecer = 1 demanda tecnica. Mensagens, perguntas, fotos,
- * documentos, analises e respostas complementares da MESMA demanda nao
- * consomem novo parecer. O parecer e consumido no momento em que a demanda e
+ * Regra comercial: 1 parecer = 1 demanda técnica. Mensagens, perguntas, fotos,
+ * documentos, análises e respostas complementares da MESMA demanda não
+ * consomem novo parecer. O parecer é consumido no momento em que a demanda e
  * criada.
  */
 
@@ -21,10 +21,10 @@ export type TechnicalOpinionStatus =
 
 export const TECHNICAL_OPINION_STATUS_LABELS: Record<TechnicalOpinionStatus, string> = {
   aberto: "Aberto",
-  em_analise: "Em analise",
-  aguardando_informacoes: "Aguardando informacoes",
+  em_analise: "Em análise",
+  aguardando_informacoes: "Aguardando informações",
   respondido: "Respondido",
-  concluido: "Concluido",
+  concluido: "Concluído",
   cancelado: "Cancelado"
 };
 
@@ -69,7 +69,7 @@ export type TechnicalOpinionBalance = {
   limit: number;
   used: number;
   remaining: number;
-  /** Creditos avulsos pagos e ainda nao consumidos. */
+  /** Créditos avulsos pagos e ainda não consumidos. */
   availableCredits: number;
   cycle: BillingCycle;
   canOpen: boolean;
@@ -85,8 +85,8 @@ export class TechnicalOpinionLimitError extends Error {
   constructor(balance?: TechnicalOpinionBalance) {
     super(
       balance && balance.limit > 0
-        ? `Voce utilizou os ${balance.limit} pareceres tecnicos disponiveis neste ciclo.`
-        : "Seu plano atual nao inclui pareceres tecnicos."
+        ? `Você utilizou os ${balance.limit} pareceres técnicos disponíveis neste ciclo.`
+        : "Seu plano atual não inclui pareceres técnicos."
     );
     this.name = "TechnicalOpinionLimitError";
     this.balance = balance;
@@ -98,7 +98,9 @@ const OPINION_SELECT =
 
 async function countOpinionsInCycle(userId: string, cycle: BillingCycle) {
   const rows = await supabaseAdminRequest<Array<{ id: string }>>(
-    `/rest/v1/technical_opinions?user_id=eq.${encodeURIComponent(userId)}&origin=eq.subscription&status=neq.cancelado&billing_cycle_reference=eq.${encodeURIComponent(cycle.reference)}&select=id`,
+    // Mesma janela usada pelo Postgres (request_case_human_opinion / create_technical_opinion):
+    // após upgrade/downgrade no meio do período o consumo do ciclo é preservado.
+    `/rest/v1/technical_opinions?user_id=eq.${encodeURIComponent(userId)}&origin=eq.subscription&status=neq.cancelado&created_at=gte.${encodeURIComponent(cycle.start)}&created_at=lt.${encodeURIComponent(cycle.end)}&select=id`,
     { method: "GET" }
   );
 
@@ -132,13 +134,13 @@ export async function getTechnicalOpinionBalance(access: ResolvedAccess): Promis
     cycle,
     canOpen: remaining > 0 || availableCredits > 0,
     usageLabel: access.unlimitedAccess
-      ? "Pareceres tecnicos sem limite neste ciclo."
+      ? "Pareceres técnicos sem limite neste ciclo."
       : `Pareceres utilizados neste ciclo: ${used} de ${limit}`,
     remainingLabel: access.unlimitedAccess
-      ? "Pareceres tecnicos sem limite neste ciclo."
+      ? "Pareceres técnicos sem limite neste ciclo."
       : remaining === 1
-        ? "Voce possui 1 parecer disponivel neste ciclo."
-        : `Voce possui ${remaining} pareceres disponiveis neste ciclo.`
+        ? "Você possui 1 parecer disponível neste ciclo."
+        : `Você possui ${remaining} pareceres disponíveis neste ciclo.`
   };
 }
 
@@ -151,10 +153,10 @@ export type CreateTechnicalOpinionInput = {
 };
 
 /**
- * Abre uma demanda tecnica. A contagem e a baixa do credito acontecem dentro de
- * uma funcao do Postgres (`create_technical_opinion`), de forma atomica, para
- * que duas requisicoes simultaneas nao abram o quarto parecer nem consumam o
- * mesmo credito duas vezes.
+ * Abre uma demanda técnica. A contagem e a baixa do crédito acontecem dentro de
+ * uma funcao do Postgres (`create_technical_opinion`), de forma atômica, para
+ * que duas requisicoes simultâneas não abram o quarto parecer nem consumam o
+ * mesmo crédito duas vezes.
  */
 export async function createTechnicalOpinion(input: CreateTechnicalOpinionInput): Promise<TechnicalOpinion> {
   const balance = await getTechnicalOpinionBalance(input.access);
@@ -186,7 +188,7 @@ export async function createTechnicalOpinion(input: CreateTechnicalOpinionInput)
     const opinion = Array.isArray(created) ? created[0] : created;
 
     if (!opinion?.id) {
-      throw new Error("Nao foi possivel registrar a demanda tecnica.");
+      throw new Error("Não foi possível registrar a demanda técnica.");
     }
 
     return opinion;
@@ -224,7 +226,7 @@ export async function listTechnicalOpinionMessages(opinionId: string) {
 }
 
 /**
- * Mensagens nao consomem pareceres: apenas a criacao da demanda consome.
+ * Mensagens não consomem pareceres: apenas a criação da demanda consome.
  */
 export async function addTechnicalOpinionMessage(input: {
   opinionId: string;
@@ -263,7 +265,7 @@ export async function updateTechnicalOpinionStatus(opinionId: string, status: Te
 }
 
 /**
- * Libera exatamente 1 parecer avulso apos a confirmacao do pagamento.
+ * Libera exatamente 1 parecer avulso após a confirmação do pagamento.
  * A unicidade de `stripe_checkout_session_id` e de `one_time_order_id` no banco
  * garante que o mesmo pagamento nunca libere dois pareceres.
  */
@@ -305,7 +307,7 @@ export async function grantTechnicalOpinionCredit(input: {
 
     return { granted: true, creditId: rows[0]?.id ?? null, reason: "granted" as const };
   } catch (error) {
-    // Colisao no indice unico = webhook duplicado. Idempotente por construcao.
+    // Colisao no índice único = webhook duplicado. Idempotente por construcao.
     if (error instanceof Error && /duplicate key|unique constraint/i.test(error.message)) {
       return { granted: false, creditId: null, reason: "already_granted" as const };
     }

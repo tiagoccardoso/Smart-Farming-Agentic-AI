@@ -1,5 +1,5 @@
 /**
- * Validacao da assinatura do webhook (item 10 do escopo).
+ * Validação da assinatura do webhook (item 10 do escopo).
  */
 
 import assert from "node:assert/strict";

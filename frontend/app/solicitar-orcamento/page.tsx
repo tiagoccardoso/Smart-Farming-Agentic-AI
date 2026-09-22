@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Presencial & Projetos Especiais — solicitacao de orcamento.
+ * Presencial & Projetos Especiais — solicitação de orcamento.
  *
- * Categoria sob consulta: nenhuma cobranca automatica antes da definicao do
- * orcamento. Se o usuario estiver autenticado, os dados ja conhecidos e as
+ * Categoria sob consulta: nenhuma cobrança automática antes da definição do
+ * orcamento. Se o usuário estiver autenticado, os dados já conhecidos e as
  * propriedades cadastradas sao preenchidos automaticamente.
  */
 
@@ -85,13 +85,13 @@ export default function SolicitarOrcamentoPage() {
       const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Nao foi possivel registrar a solicitacao.");
+        throw new Error(payload?.error || "Não foi possível registrar a solicitação.");
       }
 
-      setSuccess(payload?.message || "Solicitacao registrada.");
+      setSuccess(payload?.message || "Solicitação registrada.");
       setForm((current) => ({ ...current, description: "", notes: "" }));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel registrar a solicitacao.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível registrar a solicitação.");
     } finally {
       setSaving(false);
     }
@@ -109,7 +109,7 @@ export default function SolicitarOrcamentoPage() {
         </p>
         <SectionTitle
           title="Solicitar orcamento"
-          subtitle="Conte o que sua propriedade precisa. O escopo, o prazo e o valor sao definidos junto com voce, sem cobranca automatica."
+          subtitle="Conte o que sua propriedade precisa. O escopo, o prazo e o valor são definidos junto com você, sem cobrança automática."
         />
       </div>
 
@@ -139,7 +139,7 @@ export default function SolicitarOrcamentoPage() {
             <input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} className={inputClass} />
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Tipo de servico</span>
+            <span className="text-sm font-semibold text-slate-800">Tipo de serviço</span>
             <select
               value={form.serviceType}
               onChange={(event) => update("serviceType", event.target.value)}
@@ -153,7 +153,7 @@ export default function SolicitarOrcamentoPage() {
             </select>
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Municipio</span>
+            <span className="text-sm font-semibold text-slate-800">Município</span>
             <input required value={form.city} onChange={(event) => update("city", event.target.value)} className={inputClass} />
           </label>
           <label className="block">
@@ -172,7 +172,7 @@ export default function SolicitarOrcamentoPage() {
           <label className="block">
             <span className="text-sm font-semibold text-slate-800">Propriedade (opcional)</span>
             <select value={form.propertyId} onChange={(event) => update("propertyId", event.target.value)} className={inputClass}>
-              <option value="">Nao vincular a uma propriedade</option>
+              <option value="">Não vincular a uma propriedade</option>
               {properties.map((property) => (
                 <option key={property.id} value={property.id}>
                   {property.name}
@@ -183,7 +183,7 @@ export default function SolicitarOrcamentoPage() {
         )}
 
         <label className="block">
-          <span className="text-sm font-semibold text-slate-800">Descricao da necessidade</span>
+          <span className="text-sm font-semibold text-slate-800">Descrição da necessidade</span>
           <textarea
             required
             rows={5}
@@ -194,12 +194,12 @@ export default function SolicitarOrcamentoPage() {
         </label>
 
         <label className="block">
-          <span className="text-sm font-semibold text-slate-800">Observacoes (opcional)</span>
+          <span className="text-sm font-semibold text-slate-800">Observações (opcional)</span>
           <textarea rows={3} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={inputClass} />
         </label>
 
         <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
-          Nenhuma cobranca e realizada antes da definicao e da sua aprovacao do orcamento.
+          Nenhuma cobrança e realizada antes da definição e da sua aprovação do orcamento.
         </p>
 
         <button

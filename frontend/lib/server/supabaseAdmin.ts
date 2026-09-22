@@ -1,9 +1,9 @@
 /**
  * Acesso administrativo ao Supabase (service role).
  *
- * Centraliza a configuracao para que rotas de billing, webhooks e pareceres
+ * Centraliza a configuração para que rotas de billing, webhooks e pareceres
  * usem exatamente o mesmo cliente. A service role key NUNCA e exposta ao
- * frontend: este modulo so pode ser importado por codigo de servidor.
+ * frontend: este módulo só pode ser importado por código de servidor.
  */
 
 export type SupabaseAdminConfig = {

@@ -1,10 +1,10 @@
 /**
- * Integracao com o Stripe para assinaturas mensais.
+ * Integração com o Stripe para assinaturas mensais.
  *
- * Nenhum `price_id` fica escrito no codigo: os identificadores vem de
- * `plans.stripe_product_id` / `plans.stripe_price_id`, configurados na area
- * administrativa. Enquanto o Price ID nao for informado, o Checkout usa
- * `price_data` inline (comportamento que ja existia no projeto).
+ * Nenhum `price_id` fica escrito no código: os identificadores vem de
+ * `plans.stripe_product_id` / `plans.stripe_price_id`, configurados na área
+ * administrativa. Enquanto o Price ID não for informado, o Checkout usa
+ * `price_data` inline (comportamento que já existia no projeto).
  */
 
 import { NextRequest } from "next/server";
@@ -37,6 +37,9 @@ export type StripeCustomer = {
 
 export type StripeSubscriptionItem = {
   id?: string;
+  /** API Stripe 2025-03-31+: o período passou da assinatura para o item. */
+  current_period_start?: number | null;
+  current_period_end?: number | null;
   price?: {
     id?: string | null;
     product?: string | null;
@@ -102,6 +105,20 @@ export function stripeTimestampToIso(timestamp: number | null | undefined) {
   return timestamp ? new Date(timestamp * 1000).toISOString() : null;
 }
 
+/**
+ * Período vigente da assinatura, compatível com as duas versões da API do
+ * Stripe (campo na assinatura ou, nas versões novas, no item). É o período que
+ * define o ciclo mensal dos pareceres; sem ele o sistema cai no mês calendário.
+ */
+export function getStripeSubscriptionPeriod(subscription: StripeSubscription) {
+  const item = subscription.items?.data?.find((entry) => entry.current_period_start || entry.current_period_end);
+
+  return {
+    start: stripeTimestampToIso(subscription.current_period_start ?? item?.current_period_start),
+    end: stripeTimestampToIso(subscription.current_period_end ?? item?.current_period_end)
+  };
+}
+
 export async function stripeRequest<T>(path: string, init: RequestInit = {}) {
   const response = await fetch(`https://api.stripe.com/v1${path}`, {
     ...init,
@@ -115,7 +132,7 @@ export async function stripeRequest<T>(path: string, init: RequestInit = {}) {
   const payload = (await response.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
 
   if (!response.ok || !payload) {
-    throw new Error(payload?.error?.message || "Nao foi possivel comunicar com o Stripe.");
+    throw new Error(payload?.error?.message || "Não foi possível comunicar com o Stripe.");
   }
 
   return payload as T;
@@ -140,7 +157,7 @@ export async function createStripeCustomer(userId: string, email?: string | null
   const customer = await stripeRequest<StripeCustomer>("/customers", { method: "POST", body: params });
 
   if (!customer.id) {
-    throw new Error("O Stripe nao retornou um customer valido.");
+    throw new Error("O Stripe não retornou um customer válido.");
   }
 
   return customer.id;
@@ -201,14 +218,14 @@ export async function createSubscriptionCheckoutSession(
   });
 
   if (!session.id || !session.url) {
-    throw new Error(session.error?.message || "Nao foi possivel iniciar o checkout de assinatura no Stripe.");
+    throw new Error(session.error?.message || "Não foi possível iniciar o checkout de assinatura no Stripe.");
   }
 
   return session;
 }
 
 /**
- * Portal de cobranca do Stripe: o assinante gerencia cartao, faturas e
+ * Portal de cobrança do Stripe: o assinante gerencia cartão, faturas e
  * cancelamento sem que a PlantaSa manipule dados de pagamento.
  */
 export async function createBillingPortalSession(request: NextRequest, stripeCustomerId: string) {
@@ -224,7 +241,7 @@ export async function createBillingPortalSession(request: NextRequest, stripeCus
   });
 
   if (!session.url) {
-    throw new Error(session.error?.message || "Nao foi possivel abrir o portal de cobranca do Stripe.");
+    throw new Error(session.error?.message || "Não foi possível abrir o portal de cobrança do Stripe.");
   }
 
   return session;
@@ -242,8 +259,8 @@ export type ProrationBehavior = "create_prorations" | "none" | "always_invoice";
  * Upgrade/downgrade entre planos pagos.
  *
  * Regra de proration adotada (explicita, conforme decisao do projeto):
- * `create_prorations` — o Stripe credita o valor nao utilizado do plano atual e
- * cobra a diferenca proporcional do novo plano na proxima fatura. O usuario e
+ * `create_prorations` — o Stripe credita o valor não utilizado do plano atual e
+ * cobra a diferenca proporcional do novo plano na próxima fatura. O usuário e
  * avisado disso antes de confirmar a troca.
  */
 export async function updateSubscriptionPlan(input: {
@@ -254,7 +271,7 @@ export async function updateSubscriptionPlan(input: {
 }) {
   if (!input.plan.stripe_price_id) {
     throw new Error(
-      "Para trocar de plano com cobranca proporcional e necessario configurar o Stripe Price ID do plano de destino na area administrativa."
+      "Para trocar de plano com cobrança proporcional é necessário configurar o Stripe Price ID do plano de destino na área administrativa."
     );
   }
 
@@ -262,7 +279,7 @@ export async function updateSubscriptionPlan(input: {
   const itemId = subscription.items?.data?.[0]?.id;
 
   if (!itemId) {
-    throw new Error("A assinatura atual no Stripe nao possui um item para atualizar.");
+    throw new Error("A assinatura atual no Stripe não possui um item para atualizar.");
   }
 
   const params = new URLSearchParams({
@@ -300,7 +317,7 @@ export type UpsertSubscriptionInput = {
 
 /**
  * Grava o estado da assinatura. Sempre chamado a partir do webhook, que e a
- * fonte confiavel; o retorno do navegador apos o Checkout nunca libera recurso.
+ * fonte confiavel; o retorno do navegador após o Checkout nunca libera recurso.
  */
 export async function upsertSubscriptionRecord(input: UpsertSubscriptionInput) {
   const internalStatus =

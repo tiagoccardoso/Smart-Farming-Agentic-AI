@@ -1,9 +1,9 @@
 /**
- * Mensagens de uma demanda tecnica.
+ * Mensagens de uma demanda técnica.
  *
  * IMPORTANTE: mensagens, perguntas complementares, fotos, documentos e
- * resultados de analise vinculados a MESMA demanda nao consomem novo parecer.
- * O parecer foi consumido na criacao da demanda.
+ * resultados de análise vinculados a MESMA demanda não consomem novo parecer.
+ * O parecer foi consumido na criação da demanda.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -39,12 +39,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const isStaff = profile.role === "admin" || profile.role === "specialist";
 
     if (!opinion || (opinion.user_id !== user.id && !isStaff)) {
-      return NextResponse.json({ error: "Demanda tecnica nao encontrada." }, { status: 404 });
+      return NextResponse.json({ error: "Demanda técnica não encontrada." }, { status: 404 });
     }
 
     if (CLOSED_STATUSES.has(opinion.status)) {
       return NextResponse.json(
-        { error: "Esta demanda ja foi encerrada. Abra uma nova demanda para um novo problema." },
+        { error: "Esta demanda já foi encerrada. Abra uma nova demanda para um novo problema." },
         { status: 409 }
       );
     }
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const body = payload?.body?.trim() ?? "";
 
     if (body.length < 1 || body.length > 8000) {
-      return NextResponse.json({ error: "Escreva uma mensagem com ate 8000 caracteres." }, { status: 400 });
+      return NextResponse.json({ error: "Escreva uma mensagem com até 8000 caracteres." }, { status: 400 });
     }
 
     const message = await addTechnicalOpinionMessage({
@@ -69,11 +69,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({
       message,
       messages,
-      notice: "Mensagens desta demanda nao consomem pareceres adicionais."
+      notice: "Mensagens desta demanda não consomem pareceres adicionais."
     });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel registrar a mensagem.") },
+      { error: errorMessage(error, "Não foi possível registrar a mensagem.") },
       { status: errorStatus(error) }
     );
   }

@@ -1,10 +1,10 @@
 /**
- * Solicitacao de orcamento — Presencial & Projetos Especiais.
+ * Solicitação de orçamento — Presencial & Projetos Especiais.
  *
- * Categoria "sob consulta": nenhuma assinatura nem preco fixo e criado no
- * Stripe, e nenhuma cobranca automatica acontece antes da definicao do
- * orcamento. A solicitacao e registrada em `specialist_visit_requests`
- * (mesma tabela ja acompanhada pela area administrativa), com
+ * Categoria "sob consulta": nenhuma assinatura nem preço fixo é criado no
+ * Stripe, e nenhuma cobrança automática acontece antes da definição do
+ * orçamento. A solicitação é registrada em `specialist_visit_requests`
+ * (mesma tabela já acompanhada pela área administrativa), com
  * `source = 'orcamento'`.
  */
 
@@ -35,7 +35,7 @@ function optionalText(value: unknown, max: number) {
   return normalized ? normalized.slice(0, max) : null;
 }
 
-/** Dados ja conhecidos do usuario autenticado, para pre-preencher o formulario. */
+/** Dados já conhecidos do usuário autenticado, para pre-preencher o formulário. */
 export async function GET(request: NextRequest) {
   try {
     const token = getRequestToken(request);
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel carregar seus dados.") },
+      { error: errorMessage(error, "Não foi possível carregar seus dados.") },
       { status: errorStatus(error) }
     );
   }
@@ -82,18 +82,18 @@ export async function POST(request: NextRequest) {
     const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 
     if (!payload) {
-      return NextResponse.json({ error: "Envie os dados da solicitacao." }, { status: 400 });
+      return NextResponse.json({ error: "Envie os dados da solicitação." }, { status: 400 });
     }
 
     const serviceType = payload.serviceType;
 
     if (!isQuoteServiceType(serviceType)) {
-      return NextResponse.json({ error: "Selecione o tipo de servico desejado." }, { status: 400 });
+      return NextResponse.json({ error: "Selecione o tipo de serviço desejado." }, { status: 400 });
     }
 
     const propertyId = optionalText(payload.propertyId, 80);
 
-    // Uma propriedade so pode ser vinculada pelo proprio dono.
+    // Uma propriedade so pode ser vinculada pelo próprio dono.
     if (propertyId && user?.id) {
       const owned = await supabaseAdminRequest<Array<{ id: string }>>(
         `/rest/v1/acompanhamento_properties?id=eq.${encodeURIComponent(propertyId)}&owner_id=eq.${encodeURIComponent(user.id)}&select=id&limit=1`,
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       );
 
       if (!owned[0]) {
-        return NextResponse.json({ error: "A propriedade informada nao pertence a este usuario." }, { status: 403 });
+        return NextResponse.json({ error: "A propriedade informada não pertence a este usuário." }, { status: 403 });
       }
     }
 
@@ -109,11 +109,11 @@ export async function POST(request: NextRequest) {
       name: requiredText(payload.name, "o nome do produtor ou cliente", 3, 200),
       email: optionalText(payload.email, 200),
       phone: requiredText(payload.phone, "um telefone para contato", 8, 40),
-      city: requiredText(payload.city, "o municipio", 2, 120),
+      city: requiredText(payload.city, "o município", 2, 120),
       state: requiredText(payload.state, "a UF", 2, 2).toUpperCase(),
       request_type: QUOTE_REQUEST_TYPE,
       service_type: serviceType,
-      message: requiredText(payload.description, "a descricao da necessidade", 10, 4000),
+      message: requiredText(payload.description, "a descrição da necessidade", 10, 4000),
       notes: optionalText(payload.notes, 4000),
       property_id: user?.id ? propertyId : null,
       user_id: user?.id ?? null,
@@ -135,13 +135,13 @@ export async function POST(request: NextRequest) {
         requestId: rows[0]?.id ?? null,
         serviceLabel: QUOTE_SERVICE_LABELS[serviceType],
         message:
-          "Solicitacao registrada. Nossa equipe entrara em contato para entender a necessidade e enviar o orcamento. Nenhuma cobranca e feita antes da sua aprovacao."
+          "Solicitação registrada. Nossa equipe entrará em contato para entender a necessidade e enviar o orçamento. Nenhuma cobrança é feita antes da sua aprovação."
       },
       { status: 201 }
     );
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel registrar a solicitacao de orcamento.") },
+      { error: errorMessage(error, "Não foi possível registrar a solicitação de orçamento.") },
       { status: errorStatus(error, 500) }
     );
   }

@@ -241,12 +241,12 @@ insert into public.plan_page_services (
 )
 values (
   'technical_opinion_single',
-  'Parecer Tecnico Avulso',
+  'Parecer Técnico Avulso',
   0,
   '',
   '',
-  'Para quem nao quer contratar a mensalidade da Consultoria Agronomica: um parecer tecnico para uma demanda especifica, com mensagens, imagens e documentos complementares sobre o mesmo problema.',
-  'Solicitar parecer tecnico',
+  'Para quem não quer contratar a mensalidade da Consultoria Agronômica: um parecer técnico para uma demanda específica, com mensagens, imagens e documentos complementares sobre o mesmo problema.',
+  'Solicitar parecer técnico',
   5,
   false
 )
@@ -258,19 +258,19 @@ on conflict (service_type) do nothing;
 
 alter table public.plan_page_settings
   add column if not exists onetime_title text not null default 'Precisa de atendimento pontual?',
-  add column if not exists onetime_description text not null default 'Nao quer contratar uma mensalidade? Solicite um parecer tecnico avulso para uma demanda especifica.',
-  add column if not exists onetime_button_label text not null default 'Solicitar parecer tecnico',
-  add column if not exists quote_button_label text not null default 'Solicitar orcamento',
+  add column if not exists onetime_description text not null default 'Não quer contratar uma mensalidade? Solicite um parecer técnico avulso para uma demanda específica.',
+  add column if not exists onetime_button_label text not null default 'Solicitar parecer técnico',
+  add column if not exists quote_button_label text not null default 'Solicitar orçamento',
   add column if not exists quote_services jsonb not null default '[]'::jsonb;
 
 update public.plan_page_settings set
   title = 'Escolha o plano ideal para sua propriedade 🌱',
-  subtitle = 'Tenha tecnologia e conhecimento agronomico ao seu alcance para apoiar decisoes melhores no campo.',
+  subtitle = 'Tenha tecnologia e conhecimento agronômico ao seu alcance para apoiar decisões melhores no campo.',
   onetime_title = 'Precisa de atendimento pontual?',
-  onetime_description = 'Nao quer contratar uma mensalidade? Solicite um parecer tecnico avulso para uma demanda especifica.',
-  onetime_button_label = 'Solicitar parecer tecnico',
-  quote_button_label = 'Solicitar orcamento',
-  quote_services = '["Visitas tecnicas", "Diagnostico de campo", "Avaliacao da propriedade", "Projetos personalizados", "Planejamento e acompanhamento", "Conversao/transicao para producao organica", "Outros projetos agronomicos presenciais"]'::jsonb,
+  onetime_description = 'Não quer contratar uma mensalidade? Solicite um parecer técnico avulso para uma demanda específica.',
+  onetime_button_label = 'Solicitar parecer técnico',
+  quote_button_label = 'Solicitar orçamento',
+  quote_services = '["Visitas técnicas", "Diagnóstico de campo", "Avaliação da propriedade", "Projetos personalizados", "Planejamento e acompanhamento", "Conversão/transição para produção orgânica", "Outros projetos agronômicos presenciais"]'::jsonb,
   updated_at = now()
 where id = true;
 
@@ -286,35 +286,35 @@ insert into public.plans (
 values
   (
     'PlantaSa Gratuito', 'gratuito', 0, 'free', 'free', true,
-    '["3 perguntas para IA por mes", "Acesso basico a plataforma", "Orientacoes iniciais", "Possibilidade de contratar um plano pago depois"]'::jsonb,
+    '["3 perguntas para IA por mês", "Acesso básico à plataforma", "Orientações iniciais", "Possibilidade de contratar um plano pago depois"]'::jsonb,
     '{"AI_MONTHLY_LIMIT": 3, "AI_IMAGES": false, "REPORTS": false, "PROPERTY_HISTORY": false, "TECHNICAL_OPINIONS_MONTHLY": 0, "HUMAN_VALIDATION": false, "CASE_ANALYSIS_MONTHLY": 1, "IMAGE_TRIAGE_MONTHLY": 0, "SOIL_ANALYSIS_UPLOAD": false}'::jsonb,
-    'Comece por aqui', 'Para conhecer a plataforma e tirar as primeiras duvidas.',
-    'Experimente a IA agronomica com 3 consultas por mes, sem cartao de credito.',
-    '', '', '', 'Comecar gratuitamente', false, null, 10, '[]'::jsonb
+    'Comece por aqui', 'Para conhecer a plataforma e tirar as primeiras dúvidas.',
+    'Experimente a IA agronômica com 3 consultas por mês, sem cartão de crédito.',
+    '', '', '', 'Começar gratuitamente', false, null, 10, '[]'::jsonb
   ),
   (
     'PlantaSa IA Profissional', 'ia-profissional', 9700, 'monthly', 'subscription', true,
-    '["Perguntas a IA conforme politica de uso da plataforma", "Analise e interpretacao de fotos", "Relatorios e recomendacoes", "Historico das consultas", "Acompanhamento das informacoes da propriedade", "Atendimento automatizado pela IA"]'::jsonb,
+    '["Perguntas à IA conforme política de uso da plataforma", "Análise e interpretação de fotos", "Relatórios e recomendações", "Histórico das consultas", "Acompanhamento das informações da propriedade", "Atendimento automatizado pela IA"]'::jsonb,
     '{"AI_MONTHLY_LIMIT": 300, "AI_IMAGES": true, "REPORTS": true, "PROPERTY_HISTORY": true, "TECHNICAL_OPINIONS_MONTHLY": 0, "HUMAN_VALIDATION": false, "CASE_ANALYSIS_MONTHLY": 300, "IMAGE_TRIAGE_MONTHLY": 300, "SOIL_ANALYSIS_UPLOAD": true}'::jsonb,
-    'Plano recomendado', 'Produtores e tecnicos que usam a plataforma com frequencia.',
-    'Tecnologia agronomica assistida por IA, com analise de fotos, relatorios e historico da propriedade.',
-    '', 'mes', '', 'Assinar IA Profissional', false, null, 20, '[]'::jsonb
+    'Plano recomendado', 'Produtores e técnicos que usam a plataforma com frequência.',
+    'Tecnologia agronômica assistida por IA, com análise de fotos, relatórios e histórico da propriedade.',
+    '', 'mês', '', 'Assinar IA Profissional', false, null, 20, '[]'::jsonb
   ),
   (
-    'PlantaSa Consultoria Agronomica', 'consultoria-agronomica', 49700, 'monthly', 'subscription', true,
-    '["Tudo do IA Profissional", "Ate 3 pareceres tecnicos por mes", "Analise e validacao por especialista", "Orientacao personalizada", "Integracao das informacoes da propriedade para analise agronomica"]'::jsonb,
+    'PlantaSa Consultoria Agronômica', 'consultoria-agronomica', 49700, 'monthly', 'subscription', true,
+    '["Tudo do IA Profissional", "Até 3 pareceres técnicos por mês", "Análise e validação por especialista", "Orientação personalizada", "Integração das informações da propriedade para análise agronômica"]'::jsonb,
     '{"AI_MONTHLY_LIMIT": 300, "AI_IMAGES": true, "REPORTS": true, "PROPERTY_HISTORY": true, "TECHNICAL_OPINIONS_MONTHLY": 3, "HUMAN_VALIDATION": true, "CASE_ANALYSIS_MONTHLY": 300, "IMAGE_TRIAGE_MONTHLY": 300, "SOIL_ANALYSIS_UPLOAD": true}'::jsonb,
-    'Acompanhamento especializado', 'Operacoes que precisam de validacao agronomica humana todo mes.',
-    'Combina a IA da plataforma com pareceres tecnicos validados por especialista.',
-    '', 'mes', '', 'Quero Consultoria Agronomica', true, 'MAIS COMPLETO', 30, '[]'::jsonb
+    'Acompanhamento especializado', 'Operações que precisam de validação agronômica humana todo mês.',
+    'Combina a IA da plataforma com pareceres técnicos validados por especialista.',
+    '', 'mês', '', 'Quero Consultoria Agronômica', true, 'MAIS COMPLETO', 30, '[]'::jsonb
   ),
   (
     'Presencial & Projetos Especiais', 'presencial-projetos', 0, 'quote', 'quote', true,
-    '["Visitas tecnicas", "Diagnostico de campo", "Avaliacao da propriedade", "Projetos personalizados", "Planejamento e acompanhamento", "Conversao/transicao para producao organica", "Outros projetos agronomicos presenciais"]'::jsonb,
+    '["Visitas técnicas", "Diagnóstico de campo", "Avaliação da propriedade", "Projetos personalizados", "Planejamento e acompanhamento", "Conversão/transição para produção orgânica", "Outros projetos agronômicos presenciais"]'::jsonb,
     '{"AI_MONTHLY_LIMIT": 0, "AI_IMAGES": false, "REPORTS": false, "PROPERTY_HISTORY": false, "TECHNICAL_OPINIONS_MONTHLY": 0, "HUMAN_VALIDATION": false, "CASE_ANALYSIS_MONTHLY": 0, "IMAGE_TRIAGE_MONTHLY": 0, "SOIL_ANALYSIS_UPLOAD": false}'::jsonb,
-    'Sob consulta', 'Servicos agronomicos presenciais e projetos personalizados.',
-    'Escopo, prazo e valor definidos apos o entendimento da necessidade da propriedade.',
-    '', '', 'Sob consulta', 'Solicitar orcamento', false, null, 40, '[]'::jsonb
+    'Sob consulta', 'Serviços agronômicos presenciais e projetos personalizados.',
+    'Escopo, prazo e valor definidos após o entendimento da necessidade da propriedade.',
+    '', '', 'Sob consulta', 'Solicitar orçamento', false, null, 40, '[]'::jsonb
   )
 on conflict (slug) do update set
   name = excluded.name,

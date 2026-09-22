@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Area administrativa dos planos e servicos.
+ * Área administrativa dos planos e serviços.
  *
- * Restrito a administradores (a API tambem valida o papel no servidor).
- * Aqui ficam nome, descricao, preco exibido, recursos, limites (entitlements) e
+ * Restrito a administradores (a API também valida o papel no servidor).
+ * Aqui ficam nome, descrição, preço exibido, recursos, limites (entitlements) e
  * os identificadores reais do Stripe. O sistema nunca inventa um ID do Stripe:
- * os campos ficam vazios ate serem informados aqui.
+ * os campos ficam vazios até serem informados aqui.
  */
 
 import Link from "next/link";
@@ -134,52 +134,52 @@ function EntitlementsEditor({
     <div className="mt-5 rounded-3xl border border-leaf-100 bg-leaf-50/50 p-4">
       <p className="text-sm font-bold text-slate-900">Direitos do plano</p>
       <p className="mt-1 text-xs leading-5 text-slate-600">
-        Estes valores sao a unica fonte das regras comerciais. Alterar aqui muda o comportamento do sistema inteiro, sem
-        precisar de nova versao do codigo.
+        Estes valores sao a única fonte das regras comerciais. Alterar aqui muda o comportamento do sistema inteiro, sem
+        precisar de nova versão do código.
       </p>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field
-          label="Consultas a IA por mes"
+          label="Consultas a IA por mês"
           value={String(entitlements.AI_MONTHLY_LIMIT ?? 0)}
           onChange={(value) => onChange({ AI_MONTHLY_LIMIT: parseCount(value) })}
           hint="Quantidade mensal de perguntas a IA."
         />
         {showTechnicalOpinions && (
           <Field
-            label="Pareceres tecnicos por mes"
+            label="Pareceres agronômicos humanos por mês"
             value={String(entitlements.TECHNICAL_OPINIONS_MONTHLY)}
             onChange={(value) => onChange({ TECHNICAL_OPINIONS_MONTHLY: parseCount(value) })}
-            hint="1 parecer = 1 demanda tecnica. Mensagens da mesma demanda nao consomem pareceres."
+            hint="Limite usado no servidor para liberar /enviar-caso. 1 parecer = 1 caso enviado à especialista; 0 = sem acesso. Atualize também o texto do benefício na lista acima."
           />
         )}
         <Field
-          label="Analises de caso por mes"
+          label="Análises de caso por mês"
           value={String(entitlements.CASE_ANALYSIS_MONTHLY ?? 0)}
           onChange={(value) => onChange({ CASE_ANALYSIS_MONTHLY: parseCount(value) })}
         />
         <Field
-          label="Triagens de imagem por mes"
+          label="Triagens de imagem por mês"
           value={String(entitlements.IMAGE_TRIAGE_MONTHLY ?? 0)}
           onChange={(value) => onChange({ IMAGE_TRIAGE_MONTHLY: parseCount(value) })}
         />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3">
-        <Toggle label="Analise de fotos" checked={entitlements.AI_IMAGES} onChange={(value) => onChange({ AI_IMAGES: value })} />
-        <Toggle label="Relatorios" checked={entitlements.REPORTS} onChange={(value) => onChange({ REPORTS: value })} />
+        <Toggle label="Análise de fotos" checked={entitlements.AI_IMAGES} onChange={(value) => onChange({ AI_IMAGES: value })} />
+        <Toggle label="Relatórios" checked={entitlements.REPORTS} onChange={(value) => onChange({ REPORTS: value })} />
         <Toggle
-          label="Historico da propriedade"
+          label="Histórico da propriedade"
           checked={entitlements.PROPERTY_HISTORY}
           onChange={(value) => onChange({ PROPERTY_HISTORY: value })}
         />
         <Toggle
-          label="Upload de analise de solo"
+          label="Upload de análise de solo"
           checked={entitlements.SOIL_ANALYSIS_UPLOAD}
           onChange={(value) => onChange({ SOIL_ANALYSIS_UPLOAD: value })}
         />
         <Toggle
-          label="Validacao por especialista"
+          label="Validação por especialista"
           checked={entitlements.HUMAN_VALIDATION}
           onChange={(value) => onChange({ HUMAN_VALIDATION: value })}
         />
@@ -202,7 +202,7 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
           <h2 className="mt-1 text-xl font-black text-slate-950">{plan.name || "Novo plano"}</h2>
           <p className="mt-1 text-xs text-slate-500">
             Code de contratacao: {plan.slug}
-            {plan.is_legacy ? " · plano legado (preservado para quem ja assina)" : ""}
+            {plan.is_legacy ? " · plano legado (preservado para quem já assina)" : ""}
           </p>
         </div>
         <Toggle label="Plano ativo" checked={plan.active} onChange={(value) => onChange({ active: value })} />
@@ -212,7 +212,7 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
         <Field label="Nome do plano" value={plan.name} onChange={(value) => onChange({ name: value })} />
         <Field label="Destaque superior" value={plan.eyebrow} onChange={(value) => onChange({ eyebrow: value })} required={false} />
         <Field
-          label="Publico / indicacao"
+          label="Publico / indicação"
           value={plan.audience}
           onChange={(value) => onChange({ audience: value })}
           multiline
@@ -220,7 +220,7 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
           required={false}
         />
         <Field
-          label="Descricao do plano"
+          label="Descrição do plano"
           value={plan.description}
           onChange={(value) => onChange({ description: value })}
           multiline
@@ -230,15 +230,15 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field
-          label={quote ? "Preco (mantenha 0,00)" : "Preco exibido (R$)"}
+          label={quote ? "Preço (mantenha 0,00)" : "Preço exibido (R$)"}
           value={moneyInput(plan.price_cents)}
           onChange={(value) => onChange({ price_cents: parseMoney(value) })}
-          hint={quote ? "Categoria sob consulta: nao definimos preco." : undefined}
+          hint={quote ? "Categoria sob consulta: não definimos preço." : undefined}
         />
-        <Field label="Prefixo do preco" value={plan.price_prefix} onChange={(value) => onChange({ price_prefix: value })} required={false} />
+        <Field label="Prefixo do preço" value={plan.price_prefix} onChange={(value) => onChange({ price_prefix: value })} required={false} />
         <Field label="Periodicidade" value={plan.price_period} onChange={(value) => onChange({ price_period: value })} required={false} />
         <Field
-          label={quote ? "Texto no lugar do preco" : "Complemento do preco"}
+          label={quote ? "Texto no lugar do preço" : "Complemento do preço"}
           value={plan.price_note}
           onChange={(value) => onChange({ price_note: value })}
           required={false}
@@ -248,14 +248,14 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <Field
-          label={quote ? "Tipos de servico (um por linha)" : "Recursos (um por linha)"}
+          label={quote ? "Tipos de serviço (um por linha)" : "Recursos (um por linha)"}
           value={listValue(plan.features)}
           onChange={(value) => onChange({ features: parseList(value) })}
           multiline
           rows={7}
         />
         <Field
-          label="Nao inclui (um por linha)"
+          label="Não inclui (um por linha)"
           value={listValue(plan.exclusions)}
           onChange={(value) => onChange({ exclusions: parseList(value) })}
           multiline
@@ -280,7 +280,7 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
             onChange={(value) => onChange({ stripe_price_id: value || null })}
             required={false}
             placeholder="price_..."
-            hint="Necessario para upgrade/downgrade com cobranca proporcional."
+            hint="Necessário para upgrade/downgrade com cobrança proporcional."
           />
         </div>
       )}
@@ -292,7 +292,7 @@ function PlanEditor({ plan, index, onChange }: { plan: PlanPagePlan; index: numb
       />
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Texto do botao (CTA)" value={plan.button_label} onChange={(value) => onChange({ button_label: value })} />
+        <Field label="Texto do botão (CTA)" value={plan.button_label} onChange={(value) => onChange({ button_label: value })} />
         <Field
           label="Badge de destaque"
           value={plan.badge || ""}
@@ -332,23 +332,23 @@ function ServiceEditor({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-leaf-700">
-            {isTechnicalOpinion ? "Parecer Tecnico Avulso" : `Servico ${index + 1}`}
+            {isTechnicalOpinion ? "Parecer Técnico Avulso" : `Serviço ${index + 1}`}
           </p>
           <h3 className="mt-1 text-lg font-bold text-slate-950">{service.name}</h3>
           <p className="mt-1 text-xs text-slate-500">Tipo preservado para o checkout: {service.service_type}</p>
           {isTechnicalOpinion && (
             <p className="mt-2 text-xs leading-5 text-slate-600">
-              So fica disponivel na pagina publica quando estiver ativo e com preco maior que zero.
+              So fica disponível na página publica quando estiver ativo e com preço maior que zero.
             </p>
           )}
         </div>
-        <Toggle label="Servico ativo" checked={service.active} onChange={(value) => onChange({ active: value })} />
+        <Toggle label="Serviço ativo" checked={service.active} onChange={(value) => onChange({ active: value })} />
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <Field label="Nome" value={service.name} onChange={(value) => onChange({ name: value })} />
         <Field
-          label="Descricao"
+          label="Descrição"
           value={service.description}
           onChange={(value) => onChange({ description: value })}
           multiline
@@ -357,10 +357,10 @@ function ServiceEditor({
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Field label="Preco (R$)" value={moneyInput(service.price_cents)} onChange={(value) => onChange({ price_cents: parseMoney(value) })} />
+        <Field label="Preço (R$)" value={moneyInput(service.price_cents)} onChange={(value) => onChange({ price_cents: parseMoney(value) })} />
         <Field label="Prefixo" value={service.price_prefix} onChange={(value) => onChange({ price_prefix: value })} required={false} />
         <Field label="Periodicidade" value={service.price_period} onChange={(value) => onChange({ price_period: value })} required={false} />
-        <Field label="Texto do botao" value={service.button_label} onChange={(value) => onChange({ button_label: value })} />
+        <Field label="Texto do botão" value={service.button_label} onChange={(value) => onChange({ button_label: value })} />
         <Field
           label="Ordem"
           value={String(service.display_order)}
@@ -399,13 +399,13 @@ export default function AdminPlansPage() {
     (async () => {
       try {
         const session = await getCurrentAuthSession();
-        if (!session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+        if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
         const response = await fetch("/api/admin/plans-page", {
           headers: { Authorization: `Bearer ${session.access_token}` },
           cache: "no-store"
         });
         const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error || "Nao foi possivel carregar a configuracao.");
+        if (!response.ok) throw new Error(payload?.error || "Não foi possível carregar a configuração.");
 
         const normalized = payload as PlansPagePayload;
         normalized.plans = normalized.plans.map((plan) => ({
@@ -414,7 +414,7 @@ export default function AdminPlansPage() {
         }));
         setData(normalized);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Nao foi possivel carregar a configuracao.");
+        setError(cause instanceof Error ? cause.message : "Não foi possível carregar a configuração.");
       } finally {
         setLoading(false);
       }
@@ -437,17 +437,17 @@ export default function AdminPlansPage() {
 
     try {
       const session = await getCurrentAuthSession();
-      if (!session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+      if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
       const response = await fetch("/api/admin/plans-page", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify(data)
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Nao foi possivel salvar a configuracao.");
-      setMessage(payload?.message || "Configuracao salva com sucesso.");
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível salvar a configuração.");
+      setMessage(payload?.message || "Configuração salva com sucesso.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar a configuracao.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível salvar a configuração.");
     } finally {
       setSaving(false);
     }
@@ -456,7 +456,7 @@ export default function AdminPlansPage() {
   if (loading) {
     return (
       <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-16" aria-busy="true">
-        Carregando configuracao dos planos...
+        Carregando configuração dos planos...
       </section>
     );
   }
@@ -478,17 +478,17 @@ export default function AdminPlansPage() {
   return (
     <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
       <Link href="/configuracoes" className="text-sm font-semibold text-leaf-700">
-        ← Voltar para Configuracoes
+        ← Voltar para Configurações
       </Link>
 
       <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="mb-3 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-            ⚙️ Area administrativa
+            ⚙️ Área administrativa
           </p>
-          <h1 className="text-2xl font-black text-[#123F2A] sm:text-4xl">Configuracao dos planos</h1>
+          <h1 className="text-2xl font-black text-[#123F2A] sm:text-4xl">Configuração dos planos</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            Conteudo comercial, limites e identificadores Stripe da pagina publica. Precos vao para o servidor em centavos e
+            Conteudo comercial, limites e identificadores Stripe da página publica. Preços vao para o servidor em centavos e
             os IDs do Stripe precisam ser os reais, criados no painel do Stripe.
           </p>
         </div>
@@ -497,7 +497,7 @@ export default function AdminPlansPage() {
           target="_blank"
           className="rounded-full border border-leaf-200 bg-white px-4 py-2 text-center text-sm font-semibold text-leaf-700 shadow-sm hover:bg-leaf-50"
         >
-          Abrir pagina publica ↗
+          Abrir página publica ↗
         </Link>
       </div>
 
@@ -517,11 +517,11 @@ export default function AdminPlansPage() {
           <h2 className="text-xl font-bold text-slate-950">Conteudo geral</h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Field label="Chamada superior" value={data.settings.eyebrow} onChange={(value) => updateSettings("eyebrow", value)} />
-            <Field label="Titulo principal" value={data.settings.title} onChange={(value) => updateSettings("title", value)} />
-            <Field label="Subtitulo" value={data.settings.subtitle} onChange={(value) => updateSettings("subtitle", value)} multiline rows={3} />
-            <Field label="Rotulo da estrategia" value={data.settings.strategy_label} onChange={(value) => updateSettings("strategy_label", value)} />
-            <Field label="Descricao introdutoria" value={data.settings.intro} onChange={(value) => updateSettings("intro", value)} multiline rows={5} />
-            <Field label="Titulo da estrategia" value={data.settings.strategy_title} onChange={(value) => updateSettings("strategy_title", value)} multiline rows={3} />
+            <Field label="Título principal" value={data.settings.title} onChange={(value) => updateSettings("title", value)} />
+            <Field label="Subtítulo" value={data.settings.subtitle} onChange={(value) => updateSettings("subtitle", value)} multiline rows={3} />
+            <Field label="Rótulo da estratégia" value={data.settings.strategy_label} onChange={(value) => updateSettings("strategy_label", value)} />
+            <Field label="Descrição introdutoria" value={data.settings.intro} onChange={(value) => updateSettings("intro", value)} multiline rows={5} />
+            <Field label="Título da estratégia" value={data.settings.strategy_title} onChange={(value) => updateSettings("strategy_title", value)} multiline rows={3} />
             <Field
               label="Textos de destaque (um por linha)"
               value={listValue(data.settings.value_phrases)}
@@ -530,7 +530,7 @@ export default function AdminPlansPage() {
               rows={5}
             />
             <Field
-              label="Itens da estrategia (um por linha)"
+              label="Itens da estratégia (um por linha)"
               value={listValue(data.settings.strategy_items)}
               onChange={(value) => updateSettings("strategy_items", parseList(value))}
               multiline
@@ -544,9 +544,9 @@ export default function AdminPlansPage() {
               multiline
               rows={3}
             />
-            <Field label="Rotulo do comparativo" value={data.settings.comparison_label} onChange={(value) => updateSettings("comparison_label", value)} />
+            <Field label="Rótulo do comparativo" value={data.settings.comparison_label} onChange={(value) => updateSettings("comparison_label", value)} />
             <Field
-              label="Descricao do comparativo"
+              label="Descrição do comparativo"
               value={data.settings.comparison_description}
               onChange={(value) => updateSettings("comparison_description", value)}
               multiline
@@ -569,39 +569,53 @@ export default function AdminPlansPage() {
         </div>
 
         <div className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft sm:p-6">
-          <h2 className="text-xl font-bold text-slate-950">Atendimento pontual e servicos avulsos</h2>
+          <h2 className="text-xl font-bold text-slate-950">Atendimento pontual</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            O botão deste bloco leva à página de Contato (visitas técnicas, atendimento presencial, projetos especiais e orçamentos).
+          </p>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <Field label="Titulo do bloco pontual" value={data.settings.onetime_title} onChange={(value) => updateSettings("onetime_title", value)} />
+            <Field label="Título do bloco pontual" value={data.settings.onetime_title} onChange={(value) => updateSettings("onetime_title", value)} />
             <Field
-              label="Botao do bloco pontual"
+              label="Botão do bloco pontual"
               value={data.settings.onetime_button_label}
               onChange={(value) => updateSettings("onetime_button_label", value)}
             />
             <Field
-              label="Descricao do bloco pontual"
+              label="Descrição do bloco pontual"
               value={data.settings.onetime_description}
               onChange={(value) => updateSettings("onetime_description", value)}
               multiline
               rows={3}
             />
             <Field
-              label="Botao de orcamento (Presencial)"
+              label="Botão de orçamento (Presencial)"
               value={data.settings.quote_button_label}
               onChange={(value) => updateSettings("quote_button_label", value)}
             />
             <Field
-              label="Servicos presenciais (um por linha)"
+              label="Serviços presenciais (um por linha)"
               value={listValue(data.settings.quote_services)}
               onChange={(value) => updateSettings("quote_services", parseList(value))}
               multiline
               rows={7}
             />
+          </div>
+
+          <details className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <summary className="cursor-pointer text-sm font-bold text-slate-700">
+              Serviços avulsos antigos (descontinuados — mantidos apenas como histórico)
+            </summary>
+            <p className="mt-2 text-xs leading-5 text-slate-600">
+              Estes serviços não aparecem mais na página de Planos e as rotas de checkout avulso estão encerradas. Os registros
+              ficam preservados para histórico de pedidos e pagamentos.
+            </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
             <div className="grid gap-4">
               <Field label="Chamada da secao de consultorias" value={data.settings.consulting_eyebrow} onChange={(value) => updateSettings("consulting_eyebrow", value)} />
-              <Field label="Titulo da secao de consultorias" value={data.settings.consulting_title} onChange={(value) => updateSettings("consulting_title", value)} />
+              <Field label="Título da secao de consultorias" value={data.settings.consulting_title} onChange={(value) => updateSettings("consulting_title", value)} />
             </div>
             <Field
-              label="Descricao das consultorias"
+              label="Descrição das consultorias"
               value={data.settings.consulting_description}
               onChange={(value) => updateSettings("consulting_description", value)}
               multiline
@@ -628,11 +642,12 @@ export default function AdminPlansPage() {
               />
             ))}
           </div>
+          </details>
         </div>
 
         <div className="rounded-3xl border border-leaf-200 bg-leaf-50/60 p-5 shadow-soft sm:p-6">
           <h2 className="text-xl font-bold text-slate-950">Pre-visualizacao rapida</h2>
-          <p className="mt-1 text-sm text-slate-600">A amostra usa os dados atuais do formulario; salve para publicar.</p>
+          <p className="mt-1 text-sm text-slate-600">A amostra usa os dados atuais do formulário; salve para publicar.</p>
           <div className="mt-4 rounded-3xl border border-white bg-white p-5">
             <h3 className="text-2xl font-black text-slate-950">{data.settings.title}</h3>
             <p className="mt-2 text-sm text-slate-600">{data.settings.subtitle}</p>
@@ -653,7 +668,7 @@ export default function AdminPlansPage() {
           disabled={saving}
           className="justify-self-start rounded-full bg-leaf-700 px-7 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-wait disabled:opacity-60"
         >
-          {saving ? "Salvando..." : "Salvar configuracao"}
+          {saving ? "Salvando..." : "Salvar configuração"}
         </button>
       </form>
     </section>

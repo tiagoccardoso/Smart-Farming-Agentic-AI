@@ -16,7 +16,7 @@ export type PlanPageSettings = {
   consulting_title: string;
   consulting_description: string;
   consulting_notice: string;
-  /** Bloco "Precisa de atendimento pontual?" (parecer tecnico avulso). */
+  /** Bloco "Precisa de atendimento pontual?" (parecer técnico avulso). */
   onetime_title: string;
   onetime_description: string;
   onetime_button_label: string;
@@ -26,7 +26,7 @@ export type PlanPageSettings = {
   updated_at?: string | null;
 };
 
-/** Direitos configuraveis do plano. Fonte unica das regras comerciais. */
+/** Direitos configuraveis do plano. Fonte única das regras comerciais. */
 export type PlanEntitlements = {
   AI_MONTHLY_LIMIT: number | null;
   AI_IMAGES: boolean;
@@ -103,7 +103,7 @@ export function isFreePlan(plan: PlanPagePlan) {
 
 const brlFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-/** Planos sob consulta nunca exibem preco ficticio. */
+/** Planos sob consulta nunca exibem preço ficticio. */
 export function formatPlanPrice(plan: PlanPagePlan) {
   if (isQuotePlan(plan)) {
     return plan.price_note?.trim() || "Sob consulta";

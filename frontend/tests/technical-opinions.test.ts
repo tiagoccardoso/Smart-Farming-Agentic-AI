@@ -1,7 +1,7 @@
 /**
- * Regra dos pareceres tecnicos (item 4 do escopo) e parecer avulso (item 6):
- * primeiro parecer, terceiro parecer, bloqueio do quarto, liberacao por credito
- * avulso e mensagens que nao consomem pareceres.
+ * Regra dos pareceres técnicos (item 4 do escopo) e parecer avulso (item 6):
+ * primeiro parecer, terceiro parecer, bloqueio do quarto, liberação por crédito
+ * avulso e mensagens que não consomem pareceres.
  */
 
 import assert from "node:assert/strict";
@@ -61,7 +61,7 @@ function mockBackend(options: Options = {}) {
           user_id: "user-1",
           origin: "subscription",
           title: "Mancha nas folhas",
-          description: "Descricao suficiente do problema",
+          description: "Descrição suficiente do problema",
           status: "aberto",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -91,7 +91,7 @@ test("primeiro parecer do ciclo pode ser aberto", async () => {
     const opinion = await createTechnicalOpinion({
       access,
       title: "Mancha nas folhas",
-      description: "Descricao suficiente do problema"
+      description: "Descrição suficiente do problema"
     });
     assert.equal(opinion.id, "opinion-1");
     assert.equal(mock.callsTo("rpc/create_technical_opinion").length, 1);
@@ -107,14 +107,14 @@ test("terceiro parecer ainda e permitido e a mensagem de uso e exibida", async (
     const access = await resolveUserAccess("user-1");
     const balance = await getTechnicalOpinionBalance(access);
     assert.equal(balance.usageLabel, "Pareceres utilizados neste ciclo: 2 de 3");
-    assert.equal(balance.remainingLabel, "Voce possui 1 parecer disponivel neste ciclo.");
+    assert.equal(balance.remainingLabel, "Você possui 1 parecer disponível neste ciclo.");
     assert.equal(balance.canOpen, true);
   } finally {
     mock.restore();
   }
 });
 
-test("quarto parecer e bloqueado quando nao ha credito avulso", async () => {
+test("quarto parecer e bloqueado quando não ha crédito avulso", async () => {
   const mock = mockBackend({ openedInCycle: 3, credits: 0 });
 
   try {
@@ -129,11 +129,11 @@ test("quarto parecer e bloqueado quando nao ha credito avulso", async () => {
         createTechnicalOpinion({
           access,
           title: "Quarta demanda",
-          description: "Descricao suficiente do problema"
+          description: "Descrição suficiente do problema"
         }),
       (error: unknown) => {
         assert.ok(error instanceof TechnicalOpinionLimitError);
-        assert.match((error as Error).message, /3 pareceres tecnicos disponiveis neste ciclo/);
+        assert.match((error as Error).message, /3 pareceres técnicos disponíveis neste ciclo/);
         return true;
       }
     );
@@ -144,7 +144,7 @@ test("quarto parecer e bloqueado quando nao ha credito avulso", async () => {
   }
 });
 
-test("credito avulso pago libera uma demanda alem da franquia", async () => {
+test("crédito avulso pago libera uma demanda alem da franquia", async () => {
   const mock = mockBackend({ openedInCycle: 3, credits: 1 });
 
   try {
@@ -154,16 +154,17 @@ test("credito avulso pago libera uma demanda alem da franquia", async () => {
     assert.equal(balance.availableCredits, 1);
     assert.equal(balance.canOpen, true);
 
-    await createTechnicalOpinion({ access, title: "Demanda avulsa", description: "Descricao suficiente" });
+    await createTechnicalOpinion({ access, title: "Demanda avulsa", description: "Descrição suficiente" });
     assert.equal(mock.callsTo("rpc/create_technical_opinion").length, 1);
   } finally {
     mock.restore();
   }
 });
 
-test("plano sem pareceres bloqueia a abertura com mensagem propria", async () => {
+test("plano sem pareceres bloqueia a abertura com mensagem própria", async () => {
+  // Gratuito (sem assinatura) não inclui pareceres; IA Profissional passou a ter 1.
   const mock = mockBackend({
-    subscriptions: [subscriptionRow({ plan_id: PROFESSIONAL_PLAN_ROW.id, plans: PROFESSIONAL_PLAN_ROW })],
+    subscriptions: [],
     credits: 0
   });
 
@@ -174,9 +175,9 @@ test("plano sem pareceres bloqueia a abertura com mensagem propria", async () =>
     assert.equal(balance.canOpen, false);
 
     await assert.rejects(
-      () => createTechnicalOpinion({ access, title: "Demanda", description: "Descricao suficiente" }),
+      () => createTechnicalOpinion({ access, title: "Demanda", description: "Descrição suficiente" }),
       (error: unknown) => {
-        assert.match((error as Error).message, /nao inclui pareceres tecnicos/);
+        assert.match((error as Error).message, /não inclui pareceres técnicos/);
         return true;
       }
     );
@@ -185,7 +186,7 @@ test("plano sem pareceres bloqueia a abertura com mensagem propria", async () =>
   }
 });
 
-test("mensagens da mesma demanda nao consomem pareceres", async () => {
+test("mensagens da mesma demanda não consomem pareceres", async () => {
   const mock = mockBackend({ openedInCycle: 3, credits: 0 });
 
   try {
@@ -205,7 +206,7 @@ test("mensagens da mesma demanda nao consomem pareceres", async () => {
   }
 });
 
-test("pagamento avulso confirmado libera exatamente 1 credito", async () => {
+test("pagamento avulso confirmado libera exatamente 1 crédito", async () => {
   const mock = mockBackend();
 
   try {
@@ -223,7 +224,7 @@ test("pagamento avulso confirmado libera exatamente 1 credito", async () => {
   }
 });
 
-test("webhook duplicado nao libera um segundo parecer avulso", async () => {
+test("webhook duplicado não libera um segundo parecer avulso", async () => {
   const mock = mockBackend({ existingCreditForSession: true });
 
   try {
@@ -241,7 +242,7 @@ test("webhook duplicado nao libera um segundo parecer avulso", async () => {
   }
 });
 
-test("corrida no banco (indice unico) tambem e tratada como idempotente", async () => {
+test("corrida no banco (índice único) também e tratada como idempotente", async () => {
   const mock = mockBackend({ duplicateCredit: true });
 
   try {

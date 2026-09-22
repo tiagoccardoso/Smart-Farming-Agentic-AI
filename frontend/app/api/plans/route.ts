@@ -1,5 +1,5 @@
 /**
- * Conteudo publico da pagina de planos.
+ * Conteudo publico da página de planos.
  *
  * Nunca expoe identificadores sensiveis: `stripe_price_id`, `stripe_product_id`
  * e os direitos internos ficam apenas na leitura administrativa.
@@ -42,7 +42,7 @@ export async function GET() {
     ]);
 
     if (!settings[0]) {
-      return NextResponse.json({ error: "A configuracao da pagina de Planos ainda nao foi criada." }, { status: 503 });
+      return NextResponse.json({ error: "A configuração da página de Planos ainda não foi criada." }, { status: 503 });
     }
 
     return NextResponse.json(
@@ -51,7 +51,7 @@ export async function GET() {
     );
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Nao foi possivel carregar os planos." },
+      { error: error instanceof Error ? error.message : "Não foi possível carregar os planos." },
       { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }

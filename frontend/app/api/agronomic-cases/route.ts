@@ -9,6 +9,17 @@ import {
   getSafeUploadContentType,
   isAllowedUploadFile,
 } from "../../../lib/mobile-image-upload";
+import { resolveUserAccess } from "../../../lib/billing/entitlements";
+import {
+  HumanOpinionUnavailableError,
+  findOpinionByIdempotencyKey,
+  getHumanOpinionStatus,
+  normalizeIdempotencyKey,
+  requestHumanOpinionForCase,
+  statusCodeFor,
+  toPublicHumanOpinionStatus,
+} from "../../../lib/billing/human-opinions";
+import { supabaseAdminRequest } from "../../../lib/server/supabaseAdmin";
 
 const STORAGE_BUCKET = "agronomic-cases";
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -496,6 +507,92 @@ function toErrorResponse(error: unknown): {
   };
 }
 
+/**
+ * Descarta (soft delete) o caso criado nesta requisição quando o parecer não
+ * pôde ser registrado. Assim um novo envio não deixa registros técnicos
+ * duplicados e nenhum parecer é consumido sem caso válido.
+ */
+async function discardCaseWithoutOpinion(caseId: string, userId: string) {
+  try {
+    await supabaseAdminRequest(
+      `/rest/v1/agronomic_cases?id=eq.${encodeURIComponent(caseId)}&user_id=eq.${encodeURIComponent(userId)}&human_review_requested=eq.false`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          status: "deleted",
+          deleted_at: new Date().toISOString(),
+        }),
+      },
+    );
+  } catch (error) {
+    logServerError("Não foi possível descartar caso sem parecer", error);
+  }
+}
+
+async function finalizeHumanOpinionRequest(input: {
+  access: Awaited<ReturnType<typeof resolveUserAccess>>;
+  caseId: string;
+  userId: string;
+  idempotencyKey: string | null;
+  crop: string;
+  symptoms: string;
+}) {
+  try {
+    const result = await requestHumanOpinionForCase({
+      access: input.access,
+      caseId: input.caseId,
+      idempotencyKey: input.idempotencyKey,
+      title: `${input.crop} — parecer agronômico`,
+      description: input.symptoms,
+    });
+
+    const resolvedCaseId = result.opinion.case_id ?? input.caseId;
+
+    // Duas requisições simultâneas com a mesma chave: a segunda recebe o
+    // registro da primeira e descarta o caso que acabou de criar.
+    if (result.replayed && resolvedCaseId !== input.caseId) {
+      await discardCaseWithoutOpinion(input.caseId, input.userId);
+    }
+
+    return NextResponse.json({
+      caseId: resolvedCaseId,
+      opinionId: result.opinion.id,
+      replayed: result.replayed,
+      message:
+        "Caso enviado para parecer agronômico humano. A especialista vai analisar as informações enviadas.",
+      humanOpinion: toPublicHumanOpinionStatus(result.status),
+    });
+  } catch (error) {
+    await discardCaseWithoutOpinion(input.caseId, input.userId);
+
+    if (error instanceof HumanOpinionUnavailableError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: "HUMAN_OPINION_UNAVAILABLE",
+          reason: error.reason,
+          humanOpinion: error.opinionStatus
+            ? toPublicHumanOpinionStatus(error.opinionStatus)
+            : null,
+          cta: { label: "Ver planos", href: "/planos" },
+        },
+        { status: error.status },
+      );
+    }
+
+    logServerError("Erro ao registrar parecer agronômico do caso", error);
+    return NextResponse.json(
+      {
+        error:
+          "Não foi possível registrar a solicitação de parecer. Nenhum parecer foi consumido. Tente novamente em instantes.",
+        code: "DATABASE_SAVE_FAILED",
+      },
+      { status: 502 },
+    );
+  }
+}
+
 function logServerError(context: string, error: unknown) {
   if (process.env.NODE_ENV === "production") {
     console.error(
@@ -832,6 +929,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // /enviar-caso: o envio é uma solicitação de parecer agronômico humano.
+    // Direito, limite e saldo são validados AQUI, antes de qualquer gravação
+    // ou upload. Nenhum valor de plano/limite enviado pelo navegador é lido.
+    const requestsHumanOpinion =
+      optionalText(formData, "requestHumanOpinion") === "true";
+    let humanOpinionAccess: Awaited<ReturnType<typeof resolveUserAccess>> | null =
+      null;
+    let idempotencyKey: string | null = null;
+
+    if (requestsHumanOpinion) {
+      idempotencyKey = normalizeIdempotencyKey(
+        request.headers.get("idempotency-key") ??
+          optionalText(formData, "idempotencyKey"),
+      );
+
+      if (!idempotencyKey) {
+        throw new FriendlyRequestError(
+          "Não foi possível validar este envio. Recarregue a página e tente novamente.",
+          400,
+          "VALIDATION_ERROR",
+        );
+      }
+
+      humanOpinionAccess = await resolveUserAccess(user.id);
+
+      // Reenvio da mesma tentativa (duplo clique, refresh, retry de rede):
+      // devolve o resultado já registrado, sem criar caso nem consumir parecer.
+      const previous = await findOpinionByIdempotencyKey(user.id, idempotencyKey);
+      if (previous) {
+        const status = await getHumanOpinionStatus(humanOpinionAccess);
+        return NextResponse.json({
+          caseId: previous.case_id,
+          opinionId: previous.id,
+          replayed: true,
+          message: "Este caso já foi enviado para parecer agronômico humano.",
+          humanOpinion: toPublicHumanOpinionStatus(status),
+        });
+      }
+
+      const status = await getHumanOpinionStatus(humanOpinionAccess);
+      if (!status.eligible) {
+        return NextResponse.json(
+          {
+            error: status.message,
+            code: "HUMAN_OPINION_UNAVAILABLE",
+            reason: status.reason,
+            humanOpinion: toPublicHumanOpinionStatus(status),
+            cta: status.reason === "inactive_profile" ? null : { label: "Ver planos", href: "/planos" },
+          },
+          { status: statusCodeFor(status) },
+        );
+      }
+    }
+
     if (photoFiles.length > 0) {
       await assertPlanFeature(user.id, "photo_upload");
     }
@@ -982,6 +1133,17 @@ export async function POST(request: NextRequest) {
         token,
         config,
       );
+    }
+
+    if (requestsHumanOpinion && humanOpinionAccess) {
+      return await finalizeHumanOpinionRequest({
+        access: humanOpinionAccess,
+        caseId: createdCase.id,
+        userId: user.id,
+        idempotencyKey,
+        crop,
+        symptoms,
+      });
     }
 
     return NextResponse.json({

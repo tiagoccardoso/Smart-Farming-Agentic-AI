@@ -94,7 +94,7 @@ test("quarta consulta e bloqueada com motivo explicito e CTA", async () => {
   }
 });
 
-test("Consultoria Agronomica nao esbarra no limite do Gratuito", async () => {
+test("Consultoria Agronômica não esbarra no limite do Gratuito", async () => {
   const mock = mockBackend({ usedQuestions: 3, subscriptions: [subscriptionRow()] });
 
   try {
@@ -106,25 +106,25 @@ test("Consultoria Agronomica nao esbarra no limite do Gratuito", async () => {
   }
 });
 
-test("relatorios ficam bloqueados no plano Gratuito", async () => {
+test("relatórios ficam bloqueados no plano Gratuito", async () => {
   const mock = mockBackend();
 
   try {
     const result = await getPlanLimitCheck("user-1", "pdf_report");
     assert.equal(result.allowed, false);
-    assert.match(result.message ?? "", /relatorios/i);
+    assert.match(result.message ?? "", /relatórios/i);
   } finally {
     mock.restore();
   }
 });
 
-test("analise de fotos exige plano pago e explica o motivo", async () => {
+test("análise de fotos exige plano pago e explica o motivo", async () => {
   const freeMock = mockBackend();
 
   try {
     await assert.rejects(() => assertPlanFeature("user-1", "photo_upload"), (error: unknown) => {
       assert.ok(error instanceof PlanFeatureUnavailableError);
-      assert.match((error as Error).message, /analise e interpretacao de fotos/);
+      assert.match((error as Error).message, /análise e interpretacao de fotos/);
       return true;
     });
   } finally {
@@ -143,7 +143,7 @@ test("analise de fotos exige plano pago e explica o motivo", async () => {
   }
 });
 
-test("usuario inativo e bloqueado antes de qualquer consumo", async () => {
+test("usuário inativo e bloqueado antes de qualquer consumo", async () => {
   const mock = mockBackend({ profile: { status: "inactive", unlimited_access: false } });
 
   try {

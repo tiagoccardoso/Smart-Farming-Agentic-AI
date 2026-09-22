@@ -11,6 +11,8 @@ export class ApiRequestError extends Error {
   status: number;
   code?: string;
   fieldErrors?: Record<string, string>;
+  /** Corpo JSON da resposta de erro (ex.: saldo de pareceres em um 402). */
+  payload?: unknown;
 
   constructor(
     message: string,
@@ -18,6 +20,7 @@ export class ApiRequestError extends Error {
       status: number;
       code?: string;
       fieldErrors?: Record<string, string>;
+      payload?: unknown;
     },
   ) {
     super(message);
@@ -25,6 +28,7 @@ export class ApiRequestError extends Error {
     this.status = options.status;
     this.code = options.code;
     this.fieldErrors = options.fieldErrors;
+    this.payload = options.payload;
   }
 }
 
@@ -88,6 +92,7 @@ async function parseResponse<T = any>(response: Response): Promise<T> {
       status: response.status,
       code: payload?.code,
       fieldErrors: payload?.fieldErrors,
+      payload,
     });
   }
 
@@ -258,6 +263,19 @@ export async function analyzeAgronomicCase(
   return payload?.analysis ? payload : { analysis: payload };
 }
 
+/** Saldo de pareceres agronômicos humanos calculado no servidor. */
+export async function getHumanOpinionStatus(accessToken?: string | null) {
+  const response = await fetch("/api/human-opinions/status", {
+    method: "GET",
+    headers: getOptionalAuthHeaders(accessToken),
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+
+  return parseResponse(response);
+}
+
+/** @deprecated Checkout avulso encerrado: a API responde 410. */
 export async function requestHumanReviewCheckout(
   caseId: string,
   accessToken: string,

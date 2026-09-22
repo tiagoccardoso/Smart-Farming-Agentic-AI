@@ -1,8 +1,8 @@
 /**
- * Idempotencia dos webhooks do Stripe.
+ * Idempotência dos webhooks do Stripe.
  *
  * O Stripe reenvia o mesmo evento em caso de falha ou timeout. Registramos
- * `event.id` antes de processar: um evento ja processado e descartado, e um
+ * `event.id` antes de processar: um evento já processado e descartado, e um
  * evento que falhou pode ser reprocessado na retentativa do Stripe.
  */
 
@@ -16,11 +16,16 @@ export type WebhookEventRow = {
   processed_at?: string | null;
 };
 
-export type ClaimResult = { claimed: true } | { claimed: false; reason: "already_processed" };
+export type ClaimResult =
+  | { claimed: true }
+  | { claimed: false; reason: "already_processed" | "in_progress" };
 
-export async function claimStripeEvent(eventId: string, eventType: string): Promise<ClaimResult> {
+/** Tempo após o qual um evento preso em "processing" (ex.: timeout da função) pode ser retomado. */
+export const STALE_PROCESSING_MS = 2 * 60 * 1000;
+
+export async function claimStripeEvent(eventId: string, eventType: string, now = Date.now()): Promise<ClaimResult> {
   const existing = await supabaseAdminRequest<WebhookEventRow[]>(
-    `/rest/v1/stripe_webhook_events?event_id=eq.${encodeURIComponent(eventId)}&select=event_id,status&limit=1`,
+    `/rest/v1/stripe_webhook_events?event_id=eq.${encodeURIComponent(eventId)}&select=event_id,status,received_at&limit=1`,
     { method: "GET" }
   );
 
@@ -29,11 +34,18 @@ export async function claimStripeEvent(eventId: string, eventType: string): Prom
       return { claimed: false, reason: "already_processed" };
     }
 
+    // Outra entrega do mesmo evento ainda está em processamento: não processa em
+    // paralelo. A rota responde 409 e o Stripe tenta de novo mais tarde.
+    const receivedAt = existing[0].received_at ? new Date(existing[0].received_at).getTime() : NaN;
+    if (existing[0].status === "processing" && Number.isFinite(receivedAt) && now - receivedAt < STALE_PROCESSING_MS) {
+      return { claimed: false, reason: "in_progress" };
+    }
+
     // Evento anterior falhou ou ficou preso: liberamos o reprocessamento.
     await supabaseAdminRequest(`/rest/v1/stripe_webhook_events?event_id=eq.${encodeURIComponent(eventId)}`, {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ status: "processing", error_message: null })
+      body: JSON.stringify({ status: "processing", error_message: null, received_at: new Date(now).toISOString() })
     });
 
     return { claimed: true };

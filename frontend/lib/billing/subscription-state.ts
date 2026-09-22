@@ -2,7 +2,7 @@
  * Mapeamento entre os status do Stripe e o estado interno da PlantaSa.
  *
  * A aplicacao nunca libera um plano apenas porque existe `stripe_subscription_id`.
- * O que libera recursos e `isEntitledState(state) === true`.
+ * O que libera recursos é `isEntitledState(state) === true`.
  */
 
 export type InternalSubscriptionState =
@@ -27,13 +27,13 @@ const STRIPE_STATUS_MAP: Record<string, InternalSubscriptionState> = {
   incomplete: "incomplete",
   incomplete_expired: "ended",
   paused: "payment_pending",
-  // Status interno gravado antes do usuario concluir o Checkout.
+  // Status interno gravado antes do usuário concluir o Checkout.
   checkout_pending: "payment_pending"
 };
 
 export const SUBSCRIPTION_STATE_LABELS: Record<InternalSubscriptionState, string> = {
   active: "Ativa",
-  trialing: "Periodo de teste",
+  trialing: "Período de teste",
   payment_pending: "Pagamento pendente",
   past_due: "Pagamento em atraso",
   scheduled_cancellation: "Cancelamento agendado",
@@ -65,7 +65,7 @@ export function isEntitledState(state: InternalSubscriptionState | null | undefi
 }
 
 /**
- * Uma assinatura so da direito se o estado permitir E o periodo atual nao
+ * Uma assinatura só dá direito se o estado permitir E o período atual não
  * tiver expirado. Assinaturas sem `current_period_end` (ex.: recem-criadas)
  * seguem o estado.
  */

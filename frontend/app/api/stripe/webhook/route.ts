@@ -1,14 +1,14 @@
 /**
  * Webhook do Stripe — fonte confiavel do estado de pagamento e assinatura.
  *
- * O retorno do navegador apos o Checkout nunca libera recursos: quem confirma
+ * O retorno do navegador após o Checkout nunca libera recursos: quem confirma
  * pagamento, ativa assinatura, registra falha e libera parecer avulso e este
  * endpoint. Toda entrega e idempotente (registro de `event.id`).
  *
  * Eventos tratados:
- *   checkout.session.completed          -> checkout concluido (assinatura ou avulso)
+ *   checkout.session.completed          -> checkout concluído (assinatura ou avulso)
  *   customer.subscription.created       -> assinatura criada
- *   customer.subscription.updated       -> alteracao (upgrade/downgrade/cancelamento agendado)
+ *   customer.subscription.updated       -> alteração (upgrade/downgrade/cancelamento agendado)
  *   customer.subscription.deleted       -> assinatura cancelada/encerrada
  *   invoice.payment_succeeded / invoice.paid -> pagamento recorrente confirmado
  *   invoice.payment_failed              -> pagamento recorrente com falha
@@ -30,6 +30,7 @@ import {
   StripeSubscriptionCheckoutSession,
   getStripeCustomerId,
   getStripeSubscriptionId,
+  getStripeSubscriptionPeriod,
   retrieveStripeSubscription,
   stripeTimestampToIso,
   upsertSubscriptionRecord
@@ -86,7 +87,7 @@ async function findPlanForSubscription(
     getMetadataValue(fallbackMetadata, "planSlug", "plan_slug");
   const priceId = subscription.items?.data?.find((item) => item.price?.id)?.price?.id;
 
-  // O Price ID vence: apos um upgrade/downgrade o metadata pode estar defasado.
+  // O Price ID vence: após um upgrade/downgrade o metadata pode estar defasado.
   const orderedFilters = [
     priceId ? `stripe_price_id=eq.${encodeURIComponent(priceId)}` : null,
     planId ? `id=eq.${encodeURIComponent(planId)}` : null,
@@ -156,6 +157,7 @@ async function handleSubscriptionChange(
 
   const cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
   const internalStatus = mapStripeSubscriptionStatus(subscription.status, cancelAtPeriodEnd);
+  const period = getStripeSubscriptionPeriod(subscription);
 
   const subscriptionId = await upsertSubscriptionRecord({
     userId,
@@ -165,8 +167,8 @@ async function handleSubscriptionChange(
     stripePriceId: subscription.items?.data?.find((item) => item.price?.id)?.price?.id ?? null,
     status: subscription.status || "unknown",
     internalStatus,
-    currentPeriodStart: stripeTimestampToIso(subscription.current_period_start),
-    currentPeriodEnd: stripeTimestampToIso(subscription.current_period_end),
+    currentPeriodStart: period.start,
+    currentPeriodEnd: period.end,
     cancelAtPeriodEnd,
     canceledAt: stripeTimestampToIso(subscription.canceled_at)
   });
@@ -201,7 +203,7 @@ async function handleInvoiceEvent(invoice: StripeInvoice, paid: boolean): Promis
     return { updated: false, ignored: true, reason: "invoice_without_subscription" };
   }
 
-  // Reconsulta a assinatura para gravar o estado real (e nao o da fatura).
+  // Reconsulta a assinatura para gravar o estado real (e não o da fatura).
   const subscription = await retrieveStripeSubscription(stripeSubscriptionId);
   const result = await handleSubscriptionChange(subscription);
 
@@ -291,7 +293,7 @@ async function markOneTimeOrderAsPaid(session: StripeCheckoutSession): Promise<H
     );
   }
 
-  // Parecer tecnico avulso: libera exatamente 1 demanda tecnica.
+  // Parecer técnico avulso: libera exatamente 1 demanda técnica.
   // A unicidade de stripe_checkout_session_id / one_time_order_id garante que
   // uma reentrega do mesmo evento nunca libere um segundo parecer.
   if (serviceType === TECHNICAL_OPINION_SERVICE_TYPE) {
@@ -345,8 +347,14 @@ async function processEvent(event: StripeEvent, stripeObject: Record<string, unk
 
     case "customer.subscription.created":
     case "customer.subscription.updated":
-    case "customer.subscription.deleted":
-      return handleSubscriptionChange(stripeObject as StripeSubscription);
+    case "customer.subscription.deleted": {
+      // Eventos podem chegar fora de ordem: grava o estado ATUAL da assinatura
+      // no Stripe (plano, status, período, cancel_at_period_end), e não o
+      // retrato possivelmente antigo contido no evento.
+      const payload = stripeObject as StripeSubscription;
+      const current = payload.id ? await retrieveStripeSubscription(payload.id).catch(() => null) : null;
+      return handleSubscriptionChange(current?.id ? current : payload, payload.metadata);
+    }
 
     case "invoice.paid":
     case "invoice.payment_succeeded":
@@ -370,7 +378,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!signature || !verifyStripeSignature(payload, signature, webhookSecret)) {
-    return NextResponse.json({ error: "Assinatura do Stripe invalida." }, { status: 400 });
+    return NextResponse.json({ error: "Assinatura do Stripe inválida." }, { status: 400 });
   }
 
   let event: StripeEvent;
@@ -378,7 +386,7 @@ export async function POST(request: NextRequest) {
   try {
     event = JSON.parse(payload) as StripeEvent;
   } catch {
-    return NextResponse.json({ error: "Payload do Stripe invalido." }, { status: 400 });
+    return NextResponse.json({ error: "Payload do Stripe inválido." }, { status: 400 });
   }
 
   const eventId = event.id;
@@ -392,6 +400,9 @@ export async function POST(request: NextRequest) {
     const claim = await claimStripeEvent(eventId, event.type ?? "unknown");
 
     if (!claim.claimed) {
+      if (claim.reason === "in_progress") {
+        return NextResponse.json({ received: false, inProgress: true, eventId }, { status: 409 });
+      }
       return NextResponse.json({ received: true, duplicate: true, eventId });
     }
 
@@ -400,7 +411,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ received: true, eventId, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Nao foi possivel processar o webhook do Stripe.";
+    const message = error instanceof Error ? error.message : "Não foi possível processar o webhook do Stripe.";
     await markStripeEventFailed(eventId, message);
 
     // 500 faz o Stripe reenviar o evento; o registro em `failed` permite o reprocessamento.

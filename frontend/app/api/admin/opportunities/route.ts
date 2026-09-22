@@ -247,24 +247,21 @@ function hasRecurringCase(caseData: CaseRow, recurring: ReturnType<typeof getRec
   return recurringByCrop || recurringByFarm;
 }
 
+/**
+ * Oferta sugerida segundo o modelo comercial vigente: o parecer agronômico
+ * humano está incluído nos planos (sem venda avulsa); demandas fora do escopo
+ * das assinaturas seguem para Atendimento pontual (página de Contato).
+ */
 function getSuggestedOffer(caseData: CaseRow, reasons: string[]) {
-  if (reasons.includes("caso recorrente da mesma cultura ou propriedade")) {
-    return "Acompanhamento mensal R$ 997+";
+  if (reasons.includes("caso recorrente da mesma cultura ou propriedade") || caseData.risk_level === "high") {
+    return "Consultoria Agronômica (até 3 pareceres/mês)";
   }
 
-  if (caseData.risk_level === "high") {
-    return "Relatório técnico R$ 500";
+  if (caseData.soil_analysis_url || reasons.includes("sem revisão humana contratada")) {
+    return "IA Profissional (1 parecer/mês)";
   }
 
-  if (caseData.soil_analysis_url) {
-    return "Interpretação de análise de solo R$ 250";
-  }
-
-  if (reasons.includes("sem revisão humana contratada")) {
-    return "Revisão humana R$ 197";
-  }
-
-  return "Relatório técnico R$ 500";
+  return "Atendimento pontual (Contato)";
 }
 
 export async function GET(request: NextRequest) {

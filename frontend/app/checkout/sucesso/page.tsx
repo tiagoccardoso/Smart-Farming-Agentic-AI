@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Retorno do Stripe apos o pagamento.
+ * Retorno do Stripe após o pagamento.
  *
- * Esta pagina NAO libera nada: a confirmacao e feita pelo webhook. Aqui apenas
+ * Esta página NAO libera nada: a confirmação é feita pelo webhook. Aqui apenas
  * explicamos o que acontece e oferecemos o caminho seguinte.
  */
 
@@ -16,8 +16,8 @@ export default function CheckoutSuccessPage() {
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Pagamento recebido</p>
         <h1 className="mt-3 text-2xl font-black text-emerald-900 sm:text-3xl">Obrigado! Estamos confirmando seu pagamento.</h1>
         <p className="mt-4 text-sm leading-6 text-emerald-900">
-          A confirmacao definitiva vem do Stripe e costuma levar alguns segundos. Assim que ela chegar, seu plano ou seu
-          parecer tecnico e liberado automaticamente — voce nao precisa pagar de novo nem repetir o processo.
+          A confirmação definitiva vem do Stripe e costuma levar alguns segundos. Assim que ela chegar, seu plano ou seu
+          parecer técnico é liberado automaticamente — você não precisa pagar de novo nem repetir o processo.
         </p>
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
           <Link
@@ -30,7 +30,7 @@ export default function CheckoutSuccessPage() {
             href="/pareceres"
             className="rounded-full border border-leaf-200 bg-white px-6 py-3 text-center text-sm font-bold text-leaf-700 shadow-sm transition hover:bg-leaf-50"
           >
-            Meus pareceres tecnicos
+            Meus pareceres técnicos
           </Link>
         </div>
       </div>

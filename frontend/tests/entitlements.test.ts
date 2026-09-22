@@ -1,5 +1,5 @@
 /**
- * Resolucao de direitos por plano (itens 11, 16 e 17 do escopo).
+ * Resolução de direitos por plano (itens 11, 16 e 17 do escopo).
  */
 
 import assert from "node:assert/strict";
@@ -34,7 +34,7 @@ function mockBackend(options: Options = {}) {
   });
 }
 
-test("usuario sem assinatura fica no plano Gratuito com 3 consultas", async () => {
+test("usuário sem assinatura fica no plano Gratuito com 3 consultas", async () => {
   const mock = mockBackend();
 
   try {
@@ -48,7 +48,7 @@ test("usuario sem assinatura fica no plano Gratuito com 3 consultas", async () =
   }
 });
 
-test("Consultoria Agronomica ativa libera 3 pareceres e validacao humana", async () => {
+test("Consultoria Agronômica ativa libera 3 pareceres e validação humana", async () => {
   const mock = mockBackend({ subscriptions: [subscriptionRow()] });
 
   try {
@@ -62,7 +62,7 @@ test("Consultoria Agronomica ativa libera 3 pareceres e validacao humana", async
   }
 });
 
-test("assinatura em atraso nao libera o plano pago", async () => {
+test("assinatura em atraso não libera o plano pago", async () => {
   const mock = mockBackend({
     subscriptions: [subscriptionRow({ status: "past_due", internal_status: "past_due" })]
   });
@@ -85,7 +85,7 @@ test("assinatura antiga e preservada e recebe os direitos equivalentes", async (
 
   try {
     const access = await resolveUserAccess("user-legado");
-    // Direitos migrados para a Consultoria Agronomica...
+    // Direitos migrados para a Consultoria Agronômica...
     assert.equal(access.planCode, "consultoria-agronomica");
     assert.equal(access.entitlements.TECHNICAL_OPINIONS_MONTHLY, 3);
     // ...mas o plano cobrado continua sendo o antigo.
@@ -110,7 +110,7 @@ test("acesso ilimitado ignora os limites do plano", async () => {
   }
 });
 
-test("usuario inativo e sinalizado para bloqueio no servidor", async () => {
+test("usuário inativo e sinalizado para bloqueio no servidor", async () => {
   const mock = mockBackend({ profile: { status: "inactive", unlimited_access: false } });
 
   try {

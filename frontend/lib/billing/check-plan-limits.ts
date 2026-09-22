@@ -3,8 +3,8 @@
  *
  * Esta camada NAO conhece regras comerciais: ela apenas traduz um tipo de
  * evento de uso para o direito correspondente em `lib/billing/entitlements.ts`.
- * Alterar "3 consultas" para "5 consultas" e uma alteracao de dado em
- * `plans.entitlements`, feita pela area administrativa.
+ * Alterar "3 consultas" para "5 consultas" e uma alteração de dado em
+ * `plans.entitlements`, feita pela área administrativa.
  */
 
 import { getCurrentMonthlyPeriod } from "./billing-cycle";
@@ -57,7 +57,7 @@ export type PlanLimitCheckResult = {
   cta?: { label: string; href: string } | null;
 };
 
-export const PLAN_LIMIT_REACHED_MESSAGE = "Voce atingiu o limite do seu plano neste ciclo.";
+export const PLAN_LIMIT_REACHED_MESSAGE = "Você atingiu o limite do seu plano neste ciclo.";
 
 /** Traduz um evento de uso no direito do plano que o autoriza. */
 function resolveLimit(eventType: UsageEventType, entitlements: Entitlements): UsageLimit {
@@ -78,10 +78,10 @@ function resolveLimit(eventType: UsageEventType, entitlements: Entitlements): Us
 }
 
 const UPGRADE_CTA = { label: "Conhecer IA Profissional", href: "/planos" };
-const CONSULTING_CTA = { label: "Quero Consultoria Agronomica", href: "/planos" };
+const CONSULTING_CTA = { label: "Quero Consultoria Agronômica", href: "/planos" };
 
 /**
- * Mensagens explicam o motivo da restricao. Nunca "Voce nao possui permissao."
+ * Mensagens explicam o motivo da restrição. Nunca "Você não possui permissão."
  */
 function buildLimitMessage(
   eventType: UsageEventType,
@@ -92,34 +92,34 @@ function buildLimitMessage(
   if (limit === 0) {
     if (eventType === "image_triage") {
       return {
-        message: `Seu plano ${planLabel} nao inclui analise de fotos pela IA.`,
+        message: `Seu plano ${planLabel} não inclui análise de fotos pela IA.`,
         cta: UPGRADE_CTA
       };
     }
     if (eventType === "pdf_report") {
       return {
-        message: `Seu plano ${planLabel} nao inclui relatorios e recomendacoes em PDF.`,
+        message: `Seu plano ${planLabel} não inclui relatórios e recomendações em PDF.`,
         cta: UPGRADE_CTA
       };
     }
     if (eventType === "human_review") {
       return {
-        message: `Seu plano ${planLabel} nao inclui validacao por especialista.`,
+        message: `Seu plano ${planLabel} não inclui validação por especialista.`,
         cta: CONSULTING_CTA
       };
     }
-    return { message: `Seu plano ${planLabel} nao inclui este recurso.`, cta: UPGRADE_CTA };
+    return { message: `Seu plano ${planLabel} não inclui este recurso.`, cta: UPGRADE_CTA };
   }
 
   if (eventType === "ai_question") {
     return {
-      message: `Seu plano ${planLabel} inclui ${limit} consultas a IA por mes. Voce ja utilizou as ${used} consultas deste ciclo.`,
+      message: `Seu plano ${planLabel} inclui ${limit} consultas a IA por mês. Você já utilizou as ${used} consultas deste ciclo.`,
       cta: UPGRADE_CTA
     };
   }
 
   return {
-    message: `Seu plano ${planLabel} inclui ${limit} usos deste recurso por ciclo. Voce ja utilizou ${used}.`,
+    message: `Seu plano ${planLabel} inclui ${limit} usos deste recurso por ciclo. Você já utilizou ${used}.`,
     cta: UPGRADE_CTA
   };
 }
@@ -151,7 +151,7 @@ export class PlanFeatureUnavailableError extends Error {
 export class UserInactiveError extends Error {
   status: number;
 
-  constructor(message = "Usuario inativo. Entre em contato com o suporte.") {
+  constructor(message = "Usuário inativo. Entre em contato com o suporte.") {
     super(message);
     this.name = "UserInactiveError";
     this.status = 403;
@@ -279,14 +279,14 @@ export async function checkAndRecordUsageEvent(userId: string, eventType: UsageE
 const FEATURE_ENTITLEMENT: Record<PlanFeature, (entitlements: Entitlements) => boolean> = {
   photo_upload: (entitlements) => entitlements.AI_IMAGES,
   soil_analysis_upload: (entitlements) => entitlements.SOIL_ANALYSIS_UPLOAD,
-  // Historico simples permanece disponivel em todos os planos.
+  // Histórico simples permanece disponível em todos os planos.
   simple_history: () => true
 };
 
 const FEATURE_MESSAGES: Record<PlanFeature, string> = {
-  photo_upload: "inclui analise e interpretacao de fotos",
-  soil_analysis_upload: "inclui upload de analise de solo",
-  simple_history: "inclui historico das consultas"
+  photo_upload: "inclui análise e interpretacao de fotos",
+  soil_analysis_upload: "inclui upload de análise de solo",
+  simple_history: "inclui histórico das consultas"
 };
 
 export async function assertPlanFeature(userId: string, feature: PlanFeature, preloadedAccess?: ResolvedAccess) {
@@ -300,7 +300,7 @@ export async function assertPlanFeature(userId: string, feature: PlanFeature, pr
 
   if (!FEATURE_ENTITLEMENT[feature](access.entitlements)) {
     throw new PlanFeatureUnavailableError(
-      `Seu plano ${access.planName} nao ${FEATURE_MESSAGES[feature]}.`,
+      `Seu plano ${access.planName} não ${FEATURE_MESSAGES[feature]}.`,
       UPGRADE_CTA
     );
   }

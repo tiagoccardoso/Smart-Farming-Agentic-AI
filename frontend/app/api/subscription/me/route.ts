@@ -1,6 +1,6 @@
 /**
- * Dados da area "Minha assinatura": plano atual, valor, situacao, proxima
- * cobranca, consultas a IA e pareceres utilizados/restantes.
+ * Dados da área "Minha assinatura": plano atual, valor, situacao, próxima
+ * cobrança, consultas a IA e pareceres utilizados/restantes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel carregar sua assinatura.") },
+      { error: errorMessage(error, "Não foi possível carregar sua assinatura.") },
       { status: errorStatus(error) }
     );
   }

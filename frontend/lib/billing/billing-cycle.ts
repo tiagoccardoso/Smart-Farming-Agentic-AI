@@ -1,11 +1,11 @@
 /**
- * Ciclos de cobranca usados para reiniciar contadores.
+ * Ciclos de cobrança usados para reiniciar contadores.
  *
- * - Consultas a IA usam o ciclo de calendario (mes UTC). E o "ciclo mensal
- *   definido pelo sistema" ja adotado por `usage_events`; manter assim preserva
- *   todo o historico de uso ja gravado.
- * - Pareceres tecnicos usam o ciclo real da assinatura quando ele existe, para
- *   que "3 pareceres por ciclo" acompanhe a data de cobranca do assinante.
+ * - Consultas a IA usam o ciclo de calendario (mês UTC). E o "ciclo mensal
+ *   definido pelo sistema" já adotado por `usage_events`; manter assim preserva
+ *   todo o histórico de uso já gravado.
+ * - Pareceres técnicos usam o ciclo real da assinatura quando ele existe, para
+ *   que "3 pareceres por ciclo" acompanhe a data de cobrança do assinante.
  */
 
 import type { ResolvedSubscription } from "./entitlements";
@@ -33,7 +33,7 @@ export function getCalendarMonthCycle(now = new Date()): BillingCycle {
   };
 }
 
-/** Compatibilidade com o formato ja gravado em `usage_events`. */
+/** Compatibilidade com o formato já gravado em `usage_events`. */
 export function getCurrentMonthlyPeriod(now = new Date()) {
   const cycle = getCalendarMonthCycle(now);
   return { periodStart: cycle.start, periodEnd: cycle.end };

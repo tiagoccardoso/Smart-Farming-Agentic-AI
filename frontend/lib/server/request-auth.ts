@@ -2,9 +2,9 @@
  * Autenticacao das rotas de API.
  *
  * Aceita o token pelo header Authorization (usado pelas telas que guardam a
- * sessao no localStorage) ou pelo cookie de sessao (usado pelas paginas
- * publicas). Toda validacao de plano acontece no servidor, a partir do usuario
- * resolvido aqui — esconder um botao no React nunca e suficiente.
+ * sessão no localStorage) ou pelo cookie de sessão (usado pelas páginas
+ * publicas). Toda validação de plano acontece no servidor, a partir do usuário
+ * resolvido aqui — esconder um botão no React nunca é suficiente.
  */
 
 import { NextRequest } from "next/server";
@@ -13,7 +13,7 @@ import { AUTH_ACCESS_COOKIE, AuthenticatedUser, Profile, extractBearerToken, get
 export class UnauthenticatedError extends Error {
   status = 401;
 
-  constructor(message = "Faca login para continuar.") {
+  constructor(message = "Faça login para continuar.") {
     super(message);
     this.name = "UnauthenticatedError";
   }
@@ -51,7 +51,7 @@ export async function requireUser(request: NextRequest): Promise<{ token: string
     if (error instanceof UnauthenticatedError) {
       throw error;
     }
-    throw new UnauthenticatedError("Sessao expirada. Faca login novamente.");
+    throw new UnauthenticatedError("Sessão expirada. Faça login novamente.");
   }
 }
 
@@ -60,11 +60,11 @@ export async function requireProfile(request: NextRequest) {
   const profile = await getCurrentProfile(token, user.id);
 
   if (!profile) {
-    throw new ForbiddenError("Perfil nao encontrado.");
+    throw new ForbiddenError("Perfil não encontrado.");
   }
 
   if ((profile.status ?? "active") !== "active") {
-    throw new ForbiddenError("Usuario inativo. Entre em contato com o suporte.");
+    throw new ForbiddenError("Usuário inativo. Entre em contato com o suporte.");
   }
 
   return { token, user, profile };

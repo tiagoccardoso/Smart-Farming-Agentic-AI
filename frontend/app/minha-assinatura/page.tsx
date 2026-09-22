@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Minha assinatura: plano atual, valor, situacao, proxima cobranca, consultas
+ * Minha assinatura: plano atual, valor, situacao, próxima cobrança, consultas
  * a IA e pareceres utilizados/restantes, alem do acesso ao Customer Portal do
  * Stripe e a troca de plano (upgrade/downgrade com proration).
  */
@@ -34,7 +34,7 @@ type SubscriptionSummary = {
 };
 
 const PRORATION_NOTICE =
-  "A troca de plano usa cobranca proporcional: o Stripe credita o periodo nao utilizado do plano atual e cobra a diferenca do novo plano na proxima fatura.";
+  "A troca de plano usa cobrança proporcional: o Stripe credita o período não utilizado do plano atual e cobra a diferenca do novo plano na próxima fatura.";
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -64,10 +64,10 @@ export default function MinhaAssinaturaPage() {
     try {
       const response = await fetch("/api/subscription/me", { cache: "no-store", credentials: "same-origin" });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Nao foi possivel carregar sua assinatura.");
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível carregar sua assinatura.");
       setData(payload as SubscriptionSummary);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel carregar sua assinatura.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível carregar sua assinatura.");
     } finally {
       setLoading(false);
     }
@@ -86,10 +86,10 @@ export default function MinhaAssinaturaPage() {
     try {
       const response = await fetch("/api/stripe/customer-portal", { method: "POST", credentials: "same-origin" });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.portalUrl) throw new Error(payload?.error || "Nao foi possivel abrir o portal.");
+      if (!response.ok || !payload?.portalUrl) throw new Error(payload?.error || "Não foi possível abrir o portal.");
       window.location.href = payload.portalUrl;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel abrir o portal.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível abrir o portal.");
       setBusy(null);
     }
   }
@@ -109,13 +109,13 @@ export default function MinhaAssinaturaPage() {
       const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Nao foi possivel trocar de plano.");
+        throw new Error(payload?.error || "Não foi possível trocar de plano.");
       }
 
       setMessage(payload?.message || "Troca solicitada.");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel trocar de plano.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível trocar de plano.");
     } finally {
       setBusy(null);
     }
@@ -133,7 +133,7 @@ export default function MinhaAssinaturaPage() {
     return (
       <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6 md:py-16">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-800" role="alert">
-          {error || "Assinatura indisponivel."}
+          {error || "Assinatura indisponível."}
         </div>
       </section>
     );
@@ -145,7 +145,7 @@ export default function MinhaAssinaturaPage() {
 
   return (
     <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 md:py-16">
-      <SectionTitle title="Minha assinatura" subtitle="Acompanhe seu plano, seu consumo e sua proxima cobranca." />
+      <SectionTitle title="Minha assinatura" subtitle="Acompanhe seu plano, seu consumo e sua próxima cobrança." />
 
       {message && (
         <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800" role="status">
@@ -163,31 +163,31 @@ export default function MinhaAssinaturaPage() {
           <InfoRow label="Plano atual" value={data.plan.name} />
           <InfoRow
             label="Valor"
-            value={data.plan.priceCents ? `${brl.format(data.plan.priceCents / 100)}/mes` : "Sem cobranca recorrente"}
+            value={data.plan.priceCents ? `${brl.format(data.plan.priceCents / 100)}/mês` : "Sem cobrança recorrente"}
           />
           <InfoRow label="Situacao" value={data.subscription?.stateLabel ?? "Sem assinatura"} />
           <InfoRow
-            label={data.subscription?.cancelAtPeriodEnd ? "Acesso ate" : "Proxima cobranca"}
+            label={data.subscription?.cancelAtPeriodEnd ? "Acesso até" : "Próxima cobrança"}
             value={formatDate(data.subscription?.cancelAtPeriodEnd ? data.subscription.currentPeriodEnd : data.subscription?.nextChargeAt)}
           />
         </div>
 
         {data.plan.legacyPlanCode && (
           <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-            Sua assinatura foi contratada em um plano anterior e foi preservada exatamente como estava. O valor cobrado nao
-            mudou, e voce mantem os recursos equivalentes na nova estrutura.
+            Sua assinatura foi contratada em um plano anterior e foi preservada exatamente como estava. O valor cobrado não
+            mudou, e você mantem os recursos equivalentes na nova estrutura.
           </p>
         )}
 
         {data.subscription?.state === "past_due" && (
           <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
-            Identificamos uma falha no ultimo pagamento. Atualize a forma de pagamento para reativar os recursos do plano.
+            Identificamos uma falha no último pagamento. Atualize a forma de pagamento para reativar os recursos do plano.
           </p>
         )}
 
         {data.subscription?.cancelAtPeriodEnd && (
           <p className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            O cancelamento esta agendado. Voce continua com todos os recursos ate o fim do periodo ja pago e depois volta
+            O cancelamento esta agendado. Você continua com todos os recursos até o fim do período já pago e depois volta
             automaticamente para o plano Gratuito.
           </p>
         )}
@@ -203,32 +203,32 @@ export default function MinhaAssinaturaPage() {
               </p>
               <p className="mt-2 text-sm text-slate-600">
                 {data.aiUsage.limit === null
-                  ? "Sem teto numerico, conforme a politica de uso da plataforma."
+                  ? "Sem teto numerico, conforme a política de uso da plataforma."
                   : `Reinicia em ${formatDate(data.aiUsage.periodEnd)}.`}
               </p>
             </>
           ) : (
-            <p className="mt-3 text-sm text-slate-600">Consumo indisponivel no momento.</p>
+            <p className="mt-3 text-sm text-slate-600">Consumo indisponível no momento.</p>
           )}
         </div>
 
         <div className="rounded-[2rem] border border-leaf-100 bg-white p-6 shadow-soft">
-          <h2 className="text-lg font-bold text-slate-950">Pareceres tecnicos</h2>
+          <h2 className="text-lg font-bold text-slate-950">Pareceres agronômicos humanos</h2>
           {data.technicalOpinions ? (
             <>
               <p className="mt-3 text-2xl font-black text-leaf-800">{data.technicalOpinions.usageLabel}</p>
               <p className="mt-2 text-sm text-slate-600">{data.technicalOpinions.remainingLabel}</p>
               {data.technicalOpinions.availableCredits > 0 && (
                 <p className="mt-2 text-sm font-semibold text-emerald-700">
-                  Voce tambem possui {data.technicalOpinions.availableCredits} parecer(es) avulso(s) pago(s) disponivel(is).
+                  Você também possui {data.technicalOpinions.availableCredits} parecer(es) avulso(s) pago(s) disponível(is).
                 </p>
               )}
               <Link href="/pareceres" className="mt-4 inline-flex text-sm font-bold text-leaf-700">
-                Ver minhas demandas tecnicas →
+                Ver meus pareceres →
               </Link>
             </>
           ) : (
-            <p className="mt-3 text-sm text-slate-600">Saldo indisponivel no momento.</p>
+            <p className="mt-3 text-sm text-slate-600">Saldo indisponível no momento.</p>
           )}
         </div>
       </div>
@@ -256,7 +256,7 @@ export default function MinhaAssinaturaPage() {
               disabled={Boolean(busy)}
               className="rounded-full border border-leaf-200 bg-white px-6 py-3 text-sm font-bold text-leaf-700 shadow-sm transition hover:bg-leaf-50 disabled:cursor-wait disabled:opacity-70"
             >
-              {busy === "consultoria-agronomica" ? "Solicitando..." : "Migrar para Consultoria Agronomica"}
+              {busy === "consultoria-agronomica" ? "Solicitando..." : "Migrar para Consultoria Agronômica"}
             </button>
           )}
 

@@ -39,8 +39,8 @@ export const PROFESSIONAL_PLAN_ROW = {
     AI_IMAGES: true,
     REPORTS: true,
     PROPERTY_HISTORY: true,
-    TECHNICAL_OPINIONS_MONTHLY: 0,
-    HUMAN_VALIDATION: false,
+    TECHNICAL_OPINIONS_MONTHLY: 1,
+    HUMAN_VALIDATION: true,
     CASE_ANALYSIS_MONTHLY: 300,
     IMAGE_TRIAGE_MONTHLY: 300,
     SOIL_ANALYSIS_UPLOAD: true
@@ -52,7 +52,7 @@ export const PROFESSIONAL_PLAN_ROW = {
 
 export const CONSULTING_PLAN_ROW = {
   id: "plan-consultoria",
-  name: "PlantaSa Consultoria Agronomica",
+  name: "PlantaSa Consultoria Agronômica",
   slug: "consultoria-agronomica",
   price_cents: 49700,
   billing_type: "monthly",

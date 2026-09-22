@@ -53,7 +53,7 @@ export function installFetchMock(handler: MockHandler): FetchMock {
     const result = handler(call);
 
     if (!result) {
-      throw new Error(`Chamada nao mapeada no mock: ${method} ${url}`);
+      throw new Error(`Chamada não mapeada no mock: ${method} ${url}`);
     }
 
     const status = result.status ?? 200;

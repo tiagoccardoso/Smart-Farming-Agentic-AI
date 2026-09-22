@@ -8,7 +8,7 @@ import SectionTitle from "../../components/SectionTitle";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
 import LoadingCard from "../../components/agronomic/LoadingCard";
 import { RiskBadge, StatusBadge } from "../../components/agronomic/StatusBadge";
-import { deleteAgronomicCase, getAgronomicCase, requestHumanReviewCheckout } from "../../lib/api";
+import { deleteAgronomicCase, getAgronomicCase } from "../../lib/api";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase } from "../../lib/agronomic/case";
 
@@ -50,6 +50,7 @@ const caseStatusLabels: Record<string, string> = {
 };
 
 const paymentStatusLabels: Record<string, string> = {
+  included: "Incluído no plano",
   pending: "Pendente",
   paid: "Pago",
   canceled: "Cancelado",
@@ -79,8 +80,17 @@ function getVisualCaseStatus(caseItem: HumanReviewListCase | AgronomicCase) {
   return caseItem.human_review_status || caseItem.status || "submitted";
 }
 
+/**
+ * Casos antigos têm pedido avulso (pago/pendente). Casos novos usam o parecer
+ * incluído no plano e não possuem pedido: exibimos "Incluído no plano".
+ */
 function getPaymentStatus(caseItem: HumanReviewListCase) {
-  return caseItem.payment_status || caseItem.latestOrder?.payment_status || (caseItem.human_review_status === "pending_payment" ? "pending" : "paid");
+  return caseItem.payment_status || caseItem.latestOrder?.payment_status || (caseItem.human_review_status === "pending_payment" ? "pending" : "included");
+}
+
+function formatReviewValue(caseItem: HumanReviewListCase) {
+  const priceCents = caseItem.latestOrder?.price_cents ?? caseItem.review_price_cents ?? null;
+  return getPaymentStatus(caseItem) === "included" || priceCents === null ? "Incluído no plano" : formatCurrency(priceCents);
 }
 
 function InfoTile({ label, value }: { label: string; value: string | number }) {
@@ -102,7 +112,9 @@ function Timeline({ caseData, paymentStatus, logs }: { caseData: AgronomicCase; 
     { label: "Caso criado", done: true, date: caseData.created_at },
     { label: "IA analisou sintomas", done: hasAiAnalysis, date: caseData.updated_at },
     { label: "Perguntas respondidas", done: answered },
-    { label: paymentStatus === "paid" ? "Pagamento confirmado" : "Aguardando pagamento", done: paymentStatus === "paid" },
+    paymentStatus === "included"
+      ? { label: "Parecer do plano utilizado", done: waitingReview }
+      : { label: paymentStatus === "paid" ? "Pagamento confirmado" : "Pagamento avulso não concluído", done: paymentStatus === "paid" },
     { label: "Aguardando revisão da especialista", done: waitingReview },
     { label: "Revisão concluída", done: reviewed },
     { label: "Relatório disponível", done: reportAvailable },
@@ -152,7 +164,6 @@ function RevisaoHumanaContent() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [configuredReviewPrice, setConfiguredReviewPrice] = useState<number | null>(null);
 
   async function loadDashboard() {
     const token = getStoredSupabaseAccessToken();
@@ -175,12 +186,6 @@ function RevisaoHumanaContent() {
     }
   }
 
-  useEffect(() => {
-    fetch("/api/plans", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
-      const service = payload?.services?.find((item: { service_type?: string }) => item.service_type === "human_case_review");
-      setConfiguredReviewPrice(typeof service?.price_cents === "number" ? service.price_cents : null);
-    }).catch(() => null);
-  }, []);
 
   useEffect(() => { loadDashboard(); }, []);
   useEffect(() => {
@@ -225,22 +230,6 @@ function RevisaoHumanaContent() {
     });
   }, [cases, filter, search]);
 
-  async function continuePayment(caseId: string) {
-    const token = getStoredSupabaseAccessToken();
-    if (!token) return setError("Faça login para continuar o pagamento.");
-    setBusyCaseId(caseId);
-    setError(null);
-    try {
-      const response = (await requestHumanReviewCheckout(caseId, token)) as { checkoutUrl?: string };
-      if (!response.checkoutUrl) throw new Error("Checkout Stripe indisponível para este caso.");
-      window.location.href = response.checkoutUrl;
-    } catch (paymentError) {
-      setError(paymentError instanceof Error ? paymentError.message : "Não foi possível abrir o checkout.");
-    } finally {
-      setBusyCaseId(null);
-    }
-  }
-
   async function requestReview(caseId: string) {
     const token = getStoredSupabaseAccessToken();
     if (!token) return setError("Faça login para enviar um caso à revisão humana.");
@@ -250,7 +239,7 @@ function RevisaoHumanaContent() {
       const response = await fetch("/api/agronomic-cases/request-human-review", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ caseId }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Não foi possível enviar o caso.");
-      setToast("Caso salvo no painel de revisão humana. Você pode pagar agora ou retornar depois.");
+      setToast(payload?.humanOpinion?.balanceLabel ? `Caso enviado para parecer agronômico. ${payload.humanOpinion.balanceLabel}.` : "Caso enviado para parecer agronômico da especialista.");
       setShowLocator(false);
       await loadDashboard();
       router.push(`/revisao-humana?caseId=${encodeURIComponent(caseId)}`);
@@ -311,7 +300,7 @@ function RevisaoHumanaContent() {
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.16em] sm:tracking-[0.3em] text-leaf-100">Revisão Humana</p>
             <h1 className="mt-3 text-2xl font-black sm:text-3xl md:text-5xl">Painel persistente de consultorias agrícolas</h1>
-            <p className="mt-4 max-w-3xl text-sm leading-6 text-leaf-50 md:text-base">Localize análises feitas pela IA, envie para revisão humana, retome pagamentos, complemente imagens e acompanhe o histórico sem perder continuidade.</p>
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-leaf-50 md:text-base">Localize análises feitas pela IA, envie para parecer agronômico humano (incluído nos planos elegíveis), complemente imagens e acompanhe o histórico sem perder continuidade.</p>
           </div>
           <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2 md:flex md:flex-wrap">
             <button onClick={() => setShowLocator(true)} className="rounded-full bg-white px-5 py-3 text-sm font-black text-leaf-800 shadow-soft hover:bg-leaf-50">Localizar caso</button>
@@ -325,7 +314,7 @@ function RevisaoHumanaContent() {
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <InfoTile label="Casos no painel" value={cases.length} />
-        <InfoTile label="Pagamentos pendentes" value={cases.filter((caseItem) => getPaymentStatus(caseItem) === "pending").length} />
+        <InfoTile label="Pareceres em andamento" value={cases.filter((caseItem) => ["waiting_review", "waiting_human_review", "in_review"].includes(getVisualCaseStatus(caseItem))).length} />
         <InfoTile label="Aguardando especialista" value={cases.filter((caseItem) => ["waiting_review", "waiting_human_review"].includes(getVisualCaseStatus(caseItem))).length} />
         <InfoTile label="Relatórios disponíveis" value={cases.filter((caseItem) => Boolean(caseItem.latestReport?.report_url)).length} />
       </div>
@@ -364,11 +353,10 @@ function RevisaoHumanaContent() {
                       <p><strong>Análise:</strong> {formatDate(caseItem.created_at)}</p>
                       <p><strong>Atualização:</strong> {formatDate(caseItem.updated_at)}</p>
                       <p><strong>Imagens:</strong> {caseItem.images_count ?? caseItem.images?.length ?? 0}</p>
-                      <p><strong>Valor:</strong> {formatCurrency(caseItem.review_price_cents, configuredReviewPrice)}</p>
+                      <p><strong>Valor:</strong> {formatReviewValue(caseItem)}</p>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap" onClick={(event) => event.stopPropagation()}>
-                    {paymentStatus === "pending" && <button onClick={() => continuePayment(caseItem.id)} disabled={busyCaseId === caseItem.id} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{busyCaseId === caseItem.id ? "Abrindo..." : "Continuar pagamento"}</button>}
                     <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa com IA</Link>
                     <Link href={`/enviar-caso?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
                     <button onClick={() => setDeleteCandidate(caseItem)} className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700">Excluir caso</button>
@@ -407,7 +395,6 @@ function RevisaoHumanaContent() {
                   {detailCase.chat_messages?.slice(-6).map((message) => <div key={message.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><strong>{message.role === "assistant" ? "IA" : "Você"}:</strong> {message.message_type === "audio" ? "Áudio anexado" : message.message}</div>)}
                 </div>
                 <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
-                  {detailPaymentStatus === "pending" && <button onClick={() => continuePayment(detailCase.id)} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white">Continuar pagamento</button>}
                   <Link href={`/consultoria-ia?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
                   <Link href={`/enviar-caso?caseId=${detailCase.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Enviar novas imagens</Link>
                   <button onClick={() => cancelReview(detailCase.id)} disabled={busyCaseId === detailCase.id || !["pending_payment", "pending", "not_requested"].includes(detailCase.human_review_status ?? "")} className="rounded-full border border-amber-200 px-4 py-2 text-xs font-black text-amber-700 disabled:opacity-50">Cancelar solicitação</button>
@@ -442,7 +429,7 @@ function RevisaoHumanaContent() {
                     <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
                       <button onClick={() => { setShowLocator(false); router.push(`/revisao-humana?caseId=${caseItem.id}`); }} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Ver análise</button>
                       <Link href={`/consultoria-ia?caseId=${caseItem.id}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Continuar conversa</Link>
-                      <button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{caseItem.human_review_requested ? "Já no painel" : "Enviar para revisão humana"}</button>
+                      <button onClick={() => requestReview(caseItem.id)} disabled={busyCaseId === caseItem.id || caseItem.human_review_requested} className="rounded-full bg-leaf-600 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">{caseItem.human_review_requested ? "Já no painel" : "Solicitar parecer agronômico"}</button>
                     </div>
                   </article>
                 );

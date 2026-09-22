@@ -1,5 +1,5 @@
 /**
- * Acompanhamento administrativo das solicitacoes de orcamento
+ * Acompanhamento administrativo das solicitações de orçamento
  * (Presencial & Projetos Especiais). Restrito a administradores e especialistas.
  */
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ requests: rows });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel carregar as solicitacoes.") },
+      { error: errorMessage(error, "Não foi possível carregar as solicitações.") },
       { status: errorStatus(error) }
     );
   }
@@ -40,14 +40,14 @@ export async function PATCH(request: NextRequest) {
     const id = payload?.id?.trim();
 
     if (!id) {
-      return NextResponse.json({ error: "Informe a solicitacao." }, { status: 400 });
+      return NextResponse.json({ error: "Informe a solicitação." }, { status: 400 });
     }
 
     const update: Record<string, unknown> = {};
 
     if (payload?.status) {
       if (!ALLOWED_STATUSES.has(payload.status)) {
-        return NextResponse.json({ error: "Status invalido." }, { status: 400 });
+        return NextResponse.json({ error: "Status inválido." }, { status: 400 });
       }
       update.status = payload.status;
     }
@@ -71,7 +71,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ updated: true });
   } catch (error) {
     return NextResponse.json(
-      { error: errorMessage(error, "Nao foi possivel atualizar a solicitacao.") },
+      { error: errorMessage(error, "Não foi possível atualizar a solicitação.") },
       { status: errorStatus(error) }
     );
   }
