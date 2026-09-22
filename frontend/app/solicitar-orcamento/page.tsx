@@ -1,42 +1,57 @@
 "use client";
 
 /**
- * Presencial & Projetos Especiais — solicitação de orcamento.
+ * Presencial & Projetos Especiais — solicitação de orçamento.
  *
  * Categoria sob consulta: nenhuma cobrança automática antes da definição do
- * orcamento. Se o usuário estiver autenticado, os dados já conhecidos e as
- * propriedades cadastradas sao preenchidos automaticamente.
+ * orçamento. Se o usuário estiver autenticado, os dados já conhecidos e as
+ * propriedades cadastradas são preenchidos automaticamente.
+ *
+ * Mesmo padrão do formulário de Contato (components/public-request): assistente
+ * de escrita com IA, fotos e mensagem de voz opcionais e envio sem duplicidade.
  */
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import SectionTitle from "../../components/SectionTitle";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import AiWritingAssistant from "../../components/public-request/AiWritingAssistant";
+import type { AudioValue } from "../../components/public-request/AudioAttachment";
+import FormAlert from "../../components/public-request/FormAlert";
+import FormField from "../../components/public-request/FormField";
+import FormSection from "../../components/public-request/FormSection";
+import HoneypotField from "../../components/public-request/HoneypotField";
+import { revokeImageItems, type ImageItem } from "../../components/public-request/ImageAttachments";
+import PageHeader from "../../components/public-request/PageHeader";
+import RequestAttachments, { appendAttachments, getAttachmentBlocker } from "../../components/public-request/RequestAttachments";
+import SubmitButton from "../../components/public-request/SubmitButton";
+import { formCardClass, inputClass } from "../../components/public-request/styles";
+import { usePublicRequestSubmit, useUnsavedChangesWarning } from "../../components/public-request/usePublicRequestSubmit";
 import { QUOTE_SERVICE_LABELS, QUOTE_SERVICE_TYPES } from "../../lib/service-quotes";
 
 type Property = { id: string; name: string; location_gps: string | null };
 
 const SERVICE_OPTIONS = QUOTE_SERVICE_TYPES.map((value) => ({ value, label: QUOTE_SERVICE_LABELS[value] }));
 
-const inputClass =
-  "mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none transition focus:border-leaf-400 focus:ring-4 focus:ring-leaf-100";
+const initialForm = {
+  name: "",
+  email: "",
+  phone: "",
+  city: "",
+  state: "",
+  serviceType: "visita_tecnica",
+  propertyId: "",
+  description: "",
+  notes: ""
+};
 
 export default function SolicitarOrcamentoPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [authenticated, setAuthenticated] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    city: "",
-    state: "",
-    serviceType: "visita_tecnica",
-    propertyId: "",
-    description: "",
-    notes: ""
-  });
+  const [form, setForm] = useState(initialForm);
+  const [website, setWebsite] = useState("");
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [audio, setAudio] = useState<AudioValue | null>(null);
+  const [recording, setRecording] = useState(false);
+  const alertRef = useRef<HTMLDivElement | null>(null);
+  const { submitting, progress, error, success, setError, setSuccess, submit } = usePublicRequestSubmit("quote");
 
   useEffect(() => {
     let active = true;
@@ -63,152 +78,168 @@ export default function SolicitarOrcamentoPage() {
     };
   }, []);
 
-  function update(field: keyof typeof form, value: string) {
+  useEffect(() => {
+    if (error || success) alertRef.current?.focus();
+  }, [error, success]);
+
+  const dirty = !success && (form.description.trim().length > 0 || images.length > 0 || audio !== null);
+  useUnsavedChangesWarning(dirty && !submitting);
+
+  function update(field: keyof typeof initialForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+    if (success) setSuccess("");
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
+  const buildAiPayload = useCallback(
+    () => ({
+      source: "quote",
+      website,
+      serviceType: form.serviceType,
+      city: form.city,
+      state: form.state,
+      notes: form.notes,
+      imageCount: images.filter((item) => item.status === "ready").length,
+      hasAudio: audio !== null
+    }),
+    [audio, form.city, form.notes, form.serviceType, form.state, images, website]
+  );
 
-    setSaving(true);
-    setError("");
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
     setSuccess("");
 
-    try {
-      const response = await fetch("/api/service-quotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ ...form, propertyId: form.propertyId || null })
-      });
-      const payload = await response.json().catch(() => null);
+    if (!audio && form.description.trim().length < 10) {
+      setError("Descreva a necessidade com pelo menos 10 caracteres ou grave um áudio explicando.");
+      return;
+    }
 
-      if (!response.ok) {
-        throw new Error(payload?.error || "Não foi possível registrar a solicitação.");
-      }
+    const blocker = getAttachmentBlocker(images, audio, recording);
+    if (blocker) {
+      setError(blocker);
+      return;
+    }
 
-      setSuccess(payload?.message || "Solicitação registrada.");
+    const formData = new FormData();
+    Object.entries(form).forEach(([key, value]) => formData.append(key, value));
+    formData.append("website", website);
+    const attachmentCount = appendAttachments(formData, images, audio);
+
+    const payload = await submit("/api/service-quotes", formData, {
+      trackProgress: attachmentCount > 0,
+      fallbackSuccess: "Solicitação registrada.",
+      fallbackError: "Não foi possível registrar a solicitação."
+    });
+
+    if (payload) {
       setForm((current) => ({ ...current, description: "", notes: "" }));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível registrar a solicitação.");
-    } finally {
-      setSaving(false);
+      revokeImageItems(images);
+      setImages([]);
+      if (audio?.url) URL.revokeObjectURL(audio.url);
+      setAudio(null);
     }
   }
 
   return (
     <section className="mx-auto max-w-4xl px-4 py-10 sm:px-6 md:py-16">
-      <Link href="/planos" className="text-sm font-semibold text-leaf-700">
-        ← Voltar para os planos
-      </Link>
+      <PageHeader
+        backLink={{ href: "/planos", label: "Voltar para os planos" }}
+        eyebrow="Presencial & Projetos Especiais"
+        title="Solicitar orçamento"
+        subtitle="Conte o que sua propriedade precisa. Se preferir, anexe fotos ou grave um áudio. O escopo, o prazo e o valor são definidos junto com você, sem cobrança automática."
+      />
 
-      <div className="mt-4">
-        <p className="mb-3 inline-flex rounded-full bg-leaf-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-          Presencial &amp; Projetos Especiais
-        </p>
-        <SectionTitle
-          title="Solicitar orcamento"
-          subtitle="Conte o que sua propriedade precisa. O escopo, o prazo e o valor são definidos junto com você, sem cobrança automática."
-        />
-      </div>
+      <form onSubmit={handleSubmit} className={`relative ${formCardClass}`}>
+        <HoneypotField value={website} onChange={setWebsite} />
+        <fieldset disabled={submitting} className="grid min-w-0 gap-6">
+          <FormSection title="Seus dados">
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Produtor ou cliente" required>
+                <input required minLength={3} autoComplete="name" value={form.name} onChange={(event) => update("name", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Telefone" required>
+                <input required minLength={8} type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="E-mail">
+                <input type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Tipo de serviço">
+                <select value={form.serviceType} onChange={(event) => update("serviceType", event.target.value)} className={inputClass}>
+                  {SERVICE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Município" required>
+                <input required minLength={2} autoComplete="address-level2" value={form.city} onChange={(event) => update("city", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="UF" required>
+                <input
+                  required
+                  minLength={2}
+                  maxLength={2}
+                  autoComplete="address-level1"
+                  value={form.state}
+                  onChange={(event) => update("state", event.target.value.toUpperCase())}
+                  className={inputClass}
+                />
+              </FormField>
+            </div>
 
-      {success && (
-        <p className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800" role="status">
-          {success}
-        </p>
-      )}
-      {error && (
-        <p className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-          {error}
-        </p>
-      )}
+            {authenticated && properties.length > 0 && (
+              <FormField label="Propriedade (opcional)">
+                <select value={form.propertyId} onChange={(event) => update("propertyId", event.target.value)} className={inputClass}>
+                  <option value="">Não vincular a uma propriedade</option>
+                  {properties.map((property) => (
+                    <option key={property.id} value={property.id}>
+                      {property.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+            )}
+          </FormSection>
 
-      <form onSubmit={submit} className="mt-8 grid gap-5 rounded-[2rem] border border-leaf-100 bg-white p-6 shadow-soft sm:p-8">
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Produtor ou cliente</span>
-            <input required value={form.name} onChange={(event) => update("name", event.target.value)} className={inputClass} />
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Telefone</span>
-            <input required value={form.phone} onChange={(event) => update("phone", event.target.value)} className={inputClass} />
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">E-mail</span>
-            <input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} className={inputClass} />
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Tipo de serviço</span>
-            <select
-              value={form.serviceType}
-              onChange={(event) => update("serviceType", event.target.value)}
-              className={inputClass}
-            >
-              {SERVICE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Município</span>
-            <input required value={form.city} onChange={(event) => update("city", event.target.value)} className={inputClass} />
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">UF</span>
-            <input
-              required
-              maxLength={2}
-              value={form.state}
-              onChange={(event) => update("state", event.target.value.toUpperCase())}
-              className={inputClass}
-            />
-          </label>
-        </div>
+          <FormSection title="Sua necessidade">
+            <div className="min-w-0">
+              <FormField label="Descrição da necessidade" required={!audio} hint={audio ? "Opcional: você anexou um áudio explicando a necessidade." : undefined}>
+                <textarea
+                  required={!audio}
+                  rows={6}
+                  maxLength={4000}
+                  value={form.description}
+                  onChange={(event) => update("description", event.target.value)}
+                  className={inputClass}
+                  placeholder="Descreva a propriedade, a cultura, o serviço desejado e o que espera do atendimento."
+                />
+              </FormField>
+              <AiWritingAssistant message={form.description} onApply={(text) => update("description", text)} buildPayload={buildAiPayload} disabled={submitting} />
+            </div>
 
-        {authenticated && properties.length > 0 && (
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-800">Propriedade (opcional)</span>
-            <select value={form.propertyId} onChange={(event) => update("propertyId", event.target.value)} className={inputClass}>
-              <option value="">Não vincular a uma propriedade</option>
-              {properties.map((property) => (
-                <option key={property.id} value={property.id}>
-                  {property.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+            <FormField label="Observações (opcional)">
+              <textarea rows={3} maxLength={4000} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={inputClass} />
+            </FormField>
+          </FormSection>
 
-        <label className="block">
-          <span className="text-sm font-semibold text-slate-800">Descrição da necessidade</span>
-          <textarea
-            required
-            rows={5}
-            value={form.description}
-            onChange={(event) => update("description", event.target.value)}
-            className={inputClass}
-          />
-        </label>
+          <RequestAttachments images={images} setImages={setImages} audio={audio} setAudio={setAudio} onRecordingChange={setRecording} disabled={submitting} />
 
-        <label className="block">
-          <span className="text-sm font-semibold text-slate-800">Observações (opcional)</span>
-          <textarea rows={3} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={inputClass} />
-        </label>
+          <FormAlert tone="info">Nenhuma cobrança é realizada antes da definição e da sua aprovação do orçamento.</FormAlert>
 
-        <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
-          Nenhuma cobrança e realizada antes da definição e da sua aprovação do orcamento.
-        </p>
+          {error ? (
+            <FormAlert ref={alertRef} tone="error">
+              {error}
+            </FormAlert>
+          ) : null}
+          {success ? (
+            <FormAlert ref={alertRef} tone="success" title="Solicitação enviada com sucesso!">
+              {success}
+            </FormAlert>
+          ) : null}
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-full bg-leaf-700 px-7 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-wait disabled:opacity-60"
-        >
-          {saving ? "Enviando..." : "Solicitar orcamento"}
-        </button>
+          <SubmitButton label="Solicitar orçamento" submitting={submitting} progress={progress} />
+        </fieldset>
       </form>
     </section>
   );

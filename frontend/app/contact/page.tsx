@@ -1,122 +1,214 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+/**
+ * Contato oficial (/contact).
+ *
+ * Mesmo padrao visual e de comportamento da Solicitacao de Orcamento
+ * (components/public-request): assistente de escrita com IA, fotos e mensagem
+ * de voz opcionais, envio com progresso e protecao contra envio duplicado.
+ */
 
-const visitTypes = ["visita_agricultura_organica", "conversao_propriedade_organica"];
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import AiWritingAssistant from "../../components/public-request/AiWritingAssistant";
+import type { AudioValue } from "../../components/public-request/AudioAttachment";
+import FormAlert from "../../components/public-request/FormAlert";
+import FormField from "../../components/public-request/FormField";
+import FormSection from "../../components/public-request/FormSection";
+import HoneypotField from "../../components/public-request/HoneypotField";
+import { revokeImageItems, type ImageItem } from "../../components/public-request/ImageAttachments";
+import PageHeader from "../../components/public-request/PageHeader";
+import RequestAttachments, { appendAttachments, getAttachmentBlocker } from "../../components/public-request/RequestAttachments";
+import SubmitButton from "../../components/public-request/SubmitButton";
+import { formCardClass, inputClass } from "../../components/public-request/styles";
+import { usePublicRequestSubmit, useUnsavedChangesWarning } from "../../components/public-request/usePublicRequestSubmit";
+import { CONTACT_REQUEST_TYPE_OPTIONS, isContactRequestType, isContactVisitType } from "../../lib/public-requests/contact";
+
 const initialForm = { name: "", email: "", phone: "", city: "", state: "", preferredDate: "", preferredTime: "", requestType: "consultoria_geral", message: "" };
 
 export default function ContactPage() {
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [website, setWebsite] = useState("");
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [audio, setAudio] = useState<AudioValue | null>(null);
+  const [recording, setRecording] = useState(false);
+  const alertRef = useRef<HTMLDivElement | null>(null);
+  const { submitting, progress, error, success, setError, setSuccess, submit } = usePublicRequestSubmit("contact");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const qs = new URLSearchParams(window.location.search);
-    const requestType = qs.get("requestType");
-    if (requestType) setForm((prev) => ({ ...prev, requestType }));
+    const requestType = new URLSearchParams(window.location.search).get("requestType");
+    if (isContactRequestType(requestType)) setForm((prev) => ({ ...prev, requestType }));
   }, []);
 
-  const isVisit = visitTypes.includes(form.requestType);
-  const submissionKey = useMemo(() => {
-    const base = `${form.name}|${form.email}|${form.phone}|${form.requestType}|${form.preferredDate}|${form.preferredTime}|${form.message}`.toLowerCase();
-    let hash = 0;
-    for (let index = 0; index < base.length; index += 1) hash = (hash * 31 + base.charCodeAt(index)) >>> 0;
-    return `contact-${Date.now()}-${hash}`;
-  }, [form]);
+  // Usuario autenticado: pre-preenche nome, e-mail e telefone (mesma fonte do orcamento).
+  useEffect(() => {
+    let active = true;
+    fetch("/api/service-quotes", { cache: "no-store", credentials: "same-origin" })
+      .then((response) => response.json().catch(() => null))
+      .then((payload) => {
+        if (!active || !payload?.prefill) return;
+        setForm((current) => ({
+          ...current,
+          name: current.name || payload.prefill.name || "",
+          email: current.email || payload.prefill.email || "",
+          phone: current.phone || payload.prefill.phone || ""
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (error || success) alertRef.current?.focus();
+  }, [error, success]);
+
+  const isVisit = isContactVisitType(form.requestType);
+  const dirty = !success && (form.message.trim().length > 0 || images.length > 0 || audio !== null);
+  useUnsavedChangesWarning(dirty && !submitting);
+
+  function update(field: keyof typeof initialForm, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (success) setSuccess("");
+  }
+
+  const buildAiPayload = useCallback(
+    () => ({
+      source: "contact",
+      website,
+      requestType: form.requestType,
+      city: form.city,
+      state: form.state,
+      preferredDate: form.preferredDate,
+      preferredTime: form.preferredTime,
+      imageCount: images.filter((item) => item.status === "ready").length,
+      hasAudio: audio !== null
+    }),
+    [audio, form.city, form.preferredDate, form.preferredTime, form.requestType, form.state, images, website]
+  );
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
     setSuccess("");
-    setError("");
 
     if (isVisit && (!form.phone || !form.city || !form.state || !form.preferredDate || !form.preferredTime)) {
       setError("Preencha telefone, cidade, estado, dia e horário para solicitações de visita.");
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const response = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": submissionKey },
-        body: JSON.stringify({ ...form, submissionKey }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Erro ao enviar solicitação.");
-      setSuccess("Recebemos sua solicitação. A especialista entrará em contato para confirmar as informações.");
-      setForm(initialForm);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao enviar solicitação.");
-    } finally {
-      setSubmitting(false);
+    const blocker = getAttachmentBlocker(images, audio, recording);
+    if (blocker) {
+      setError(blocker);
+      return;
+    }
+
+    const formData = new FormData();
+    Object.entries(form).forEach(([key, value]) => formData.append(key, value));
+    formData.append("website", website);
+    const attachmentCount = appendAttachments(formData, images, audio);
+
+    const payload = await submit("/api/contact", formData, {
+      trackProgress: attachmentCount > 0,
+      fallbackSuccess: "Recebemos sua solicitação. A especialista entrará em contato para confirmar as informações.",
+      fallbackError: "Não foi possível enviar sua solicitação. Tente novamente."
+    });
+
+    if (payload) {
+      setForm((current) => ({ ...initialForm, name: current.name, email: current.email, phone: current.phone }));
+      revokeImageItems(images);
+      setImages([]);
+      if (audio?.url) URL.revokeObjectURL(audio.url);
+      setAudio(null);
     }
   }
 
   return (
-    <div className="bg-[#F6F1E8] px-4 py-8 sm:px-6 md:py-14">
-      <div className="mx-auto max-w-6xl">
-        <section className="rounded-[2rem] border border-[#123F2A]/10 bg-white p-5 shadow-soft sm:p-7 md:p-10">
-          <p className="text-sm font-bold uppercase tracking-[0.12em] sm:tracking-[0.18em] text-[#2E7D32]">Contato oficial Plantasã</p>
-          <h1 className="mt-3 text-3xl font-bold text-[#123F2A] sm:text-4xl">Fale com a especialista</h1>
-          <p className="mt-4 max-w-3xl leading-7 text-slate-700">
-            Envie sua necessidade de consultoria, revisão de caso agrícola ou avaliação para agricultura orgânica. O retorno será feito pelo canal informado para confirmar as informações.
-          </p>
-        </section>
+    <section className="mx-auto max-w-4xl px-4 py-10 sm:px-6 md:py-16">
+      <PageHeader
+        eyebrow="Contato oficial Plantasã"
+        title="Fale com a especialista"
+        subtitle="Envie sua necessidade de consultoria, revisão de caso agrícola ou avaliação para agricultura orgânica. Se preferir, anexe fotos ou grave um áudio. O retorno será feito pelo canal informado para confirmar as informações."
+      />
 
-        <form onSubmit={submit} className="mt-8 grid gap-5 rounded-[2rem] border border-[#123F2A]/10 bg-white p-6 shadow-soft md:grid-cols-2 md:p-8">
-          <Field label="Nome" required value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-          <Field label="E-mail" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
-          <Field label="Telefone" required={isVisit} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-          <Field label="Cidade" required={isVisit} value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
-          <Field label="Estado" required={isVisit} value={form.state} onChange={(value) => setForm({ ...form, state: value })} />
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-700">Tipo de solicitação</span>
-            <select value={form.requestType} onChange={(event) => setForm({ ...form, requestType: event.target.value })} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100">
-              <option value="consultoria_geral">Consultoria geral</option>
-              <option value="revisao_caso_agricola">Revisão de caso agrícola</option>
-              <option value="visita_agricultura_organica">Visita para agricultura orgânica</option>
-              <option value="conversao_propriedade_organica">Conversão de propriedade para orgânica</option>
-            </select>
-          </label>
-          <Field label="Data desejada" type="date" required={isVisit} value={form.preferredDate} onChange={(value) => setForm({ ...form, preferredDate: value })} />
-          <Field label="Horário desejado" required={isVisit} value={form.preferredTime} onChange={(value) => setForm({ ...form, preferredTime: value })} />
-          <label className="block md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Mensagem / descrição da necessidade</span>
-            <textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100" rows={5} placeholder="Descreva a cultura, propriedade, problema observado ou objetivo da consultoria." />
-          </label>
-
-          {error && <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 md:col-span-2">{error}</p>}
-          {success && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 md:col-span-2">
-              <p className="text-sm font-bold text-emerald-800">Solicitação enviada com sucesso!</p>
-              <p className="mt-1 text-sm text-emerald-700">{success}</p>
+      <form onSubmit={handleSubmit} className={`relative ${formCardClass}`}>
+        <HoneypotField value={website} onChange={setWebsite} />
+        <fieldset disabled={submitting} className="grid min-w-0 gap-6">
+          <FormSection title="Seus dados">
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Nome" required>
+                <input required autoComplete="name" value={form.name} onChange={(event) => update("name", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Telefone" required={isVisit}>
+                <input required={isVisit} type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="E-mail">
+                <input type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Tipo de solicitação">
+                <select value={form.requestType} onChange={(event) => update("requestType", event.target.value)} className={inputClass}>
+                  {CONTACT_REQUEST_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Cidade" required={isVisit}>
+                <input required={isVisit} autoComplete="address-level2" value={form.city} onChange={(event) => update("city", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Estado (UF)" required={isVisit}>
+                <input
+                  required={isVisit}
+                  maxLength={2}
+                  autoComplete="address-level1"
+                  value={form.state}
+                  onChange={(event) => update("state", event.target.value.toUpperCase())}
+                  className={inputClass}
+                />
+              </FormField>
+              <FormField label="Data desejada" required={isVisit} hint={isVisit ? undefined : "Opcional, para visitas."}>
+                <input required={isVisit} type="date" value={form.preferredDate} onChange={(event) => update("preferredDate", event.target.value)} className={inputClass} />
+              </FormField>
+              <FormField label="Horário desejado" required={isVisit} hint={isVisit ? undefined : "Opcional, para visitas."}>
+                <input required={isVisit} placeholder="Ex.: 9h ou período da manhã" value={form.preferredTime} onChange={(event) => update("preferredTime", event.target.value)} className={inputClass} />
+              </FormField>
             </div>
-          )}
+          </FormSection>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            aria-disabled={submitting}
-            aria-busy={submitting}
-            className="relative overflow-hidden rounded-full bg-[#123F2A] px-6 py-3 font-semibold text-white shadow-soft transition hover:bg-[#0F3322] disabled:cursor-not-allowed md:col-span-2"
-          >
-            <span className={`absolute inset-y-0 left-0 bg-[#A7C957]/35 ${submitting ? "animate-[submitProgress_1.2s_ease-in-out_infinite]" : "w-0"}`} aria-hidden="true" />
-            <span className="relative">{submitting ? "Enviando..." : success ? "Solicitação enviada com sucesso!" : "Enviar solicitação"}</span>
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
+          <FormSection title="Sua necessidade">
+            <div className="min-w-0">
+              <FormField label="Mensagem / descrição da necessidade">
+                <textarea
+                  rows={6}
+                  maxLength={4000}
+                  value={form.message}
+                  onChange={(event) => update("message", event.target.value)}
+                  className={inputClass}
+                  placeholder="Descreva a cultura, propriedade, problema observado ou objetivo da consultoria."
+                />
+              </FormField>
+              <AiWritingAssistant message={form.message} onApply={(text) => update("message", text)} buildPayload={buildAiPayload} disabled={submitting} />
+            </div>
+          </FormSection>
 
-function Field({ label, value, onChange, type = "text", required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean }) {
-  return (
-    <label className="block">
-      <span className="text-sm font-semibold text-slate-700">{label}{required ? " *" : ""}</span>
-      <input required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100" />
-    </label>
+          <RequestAttachments images={images} setImages={setImages} audio={audio} setAudio={setAudio} onRecordingChange={setRecording} disabled={submitting} />
+
+          {error ? (
+            <FormAlert ref={alertRef} tone="error">
+              {error}
+            </FormAlert>
+          ) : null}
+          {success ? (
+            <FormAlert ref={alertRef} tone="success" title="Solicitação enviada com sucesso!">
+              {success}
+            </FormAlert>
+          ) : null}
+
+          <SubmitButton label="Enviar solicitação" submitting={submitting} progress={progress} />
+        </fieldset>
+      </form>
+    </section>
   );
 }

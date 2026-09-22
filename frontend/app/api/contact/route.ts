@@ -1,69 +1,89 @@
+/**
+ * Formulario de Contato (/contact).
+ *
+ * Registra a solicitacao em `specialist_visit_requests` (source = 'agendamento',
+ * acompanhada em /admin/agendamentos), com anexos opcionais (imagens e audio)
+ * em bucket privado. Mesmo fluxo da Solicitacao de Orcamento:
+ * lib/server/public-requests/submit.ts.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
+import { PUBLIC_REQUEST_SOURCES, isValidSubmissionKey } from "../../../lib/public-requests/config";
+import { isContactRequestType, isContactVisitType } from "../../../lib/public-requests/contact";
+import { validateAttachments } from "../../../lib/server/public-requests/attachments";
+import { readPublicRequestBody } from "../../../lib/server/public-requests/request-body";
+import { persistPublicRequest } from "../../../lib/server/public-requests/submit";
+import { publicErrorResponse } from "../../../lib/server/public-requests/errors";
 
-const VISIT_TYPES = new Set(["visita_agricultura_organica", "conversao_propriedade_organica"]);
-const REQUEST_TYPES = new Set(["consultoria_geral", "revisao_caso_agricola", ...VISIT_TYPES]);
+export const dynamic = "force-dynamic";
 
-function getSupabaseConfig() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) throw new Error("Supabase não configurado.");
-  return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), anonKey };
+const SUCCESS_MESSAGE = "Recebemos sua solicitação. A especialista entrará em contato para confirmar as informações.";
+
+function field(value: unknown, max: number) {
+  return String(value ?? "").trim().slice(0, max);
 }
 
-function normalize(value: unknown) {
-  return String(value ?? "").trim();
+function badRequest(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const name = normalize(body?.name);
-    const email = normalize(body?.email);
-    const phone = normalize(body?.phone);
-    const city = normalize(body?.city);
-    const state = normalize(body?.state);
-    const preferredDate = normalize(body?.preferredDate);
-    const preferredTime = normalize(body?.preferredTime);
-    const requestType = normalize(body?.requestType);
-    const message = normalize(body?.message);
-    const submissionKey = normalize(body?.submissionKey) || normalize(request.headers.get("Idempotency-Key"));
+    const body = await readPublicRequestBody(request);
+    const fields = body.fields;
 
-    if (!name || !REQUEST_TYPES.has(requestType)) {
-      return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
-    }
-    if (VISIT_TYPES.has(requestType) && (!phone || !city || !state || !preferredDate || !preferredTime)) {
-      return NextResponse.json({ error: "Telefone, cidade, estado, dia e horário são obrigatórios para agendamento de visita." }, { status: 400 });
+    // Honeypot: campo invisivel para pessoas; bots costumam preenche-lo.
+    if (field(fields.website, 200)) {
+      return NextResponse.json({ message: SUCCESS_MESSAGE });
     }
 
-    const { supabaseUrl, anonKey } = getSupabaseConfig();
-    const headers = { apikey: anonKey, Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" };
+    const name = field(fields.name, 200);
+    const email = field(fields.email, 200);
+    const phone = field(fields.phone, 40);
+    const city = field(fields.city, 120);
+    const state = field(fields.state, 60).toUpperCase();
+    const preferredDate = field(fields.preferredDate, 10);
+    const preferredTime = field(fields.preferredTime, 40);
+    const requestType = field(fields.requestType, 60);
+    const message = field(fields.message, 4000);
+    const rawKey = field(fields.submissionKey, 100) || field(request.headers.get("Idempotency-Key"), 100);
+    const submissionKey = isValidSubmissionKey(rawKey) ? rawKey : null;
 
-    if (submissionKey) {
-      const duplicate = await fetch(`${supabaseUrl}/rest/v1/specialist_visit_requests?submission_key=eq.${encodeURIComponent(submissionKey)}&select=id&limit=1`, { headers, cache: "no-store" });
-      if (duplicate.ok) {
-        const rows = await duplicate.json().catch(() => []);
-        if (Array.isArray(rows) && rows.length > 0) {
-          return NextResponse.json({ message: "Solicitação enviada com sucesso!" });
-        }
-      }
+    if (name.length < 2) return badRequest("Informe seu nome.");
+    if (!isContactRequestType(requestType)) return badRequest("Selecione o tipo de solicitação.");
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return badRequest("Informe um e-mail válido.");
+    if (preferredDate && !/^\d{4}-\d{2}-\d{2}$/.test(preferredDate)) return badRequest("Informe uma data válida.");
+
+    if (isContactVisitType(requestType) && (!phone || !city || !state || !preferredDate || !preferredTime)) {
+      return badRequest("Telefone, cidade, estado, dia e horário são obrigatórios para agendamento de visita.");
     }
 
-    const response = await fetch(`${supabaseUrl}/rest/v1/specialist_visit_requests`, {
-      method: "POST",
-      headers: { ...headers, Prefer: "return=minimal" },
-      body: JSON.stringify({ name, email: email || null, phone: phone || null, city: city || null, state: state || null, preferred_date: preferredDate || null, preferred_time: preferredTime || null, request_type: requestType, message: message || null, submission_key: submissionKey || null }),
+    const attachments = await validateAttachments({
+      images: body.images,
+      audios: body.audios,
+      audioDurationSeconds: fields.audioDuration
     });
 
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      if (response.status === 409 || String(payload?.message || "").includes("duplicate")) {
-        return NextResponse.json({ message: "Solicitação enviada com sucesso!" });
+    await persistPublicRequest({
+      headers: request.headers,
+      source: PUBLIC_REQUEST_SOURCES.contact,
+      submissionKey,
+      attachments,
+      record: {
+        name,
+        email: email || null,
+        phone: phone || null,
+        city: city || null,
+        state: state || null,
+        preferred_date: preferredDate || null,
+        preferred_time: preferredTime || null,
+        request_type: requestType,
+        message: message || null
       }
-      return NextResponse.json({ error: "Não foi possível salvar sua solicitação." }, { status: 500 });
-    }
+    });
 
-    return NextResponse.json({ message: "Solicitação enviada com sucesso!" });
-  } catch {
-    return NextResponse.json({ error: "Erro ao enviar solicitação." }, { status: 500 });
+    return NextResponse.json({ message: SUCCESS_MESSAGE });
+  } catch (error) {
+    return publicErrorResponse(error, "Não foi possível enviar sua solicitação agora. Tente novamente em instantes.", "contact");
   }
 }

@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     await requireRole(request, ["admin", "specialist"]);
 
     const rows = await supabaseAdminRequest<unknown[]>(
-      `/rest/v1/specialist_visit_requests?source=eq.${encodeURIComponent(QUOTE_SOURCE)}&select=id,name,email,phone,city,state,service_type,message,notes,status,user_id,property_id,internal_notes,created_at,updated_at&order=created_at.desc&limit=200`,
+      `/rest/v1/specialist_visit_requests?source=eq.${encodeURIComponent(QUOTE_SOURCE)}&select=id,name,email,phone,city,state,service_type,message,notes,status,user_id,property_id,internal_notes,attachments,created_at,updated_at&order=created_at.desc&limit=200`,
       { method: "GET" }
     );
 

@@ -5,7 +5,8 @@
  * Stripe, e nenhuma cobrança automática acontece antes da definição do
  * orçamento. A solicitação é registrada em `specialist_visit_requests`
  * (mesma tabela já acompanhada pela área administrativa), com
- * `source = 'orcamento'`.
+ * `source = 'orcamento'`, com anexos opcionais (imagens e audio) em bucket
+ * privado. Mesmo fluxo do formulario de Contato: lib/server/public-requests.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,8 +14,16 @@ import { supabaseAdminRequest } from "../../../lib/server/supabaseAdmin";
 import { errorMessage, errorStatus, getRequestToken } from "../../../lib/server/request-auth";
 import { getCurrentProfile, getCurrentUser } from "../../../lib/auth";
 import { QUOTE_REQUEST_TYPE, QUOTE_SERVICE_LABELS, QUOTE_SOURCE, isQuoteServiceType } from "../../../lib/service-quotes";
+import { isValidSubmissionKey } from "../../../lib/public-requests/config";
+import { validateAttachments } from "../../../lib/server/public-requests/attachments";
+import { publicErrorResponse } from "../../../lib/server/public-requests/errors";
+import { readPublicRequestBody } from "../../../lib/server/public-requests/request-body";
+import { persistPublicRequest } from "../../../lib/server/public-requests/submit";
 
 export const dynamic = "force-dynamic";
+
+const SUCCESS_MESSAGE =
+  "Solicitação registrada. Nossa equipe entrará em contato para entender a necessidade e enviar o orçamento. Nenhuma cobrança é feita antes da sua aprovação.";
 
 function requiredText(value: unknown, field: string, min: number, max: number) {
   const normalized = typeof value === "string" ? value.trim() : "";
@@ -79,10 +88,12 @@ export async function POST(request: NextRequest) {
   try {
     const token = getRequestToken(request);
     const user = token ? await getCurrentUser(token).catch(() => null) : null;
-    const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const body = await readPublicRequestBody(request);
+    const payload = body.fields;
 
-    if (!payload) {
-      return NextResponse.json({ error: "Envie os dados da solicitação." }, { status: 400 });
+    // Honeypot: campo invisivel para pessoas; bots costumam preenche-lo.
+    if (optionalText(payload.website, 200)) {
+      return NextResponse.json({ requestId: null, message: SUCCESS_MESSAGE }, { status: 201 });
     }
 
     const serviceType = payload.serviceType;
@@ -105,44 +116,54 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const hasAudio = body.audios.length > 0;
+    const email = optionalText(payload.email, 200);
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: "Informe um e-mail válido." }, { status: 400 });
+    }
+
     const record = {
       name: requiredText(payload.name, "o nome do produtor ou cliente", 3, 200),
-      email: optionalText(payload.email, 200),
+      email,
       phone: requiredText(payload.phone, "um telefone para contato", 8, 40),
       city: requiredText(payload.city, "o município", 2, 120),
       state: requiredText(payload.state, "a UF", 2, 2).toUpperCase(),
       request_type: QUOTE_REQUEST_TYPE,
       service_type: serviceType,
-      message: requiredText(payload.description, "a descrição da necessidade", 10, 4000),
+      // Com audio anexado, a descricao escrita passa a ser opcional.
+      message: hasAudio ? optionalText(payload.description, 4000) : requiredText(payload.description, "a descrição da necessidade", 10, 4000),
       notes: optionalText(payload.notes, 4000),
       property_id: user?.id ? propertyId : null,
       user_id: user?.id ?? null,
-      source: QUOTE_SOURCE,
       status: "novo"
     };
 
-    const rows = await supabaseAdminRequest<Array<{ id: string; created_at: string }>>(
-      "/rest/v1/specialist_visit_requests?select=id,created_at",
-      {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify(record)
-      }
-    );
+    const attachments = await validateAttachments({
+      images: body.images,
+      audios: body.audios,
+      audioDurationSeconds: payload.audioDuration
+    });
+
+    const rawKey = optionalText(payload.submissionKey, 100) ?? optionalText(request.headers.get("Idempotency-Key"), 100);
+
+    const result = await persistPublicRequest({
+      headers: request.headers,
+      source: QUOTE_SOURCE,
+      submissionKey: isValidSubmissionKey(rawKey) ? rawKey : null,
+      attachments,
+      record
+    });
 
     return NextResponse.json(
       {
-        requestId: rows[0]?.id ?? null,
+        requestId: result.requestId,
         serviceLabel: QUOTE_SERVICE_LABELS[serviceType],
-        message:
-          "Solicitação registrada. Nossa equipe entrará em contato para entender a necessidade e enviar o orçamento. Nenhuma cobrança é feita antes da sua aprovação."
+        message: SUCCESS_MESSAGE
       },
       { status: 201 }
     );
   } catch (error) {
-    return NextResponse.json(
-      { error: errorMessage(error, "Não foi possível registrar a solicitação de orçamento.") },
-      { status: errorStatus(error, 500) }
-    );
+    return publicErrorResponse(error, "Não foi possível registrar a solicitação de orçamento agora. Tente novamente em instantes.", "service-quotes");
   }
 }

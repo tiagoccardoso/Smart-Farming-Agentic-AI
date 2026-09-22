@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentAuthSession } from "../../../lib/supabaseAuth";
+import RequestAttachmentsViewer from "../../../components/admin/RequestAttachmentsViewer";
+import { PUBLIC_REQUEST_SOURCE_LABELS } from "../../../lib/public-requests/config";
 
 const statusOptions = ["novo", "em_contato", "confirmado", "cancelado", "concluido"];
 
@@ -87,11 +89,13 @@ function Card({ item, onSaved, onDeleted, onError }: { item: any; onSaved: (mess
 
   return <div className='rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft'>
     <p className='font-semibold text-[#123F2A]'>{item.name} • {item.request_type}</p>
+    <p className='text-xs font-semibold uppercase tracking-wide text-leaf-700'>Origem: {PUBLIC_REQUEST_SOURCE_LABELS[item.source ?? 'agendamento'] ?? item.source}</p>
     <p className='text-sm'>Contato: {item.email || '-'} | {item.phone || '-'}</p>
     <p className='text-sm'>Local: {item.city || '-'} / {item.state || '-'}</p>
     <p className='text-sm'>Data desejada: {item.preferred_date ?? '-'} às {item.preferred_time ?? '-'}</p>
     <p className='text-sm'>Enviado em: {new Date(item.created_at).toLocaleString('pt-BR')}</p>
-    <p className='mt-1 text-sm'>Mensagem: {item.message || '-'}</p>
+    <p className='mt-1 whitespace-pre-wrap break-words text-sm'>Mensagem: {item.message || '-'}</p>
+    <RequestAttachmentsViewer requestId={item.id} count={Array.isArray(item.attachments) ? item.attachments.length : 0} />
     <div className='mt-4 grid gap-2 md:grid-cols-[180px_1fr_auto_auto]'>
       <select value={status} onChange={(e) => setStatus(e.target.value)} className='rounded-2xl border border-leaf-100 p-2'>{statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}</select>
       <input value={notes} onChange={(e) => setNotes(e.target.value)} className='rounded-2xl border border-leaf-100 p-2' placeholder='Observações internas' />

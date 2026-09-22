@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import SectionTitle from "../../../components/SectionTitle";
+import RequestAttachmentsViewer from "../../../components/admin/RequestAttachmentsViewer";
 import { getCurrentAuthSession } from "../../../lib/supabaseAuth";
 
 type QuoteRequest = {
@@ -22,6 +23,7 @@ type QuoteRequest = {
   notes: string | null;
   status: string;
   internal_notes: string | null;
+  attachments?: unknown[] | null;
   created_at: string;
 };
 
@@ -155,6 +157,7 @@ export default function AdminQuotesPage() {
               </p>
             )}
             {item.notes && <p className="mt-3 text-sm text-slate-600">Observações: {item.notes}</p>}
+            <RequestAttachmentsViewer requestId={item.id} count={Array.isArray(item.attachments) ? item.attachments.length : 0} />
             <p className="mt-3 text-xs text-slate-400">
               Recebida em {new Date(item.created_at).toLocaleString("pt-BR")}
             </p>

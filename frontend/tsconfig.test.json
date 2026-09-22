@@ -21,6 +21,11 @@
     "lib/stripe/signature.ts",
     "lib/stripe/webhook-events.ts",
     "lib/plans-page.ts",
+    "lib/public-requests/config.ts",
+    "lib/server/public-requests/attachments.ts",
+    "lib/server/public-requests/ai-assist.ts",
+    "lib/server/public-requests/rate-limit.ts",
+    "lib/server/public-requests/submit.ts",
     "tests/**/*.ts"
   ]
 }
