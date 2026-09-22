@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { PUBLIC_REQUEST_SOURCES, isValidSubmissionKey } from "../../../lib/public-requests/config";
-import { isContactRequestType, isContactVisitType } from "../../../lib/public-requests/contact";
+import { isContactVisitType, normalizeContactRequestType } from "../../../lib/public-requests/contact";
 import { validateAttachments } from "../../../lib/server/public-requests/attachments";
 import { readPublicRequestBody } from "../../../lib/server/public-requests/request-body";
 import { persistPublicRequest } from "../../../lib/server/public-requests/submit";
@@ -44,13 +44,13 @@ export async function POST(request: NextRequest) {
     const state = field(fields.state, 60).toUpperCase();
     const preferredDate = field(fields.preferredDate, 10);
     const preferredTime = field(fields.preferredTime, 40);
-    const requestType = field(fields.requestType, 60);
+    const requestType = normalizeContactRequestType(field(fields.requestType, 60));
     const message = field(fields.message, 4000);
     const rawKey = field(fields.submissionKey, 100) || field(request.headers.get("Idempotency-Key"), 100);
     const submissionKey = isValidSubmissionKey(rawKey) ? rawKey : null;
 
     if (name.length < 2) return badRequest("Informe seu nome.");
-    if (!isContactRequestType(requestType)) return badRequest("Selecione o tipo de solicitação.");
+    if (!requestType) return badRequest("Selecione o tipo de solicitação.");
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return badRequest("Informe um e-mail válido.");
     if (preferredDate && !/^\d{4}-\d{2}-\d{2}$/.test(preferredDate)) return badRequest("Informe uma data válida.");
 

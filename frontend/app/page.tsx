@@ -57,7 +57,7 @@ export default async function HomePage() {
               <Link href={content.secondaryButtonUrl || "/consultoria-ia"} className="rounded-full bg-[#A7C957] px-7 py-3 text-center text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:bg-[#94B94B]">
                 {content.secondaryButtonText || "Iniciar consultoria com IA"}
               </Link>
-              <Link href="/contact?requestType=conversao_propriedade_organica" className="rounded-full border border-[#123F2A]/20 bg-white px-7 py-3 text-center text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123F2A]/50">
+              <Link href="/contact?requestType=transicao_organica" className="rounded-full border border-[#123F2A]/20 bg-white px-7 py-3 text-center text-sm font-bold text-[#123F2A] shadow-soft transition hover:-translate-y-0.5 hover:border-[#123F2A]/50">
                 Falar com especialista
               </Link>
             </div>
@@ -94,7 +94,7 @@ export default async function HomePage() {
             <p className="mt-4 leading-7 text-slate-700">
               O foco inicial é apoiar produtores interessados em sistemas orgânicos, hortaliças saudáveis, solo fértil e manejo integrado de pragas e doenças, sem perder a agilidade da tecnologia.
             </p>
-            <Link href="/contact?requestType=visita_agricultura_organica" className="mt-6 inline-flex rounded-full bg-[#123F2A] px-6 py-3 text-sm font-bold text-white shadow-soft">
+            <Link href="/contact?requestType=visita_tecnica" className="mt-6 inline-flex rounded-full bg-[#123F2A] px-6 py-3 text-sm font-bold text-white shadow-soft">
               Solicitar avaliação pelo contato
             </Link>
           </div>

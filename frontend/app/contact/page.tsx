@@ -21,9 +21,9 @@ import RequestAttachments, { appendAttachments, getAttachmentBlocker } from "../
 import SubmitButton from "../../components/public-request/SubmitButton";
 import { formCardClass, inputClass } from "../../components/public-request/styles";
 import { usePublicRequestSubmit, useUnsavedChangesWarning } from "../../components/public-request/usePublicRequestSubmit";
-import { CONTACT_REQUEST_TYPE_OPTIONS, isContactRequestType, isContactVisitType } from "../../lib/public-requests/contact";
+import { CONTACT_REQUEST_TYPE_OPTIONS, isContactVisitType, normalizeContactRequestType } from "../../lib/public-requests/contact";
 
-const initialForm = { name: "", email: "", phone: "", city: "", state: "", preferredDate: "", preferredTime: "", requestType: "consultoria_geral", message: "" };
+const initialForm = { name: "", email: "", phone: "", city: "", state: "", preferredDate: "", preferredTime: "", requestType: "", message: "" };
 
 export default function ContactPage() {
   const [form, setForm] = useState(initialForm);
@@ -36,8 +36,8 @@ export default function ContactPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const requestType = new URLSearchParams(window.location.search).get("requestType");
-    if (isContactRequestType(requestType)) setForm((prev) => ({ ...prev, requestType }));
+    const requestType = normalizeContactRequestType(new URLSearchParams(window.location.search).get("requestType"));
+    if (requestType) setForm((prev) => ({ ...prev, requestType }));
   }, []);
 
   // Usuario autenticado: pre-preenche nome, e-mail e telefone (mesma fonte do orcamento).
@@ -93,6 +93,11 @@ export default function ContactPage() {
     if (submitting) return;
     setSuccess("");
 
+    if (!form.requestType) {
+      setError("Selecione o tipo de solicitação.");
+      return;
+    }
+
     if (isVisit && (!form.phone || !form.city || !form.state || !form.preferredDate || !form.preferredTime)) {
       setError("Preencha telefone, cidade, estado, dia e horário para solicitações de visita.");
       return;
@@ -116,7 +121,7 @@ export default function ContactPage() {
     });
 
     if (payload) {
-      setForm((current) => ({ ...initialForm, name: current.name, email: current.email, phone: current.phone }));
+      setForm((current) => ({ ...initialForm, name: current.name, email: current.email, phone: current.phone, requestType: current.requestType }));
       revokeImageItems(images);
       setImages([]);
       if (audio?.url) URL.revokeObjectURL(audio.url);
@@ -146,8 +151,11 @@ export default function ContactPage() {
               <FormField label="E-mail">
                 <input type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)} className={inputClass} />
               </FormField>
-              <FormField label="Tipo de solicitação">
-                <select value={form.requestType} onChange={(event) => update("requestType", event.target.value)} className={inputClass}>
+              <FormField label="Tipo de solicitação" required>
+                <select required value={form.requestType} onChange={(event) => update("requestType", event.target.value)} className={inputClass}>
+                  <option value="" disabled>
+                    Selecione o tipo de solicitação
+                  </option>
                   {CONTACT_REQUEST_TYPE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}

@@ -26,7 +26,7 @@ import {
  * demandas fora das assinaturas e orçamento personalizado) é tratado pela
  * página oficial de Contato. Não há mais contratação avulsa nesta página.
  */
-const CONTACT_HREF = "/contact?requestType=consultoria_geral";
+const CONTACT_HREF = "/contact";
 
 type Feedback = { type: "success" | "error" | "info"; message: string; action?: { label: string; href: string } | null };
 

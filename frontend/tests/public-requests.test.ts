@@ -264,3 +264,17 @@ test("IA: erros do provider viram mensagens amigaveis", () => {
   assert.equal(mapAiProviderError(new Error("Configure OPENAI_API_KEY para usar a OpenAI.")).code, "ai_not_configured");
   assert.equal(mapAiProviderError(new Error("boom")).status, 503);
 });
+
+test("Contato usa as mesmas opções do Tipo de serviço do orçamento e aceita links antigos", async () => {
+  const { CONTACT_REQUEST_TYPE_OPTIONS, normalizeContactRequestType, contactRequestTypeLabel, isContactVisitType } = await import("../lib/public-requests/contact");
+  const { QUOTE_SERVICE_TYPES, QUOTE_SERVICE_LABELS } = await import("../lib/service-quotes");
+  assert.deepEqual(CONTACT_REQUEST_TYPE_OPTIONS.map((o) => o.value), [...QUOTE_SERVICE_TYPES]);
+  assert.deepEqual(CONTACT_REQUEST_TYPE_OPTIONS.map((o) => o.label), QUOTE_SERVICE_TYPES.map((t) => QUOTE_SERVICE_LABELS[t]));
+  assert.equal(normalizeContactRequestType("conversao_propriedade_organica"), "transicao_organica");
+  assert.equal(normalizeContactRequestType("visita_agricultura_organica"), "visita_tecnica");
+  assert.equal(normalizeContactRequestType("consultoria_geral"), null);
+  assert.equal(normalizeContactRequestType("inexistente"), null);
+  assert.equal(contactRequestTypeLabel("consultoria_geral"), "Consultoria geral", "registros antigos continuam legíveis");
+  assert.equal(isContactVisitType("visita_tecnica"), true);
+  assert.equal(isContactVisitType("outro"), false);
+});

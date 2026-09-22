@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getCurrentAuthSession } from "../../../lib/supabaseAuth";
 import RequestAttachmentsViewer from "../../../components/admin/RequestAttachmentsViewer";
 import { PUBLIC_REQUEST_SOURCE_LABELS } from "../../../lib/public-requests/config";
+import { contactRequestTypeLabel } from "../../../lib/public-requests/contact";
 
 const statusOptions = ["novo", "em_contato", "confirmado", "cancelado", "concluido"];
 
@@ -88,7 +89,7 @@ function Card({ item, onSaved, onDeleted, onError }: { item: any; onSaved: (mess
   }
 
   return <div className='rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft'>
-    <p className='font-semibold text-[#123F2A]'>{item.name} • {item.request_type}</p>
+    <p className='font-semibold text-[#123F2A]'>{item.name} • {item.source === 'orcamento' ? contactRequestTypeLabel(item.service_type) : contactRequestTypeLabel(item.request_type)}</p>
     <p className='text-xs font-semibold uppercase tracking-wide text-leaf-700'>Origem: {PUBLIC_REQUEST_SOURCE_LABELS[item.source ?? 'agendamento'] ?? item.source}</p>
     <p className='text-sm'>Contato: {item.email || '-'} | {item.phone || '-'}</p>
     <p className='text-sm'>Local: {item.city || '-'} / {item.state || '-'}</p>
