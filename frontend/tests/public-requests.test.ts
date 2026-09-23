@@ -278,3 +278,51 @@ test("Contato usa as mesmas opções do Tipo de serviço do orçamento e aceita 
   assert.equal(isContactVisitType("visita_tecnica"), true);
   assert.equal(isContactVisitType("outro"), false);
 });
+
+test("formulario unico: mesmas regras para Contato e Orcamento", async () => {
+  const { validatePublicRequestForm, isPublicRequestOrigin } = await import("../lib/public-requests/form");
+  const { PUBLIC_REQUEST_SOURCES, isQuoteRequestSource } = await import("../lib/public-requests/config");
+  const base = { name: "Maria", phone: "(11) 91234-5678", email: "", requestType: "diagnostico_de_campo", city: "Campinas", state: "sp", message: "Folhas amarelando no talhão 3." };
+
+  const ok = validatePublicRequestForm(base, { hasAudio: false });
+  assert.equal(ok.ok, true);
+  if (ok.ok) {
+    assert.equal(ok.value.state, "SP");
+    assert.equal(ok.value.email, null);
+    assert.equal(ok.value.preferredDate, null);
+  }
+
+  const firstError = (input: Record<string, string>, hasAudio = false, minDate?: string) => {
+    const result = validatePublicRequestForm(input, { hasAudio, minDate });
+    return result.ok ? null : result.field;
+  };
+
+  assert.equal(firstError({ ...base, name: "" }), "name");
+  assert.equal(firstError({ ...base, phone: "1234" }), "phone", "telefone precisa de DDD");
+  assert.equal(firstError({ ...base, email: "maria@" }), "email");
+  assert.equal(firstError({ ...base, requestType: "" }), "requestType");
+  assert.equal(firstError({ ...base, requestType: "consultoria_geral" }), "requestType", "tipo antigo sem equivalente nao e aceito");
+  assert.equal(firstError({ ...base, requestType: "conversao_propriedade_organica" }), null, "link antigo e convertido");
+  assert.equal(firstError({ ...base, state: "XX" }), "state");
+  assert.equal(firstError({ ...base, message: "curto" }), "message");
+  assert.equal(firstError({ ...base, message: "" }, true), null, "com audio a descricao e opcional");
+  assert.equal(firstError({ ...base, propertyId: "../x" }), "propertyId");
+
+  // Visita tecnica exige data e horario, e a data nao pode estar no passado.
+  const visit = { ...base, requestType: "visita_tecnica" };
+  assert.equal(firstError(visit), "preferredDate");
+  assert.equal(firstError({ ...visit, preferredDate: "2026-02-30", preferredTime: "manhã" }), "preferredDate");
+  assert.equal(firstError({ ...visit, preferredDate: "2026-01-10", preferredTime: "manhã" }, false, "2026-01-11"), "preferredDate");
+  assert.equal(firstError({ ...visit, preferredDate: "2026-01-12" }, false, "2026-01-11"), "preferredTime");
+  assert.equal(firstError({ ...visit, preferredDate: "2026-01-12", preferredTime: "manhã" }, false, "2026-01-11"), null);
+
+  // Origem: unica diferenca funcional entre os fluxos.
+  assert.equal(isPublicRequestOrigin("contact"), true);
+  assert.equal(isPublicRequestOrigin("quote"), true);
+  assert.equal(isPublicRequestOrigin("admin"), false);
+  assert.equal(PUBLIC_REQUEST_SOURCES.contact, "agendamento");
+  assert.equal(PUBLIC_REQUEST_SOURCES.quote, "orcamento");
+  assert.equal(isQuoteRequestSource("orcamento"), true, "orcamento recebe o selo");
+  assert.equal(isQuoteRequestSource("agendamento"), false, "contato nao recebe o selo");
+  assert.equal(isQuoteRequestSource(null), false, "registro historico sem origem nao recebe o selo");
+});

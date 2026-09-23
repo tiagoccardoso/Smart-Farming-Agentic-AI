@@ -156,3 +156,11 @@ export function formatDuration(totalSeconds: number) {
 export function isValidSubmissionKey(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(value);
 }
+
+/**
+ * Registro criado pelo formulario de Solicitacao de Orcamento? Registros
+ * historicos sem origem sao tratados como Contato (default da coluna).
+ */
+export function isQuoteRequestSource(source: unknown) {
+  return source === PUBLIC_REQUEST_SOURCES.quote;
+}

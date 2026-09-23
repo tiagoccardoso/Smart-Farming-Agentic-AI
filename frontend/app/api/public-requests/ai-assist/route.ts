@@ -6,8 +6,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { ATTACHMENT_LIMITS } from "../../../../lib/public-requests/config";
-import { CONTACT_REQUEST_TYPE_LABELS } from "../../../../lib/public-requests/contact";
-import { QUOTE_SERVICE_LABELS, isQuoteServiceType } from "../../../../lib/service-quotes";
+import { normalizeContactRequestType } from "../../../../lib/public-requests/contact";
+import { QUOTE_SERVICE_LABELS } from "../../../../lib/service-quotes";
 import { AI_ASSIST_MAX_INPUT_CHARS, AiAssistError, generateWritingSuggestion } from "../../../../lib/server/public-requests/ai-assist";
 import { AI_ASSIST_RATE_LIMITS, RateLimitError, consumeRateLimits } from "../../../../lib/server/public-requests/rate-limit";
 
@@ -37,10 +37,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `O texto excede ${AI_ASSIST_MAX_INPUT_CHARS} caracteres. Resuma um pouco antes de usar a IA.` }, { status: 400 });
     }
 
+    // Mesmo contexto para as duas origens (formulario unico). `serviceType` e
+    // `notes` continuam aceitos de clientes antigos.
     const isQuote = payload.source === "quote";
-    const requestLabel = isQuote
-      ? isQuoteServiceType(payload.serviceType) ? QUOTE_SERVICE_LABELS[payload.serviceType] : null
-      : CONTACT_REQUEST_TYPE_LABELS[String(payload.requestType ?? "")] ?? null;
+    const requestType = normalizeContactRequestType(payload.requestType ?? payload.serviceType);
+    const requestLabel = requestType ? QUOTE_SERVICE_LABELS[requestType] : null;
 
     await consumeRateLimits(
       request.headers,
@@ -53,9 +54,9 @@ export async function POST(request: NextRequest) {
       requestLabel,
       city: text(payload.city, 120),
       state: text(payload.state, 60),
-      preferredDate: isQuote ? null : text(payload.preferredDate, 20),
-      preferredTime: isQuote ? null : text(payload.preferredTime, 40),
-      notes: isQuote ? text(payload.notes, 1000) : null,
+      preferredDate: text(payload.preferredDate, 20),
+      preferredTime: text(payload.preferredTime, 40),
+      notes: text(payload.notes, 1000),
       imageCount: Math.min(Math.max(Number(payload.imageCount) || 0, 0), ATTACHMENT_LIMITS.maxImages),
       hasAudio: payload.hasAudio === true,
       message: rawMessage

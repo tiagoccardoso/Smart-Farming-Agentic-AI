@@ -4,7 +4,7 @@
  */
 
 export const inputClass =
-  "mt-2 w-full min-w-0 rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-leaf-400 focus:ring-4 focus:ring-leaf-100 disabled:cursor-not-allowed disabled:bg-slate-50 sm:text-sm";
+  "mt-2 w-full min-w-0 rounded-2xl border border-leaf-100 bg-white px-4 py-3 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-leaf-400 focus:ring-4 focus:ring-leaf-100 disabled:cursor-not-allowed disabled:bg-slate-50 aria-[invalid=true]:border-red-400 aria-[invalid=true]:focus:ring-red-100 sm:text-sm";
 
 export const formCardClass = "mt-8 rounded-[2rem] border border-leaf-100 bg-white p-5 shadow-soft sm:p-8";
 

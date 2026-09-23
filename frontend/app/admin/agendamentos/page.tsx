@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentAuthSession } from "../../../lib/supabaseAuth";
 import RequestAttachmentsViewer from "../../../components/admin/RequestAttachmentsViewer";
-import { PUBLIC_REQUEST_SOURCE_LABELS } from "../../../lib/public-requests/config";
+import { PUBLIC_REQUEST_SOURCES, PUBLIC_REQUEST_SOURCE_LABELS, isQuoteRequestSource } from "../../../lib/public-requests/config";
 import { contactRequestTypeLabel } from "../../../lib/public-requests/contact";
 
 const statusOptions = ["novo", "em_contato", "confirmado", "cancelado", "concluido"];
@@ -12,6 +12,7 @@ export default function Page() {
   const [statusFilter, setStatusFilter] = useState("todos");
   const [cityFilter, setCityFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("todas");
   const [sortBy, setSortBy] = useState("created_at");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -23,21 +24,23 @@ export default function Page() {
     if (statusFilter !== "todos") params.set("status", statusFilter);
     if (cityFilter) params.set("city", cityFilter);
     if (stateFilter) params.set("state", stateFilter);
+    if (sourceFilter !== "todas") params.set("source", sourceFilter);
     params.set("sort", sortBy);
     const response = await fetch(`/api/admin/agendamentos?${params.toString()}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     if (response.ok) setItems((await response.json()).items || []);
     else setError("Não foi possível carregar os agendamentos.");
-  }, [cityFilter, sortBy, stateFilter, statusFilter]);
+  }, [cityFilter, sortBy, sourceFilter, stateFilter, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
 
   return <div className='mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-10'>
     <h1 className='text-xl font-bold text-[#123F2A] sm:text-3xl'>Agendamentos</h1>
-    <p className="mt-2 max-w-3xl text-slate-600">Gerencie solicitações recebidas pelo formulário de contato. Apenas especialistas e administradores têm acesso a esta área.</p>
-    <div className='mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+    <p className="mt-2 max-w-3xl text-slate-600">Gerencie solicitações recebidas pelos formulários de Contato e de Solicitação de orçamento. Apenas especialistas e administradores têm acesso a esta área.</p>
+    <div className='mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>
       <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className='rounded-2xl border border-leaf-100 p-3'><option value='todos'>Todos os status</option>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
       <input value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} placeholder='Filtrar por cidade' className='rounded-2xl border border-leaf-100 p-3' />
       <input value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} placeholder='Filtrar por estado' className='rounded-2xl border border-leaf-100 p-3' />
+      <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label='Filtrar por origem' className='rounded-2xl border border-leaf-100 p-3'><option value='todas'>Todas as origens</option>{Object.values(PUBLIC_REQUEST_SOURCES).map((source) => <option key={source} value={source}>{PUBLIC_REQUEST_SOURCE_LABELS[source] ?? source}</option>)}</select>
       <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className='rounded-2xl border border-leaf-100 p-3'><option value='created_at'>Ordenar por envio</option><option value='preferred_date'>Ordenar por data desejada</option></select>
     </div>
     {message && <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</p>}
@@ -89,8 +92,10 @@ function Card({ item, onSaved, onDeleted, onError }: { item: any; onSaved: (mess
   }
 
   return <div className='rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft'>
-    <p className='font-semibold text-[#123F2A]'>{item.name} • {item.source === 'orcamento' ? contactRequestTypeLabel(item.service_type) : contactRequestTypeLabel(item.request_type)}</p>
-    <p className='text-xs font-semibold uppercase tracking-wide text-leaf-700'>Origem: {PUBLIC_REQUEST_SOURCE_LABELS[item.source ?? 'agendamento'] ?? item.source}</p>
+    <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+      <p className='min-w-0 break-words font-semibold text-[#123F2A]'>{item.name} • {contactRequestTypeLabel(item.service_type ?? item.request_type)}</p>
+      {isQuoteRequestSource(item.source) ? <QuoteRequestBadge /> : null}
+    </div>
     <p className='text-sm'>Contato: {item.email || '-'} | {item.phone || '-'}</p>
     <p className='text-sm'>Local: {item.city || '-'} / {item.state || '-'}</p>
     <p className='text-sm'>Data desejada: {item.preferred_date ?? '-'} às {item.preferred_time ?? '-'}</p>
@@ -104,4 +109,12 @@ function Card({ item, onSaved, onDeleted, onError }: { item: any; onSaved: (mess
       <button onClick={remove} disabled={deleting} aria-busy={deleting} className='rounded-full border border-red-200 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:text-slate-400'>{deleting ? "Excluindo..." : "Excluir"}</button>
     </div>
   </div>;
+}
+
+/** Selo exibido somente em solicitacoes criadas pelo formulario de orcamento (source = 'orcamento'). */
+function QuoteRequestBadge() {
+  return <span className='inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900'>
+    <span className='h-1.5 w-1.5 rounded-full bg-amber-600' aria-hidden='true' />
+    Solicitação de orçamento
+  </span>;
 }

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, supabaseRequest } from "../../../../lib/agronomic/case";
+import { PUBLIC_REQUEST_SOURCES } from "../../../../lib/public-requests/config";
+
+const allowedSources = new Set<string>(Object.values(PUBLIC_REQUEST_SOURCES));
 
 export async function GET(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -13,12 +16,15 @@ export async function GET(request: NextRequest) {
   const status = url.searchParams.get("status");
   const city = url.searchParams.get("city");
   const state = url.searchParams.get("state");
+  const source = url.searchParams.get("source");
   const sort = url.searchParams.get("sort") === "preferred_date" ? "preferred_date.asc.nullslast" : "created_at.desc";
 
   const params = ["select=*", `order=${sort}`];
   if (status && status !== "todos") params.push(`status=eq.${encodeURIComponent(status)}`);
   if (city) params.push(`city=ilike.*${encodeURIComponent(city)}*`);
   if (state) params.push(`state=ilike.*${encodeURIComponent(state)}*`);
+  // Origem: Contato ('agendamento') ou Solicitacao de orcamento ('orcamento'). Valores fora da lista sao ignorados.
+  if (source && allowedSources.has(source)) params.push(`source=eq.${encodeURIComponent(source)}`);
 
   const items = await supabaseRequest<any[]>(`/rest/v1/specialist_visit_requests?${params.join("&")}`, { method: "GET" }, token);
   return NextResponse.json({ items });

@@ -23,6 +23,7 @@
     "lib/plans-page.ts",
     "lib/public-requests/config.ts",
     "lib/public-requests/contact.ts",
+    "lib/public-requests/form.ts",
     "lib/service-quotes.ts",
     "lib/server/public-requests/attachments.ts",
     "lib/server/public-requests/ai-assist.ts",

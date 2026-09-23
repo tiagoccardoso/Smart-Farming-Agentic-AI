@@ -8,7 +8,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RequestTransportError, createSubmissionKey, postFormWithProgress } from "../../lib/public-requests/client";
 
-type SubmitOptions = { trackProgress?: boolean; fallbackSuccess: string; fallbackError: string };
+type SubmitOptions = {
+  trackProgress?: boolean;
+  fallbackSuccess: string;
+  fallbackError: string;
+  /**
+   * Chamado quando o servidor recusa o envio. Retorne true se o formulario ja
+   * exibiu o erro (ex.: junto ao campo), para nao repetir no alerta geral.
+   */
+  onRejected?: (payload: Record<string, unknown> | null, status: number) => boolean;
+};
 
 export function usePublicRequestSubmit(prefix: string) {
   const [submitting, setSubmitting] = useState(false);
@@ -41,6 +50,7 @@ export function usePublicRequestSubmit(prefix: string) {
         const payloadError = typeof result.payload?.error === "string" ? result.payload.error : "";
 
         if (!result.ok) {
+          if (options.onRejected?.(result.payload ?? null, result.status)) return null;
           if (result.status === 413) setError(payloadError || "Os anexos excedem o limite permitido. Remova algum arquivo e tente novamente.");
           else if (result.status === 429) setError(payloadError || "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
           else setError(payloadError || options.fallbackError);
