@@ -164,3 +164,12 @@ erros ao usuário são amigáveis e o detalhe fica no log do servidor, sem token
 4. `STRIPE_HUMAN_REVIEW_PRICE_ID` deixou de ser usado e pode ser removido da Vercel quando conveniente.
 5. Casos antigos em "Pagamento pendente" podem ser enviados pelo benefício do plano (botão
    "Solicitar parecer agronômico").
+
+## 12. Atualização 2026-09-23 — preços dos planos legados
+
+Sem assinaturas ativas em `ia-basica` e `ia-revisao-humana`, a migration
+`20260923090000_clear_legacy_plan_stripe_prices.sql` limpa `stripe_price_id` e
+`stripe_product_id` desses planos (as linhas de `plans` e o histórico de
+`subscriptions` são mantidos). A migration aborta sozinha se encontrar alguma
+assinatura vigente nesses planos. No painel do Stripe, arquivar (não excluir)
+os produtos/preços antigos.

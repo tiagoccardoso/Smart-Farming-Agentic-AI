@@ -792,7 +792,14 @@ export async function GET(request: NextRequest) {
 
     humanReviews.forEach((review) => {
       if (!reviewsByCaseId.has(review.case_id)) {
-        reviewsByCaseId.set(review.case_id, review);
+        // Rascunho da especialista não é exibido ao produtor: o texto só é
+        // liberado quando o parecer é finalizado (status "completed").
+        reviewsByCaseId.set(
+          review.case_id,
+          review.status === "completed"
+            ? review
+            : { ...review, review_text: null, technical_recommendation: null, final_observations: null },
+        );
       }
     });
 

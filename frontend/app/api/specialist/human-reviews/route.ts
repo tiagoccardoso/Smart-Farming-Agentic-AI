@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAgronomicCase, getAuthenticatedUser, getSupabaseConfig, supabaseRequest } from "../../../../lib/agronomic/case";
+import { ACTIVE_REVIEW_CASE_STATUSES, HumanReviewRow, resolveDraftTarget } from "../../../../lib/agronomic/review-workflow";
 
 type Profile = {
   role: "client" | "specialist" | "admin";
@@ -15,9 +16,7 @@ type HumanReviewPayload = {
   action?: HumanReviewAction;
 };
 
-type CreatedHumanReview = {
-  id: string;
-};
+const REVIEW_SELECT = "id,case_id,specialist_id,status,review_text,technical_recommendation,final_observations,reviewed_at,created_at";
 
 type CreatedReport = {
   id: string;
@@ -81,35 +80,78 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Caso não encontrado ou sem solicitação de revisão humana." }, { status: 404 });
     }
 
-    if (!["waiting_review", "in_review"].includes(caseData.human_review_status ?? "") && action !== "draft") {
-      return NextResponse.json({ error: "Este caso não está aguardando revisão humana." }, { status: 409 });
+    // Vale também para rascunhos: um parecer finalizado não volta a ser rascunho.
+    if (!(ACTIVE_REVIEW_CASE_STATUSES as readonly string[]).includes(caseData.human_review_status ?? "")) {
+      return NextResponse.json(
+        {
+          error:
+            action === "draft"
+              ? "Este parecer já foi finalizado e não pode mais ser salvo como rascunho."
+              : "Este caso não está aguardando revisão humana."
+        },
+        { status: 409 }
+      );
     }
 
     const config = getSupabaseConfig();
     const reviewStatus = action === "draft" ? "in_review" : "completed";
-    const reviews = await supabaseRequest<CreatedHumanReview[]>(
-      "/rest/v1/human_reviews?select=id",
-      {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          case_id: caseId,
-          specialist_id: user.id,
-          review_text: reviewText,
-          technical_recommendation: technicalRecommendation,
-          final_observations: finalObservations,
-          status: reviewStatus,
-          reviewed_at: action === "draft" ? null : new Date().toISOString()
-        })
-      },
+    const reviewFields = {
+      review_text: reviewText,
+      technical_recommendation: technicalRecommendation,
+      final_observations: finalObservations,
+      status: reviewStatus,
+      reviewed_at: action === "draft" ? null : new Date().toISOString()
+    };
+
+    // Reaproveita o rascunho existente em vez de inserir um registro a cada salvamento.
+    const existingReviews = await supabaseRequest<HumanReviewRow[]>(
+      `/rest/v1/human_reviews?case_id=eq.${encodeURIComponent(caseId)}&select=${REVIEW_SELECT}&order=created_at.desc`,
+      { method: "GET" },
       token,
       config
     );
-    const review = reviews[0];
+    const target = resolveDraftTarget(existingReviews, user.id, profile?.role === "admin");
+
+    if (target.kind === "conflict") {
+      return NextResponse.json(
+        { error: "Este caso já possui um rascunho em edição por outra especialista." },
+        { status: 409 }
+      );
+    }
+
+    const savedReviews =
+      target.kind === "update"
+        ? await supabaseRequest<HumanReviewRow[]>(
+            `/rest/v1/human_reviews?id=eq.${encodeURIComponent(target.row.id)}&select=${REVIEW_SELECT}`,
+            {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify(reviewFields)
+            },
+            token,
+            config
+          )
+        : await supabaseRequest<HumanReviewRow[]>(
+            `/rest/v1/human_reviews?select=${REVIEW_SELECT}`,
+            {
+              method: "POST",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({ case_id: caseId, specialist_id: user.id, ...reviewFields })
+            },
+            token,
+            config
+          );
+    const review = savedReviews[0];
 
     if (!review) {
-      throw new Error("Não foi possível criar o registro de revisão humana.");
+      throw new Error(
+        target.kind === "update"
+          ? "Não foi possível atualizar o rascunho do parecer."
+          : "Não foi possível criar o registro de revisão humana."
+      );
     }
+
+    const savedAt = new Date().toISOString();
 
     if (action === "draft") {
       await supabaseRequest(
@@ -123,7 +165,7 @@ export async function POST(request: NextRequest) {
         config
       );
 
-      return NextResponse.json({ reviewId: review.id, status: "draft_saved" });
+      return NextResponse.json({ reviewId: review.id, status: "draft_saved", review, savedAt });
     }
 
     await supabaseRequest(
@@ -161,7 +203,13 @@ export async function POST(request: NextRequest) {
       report = reports[0] ?? null;
     }
 
-    return NextResponse.json({ reviewId: review.id, reportId: report?.id ?? null, status: action === "generate_report" ? "report_prepared" : "review_finalized" });
+    return NextResponse.json({
+      reviewId: review.id,
+      reportId: report?.id ?? null,
+      status: action === "generate_report" ? "report_prepared" : "review_finalized",
+      review,
+      savedAt
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível salvar a revisão humana.";
     return NextResponse.json({ error: message }, { status: 500 });
