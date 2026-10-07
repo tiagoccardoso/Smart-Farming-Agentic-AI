@@ -42,7 +42,7 @@ type SpecialistQueueResponse = {
   currentUserId: string;
 };
 
-type ReviewAction = "draft" | "finalize" | "generate_report";
+type ReviewAction = "draft" | "finalize";
 
 type ReviewForm = ReviewFormValues;
 
@@ -1071,9 +1071,7 @@ export default function PainelDoutoraPage() {
         setConfirmingFinalize(false);
         setActiveTab("completed");
         setReviewNotice(
-          action === "generate_report"
-            ? "Parecer finalizado e relatório preparado. O produtor já pode consultá-lo em Meus Relatórios."
-            : "Parecer finalizado. O produtor já pode consultá-lo em Meus Relatórios.",
+          "Parecer finalizado. O produtor já pode consultá-lo em Revisão Humana.",
         );
 
         if (currentUserId) clearBackup(backupKey(currentUserId, caseId));
@@ -2392,16 +2390,6 @@ export default function PainelDoutoraPage() {
                     {submitting === "finalize"
                       ? "Finalizando..."
                       : "Finalizar parecer"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => runReviewAction("generate_report")}
-                    disabled={Boolean(submitting)}
-                    className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {submitting === "generate_report"
-                      ? "Preparando relatório..."
-                      : "Finalizar e gerar relatório"}
                   </button>
                   <button
                     type="button"

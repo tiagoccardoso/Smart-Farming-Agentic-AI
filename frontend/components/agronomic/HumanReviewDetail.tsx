@@ -149,15 +149,13 @@ export function AgronomistOpinionCard({ review, isNew, report }: { review: Clien
           </OpinionSection>
         )}
 
-        {report && (
+        {report?.report_url && (
           <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-black text-slate-900">Relatório final</p>
-              <p className="text-xs text-slate-600">{report.report_url ? "Documento disponível para download." : "Em preparação. Ficará disponível aqui quando concluído."}</p>
+              <p className="text-xs text-slate-600">Documento disponível para download.</p>
             </div>
-            {report.report_url && (
-              <a href={report.report_url} target="_blank" rel="noopener noreferrer" className="rounded-full bg-leaf-700 px-5 py-2.5 text-center text-sm font-black text-white hover:bg-leaf-800">Baixar relatório</a>
-            )}
+            <a href={report.report_url} target="_blank" rel="noopener noreferrer" className="rounded-full bg-leaf-700 px-5 py-2.5 text-center text-sm font-black text-white hover:bg-leaf-800">Baixar relatório</a>
           </div>
         )}
 
