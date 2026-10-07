@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  pickClientReviewRow,
+  redactUnfinishedReview,
+} from "../../../lib/agronomic/client-review";
+import {
   PLAN_LIMIT_REACHED_MESSAGE,
   PlanFeatureUnavailableError,
   assertPlanFeature,
@@ -790,17 +794,23 @@ export async function GET(request: NextRequest) {
     const reportsByCaseId = new Map<string, ListedReport>();
     const ordersByCaseId = new Map<string, ListedOneTimeOrder>();
 
+    // Parecer do caso: o finalizado mais recente em casos concluídos (mesmo que
+    // exista um registro mais novo, ex.: solicitação "pending"); nos demais, o
+    // mais recente. Rascunho da especialista não é exibido ao produtor: o texto
+    // só é liberado quando o parecer é finalizado (status "completed").
+    const reviewRowsByCaseId = new Map<string, ListedHumanReview[]>();
     humanReviews.forEach((review) => {
-      if (!reviewsByCaseId.has(review.case_id)) {
-        // Rascunho da especialista não é exibido ao produtor: o texto só é
-        // liberado quando o parecer é finalizado (status "completed").
-        reviewsByCaseId.set(
-          review.case_id,
-          review.status === "completed"
-            ? review
-            : { ...review, review_text: null, technical_recommendation: null, final_observations: null },
-        );
-      }
+      reviewRowsByCaseId.set(review.case_id, [
+        ...(reviewRowsByCaseId.get(review.case_id) ?? []),
+        review,
+      ]);
+    });
+    cases.forEach((caseItem) => {
+      const current = pickClientReviewRow(
+        reviewRowsByCaseId.get(caseItem.id) ?? [],
+        caseItem.human_review_status,
+      );
+      if (current) reviewsByCaseId.set(caseItem.id, redactUnfinishedReview(current));
     });
 
     reports.forEach((report) => {

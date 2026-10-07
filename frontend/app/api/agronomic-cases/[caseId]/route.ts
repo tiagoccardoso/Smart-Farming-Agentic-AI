@@ -15,6 +15,11 @@ import {
   supabaseAdminRequest,
 } from "../../../../lib/stripe/humanReview";
 import {
+  type StoredHumanReview,
+  buildClientHumanReview,
+  pickClientReviewRow,
+} from "../../../../lib/agronomic/client-review";
+import {
   getSafeUploadContentType,
   isAllowedUploadFile,
 } from "../../../../lib/mobile-image-upload";
@@ -261,6 +266,51 @@ async function assertCaseOwner(caseId: string, token: string) {
   return { user, caseData };
 }
 
+type ClientReport = {
+  id: string;
+  report_url: string | null;
+  report_type: string | null;
+  created_at: string | null;
+};
+
+/**
+ * Parecer do agrônomo exibido ao dono do caso (tela Revisão Humana).
+ * - Leitura de human_reviews com o token do próprio usuário (RLS do dono).
+ * - Texto só é devolvido quando o parecer está finalizado (rascunho nunca).
+ * - Nome do responsável: apenas `full_name`, lido pelo servidor porque o
+ *   produtor não tem acesso ao perfil da especialista; falha → sem nome.
+ */
+async function loadClientHumanReview(
+  caseData: { id: string; human_review_status: string | null; human_review_requested: boolean },
+  activityLogs: Array<{ action: string; created_at: string | null }>,
+  token: string,
+) {
+  const rows = await supabaseRequest<StoredHumanReview[]>(
+    `/rest/v1/human_reviews?case_id=eq.${encodeURIComponent(caseData.id)}&select=id,case_id,specialist_id,status,review_text,technical_recommendation,final_observations,reviewed_at,created_at&order=created_at.desc`,
+    { method: "GET" },
+    token,
+  ).catch(() => [] as StoredHumanReview[]);
+
+  const current = pickClientReviewRow(rows, caseData.human_review_status);
+  const specialistId =
+    current?.status === "completed" ? current.specialist_id : null;
+  const specialistName = specialistId
+    ? await supabaseAdminRequest<Array<{ full_name: string | null }>>(
+        `/rest/v1/profiles?id=eq.${encodeURIComponent(specialistId)}&select=full_name&limit=1`,
+        { method: "GET" },
+      )
+        .then((profiles) => profiles[0]?.full_name ?? null)
+        .catch(() => null)
+    : null;
+
+  return buildClientHumanReview({
+    rows,
+    humanReviewStatus: caseData.human_review_status,
+    activityLogs,
+    specialistName,
+  });
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { caseId: string } },
@@ -285,7 +335,15 @@ export async function GET(
       { method: "GET" },
       token,
     ).catch(() => []);
-    return NextResponse.json({ case: caseData, activityLogs });
+    const humanReview = await loadClientHumanReview(caseData, activityLogs, token);
+    const latestReport = await supabaseRequest<ClientReport[]>(
+      `/rest/v1/reports?case_id=eq.${encodeURIComponent(params.caseId)}&select=id,report_url,report_type,created_at&order=created_at.desc&limit=1`,
+      { method: "GET" },
+      token,
+    )
+      .then((rows) => rows[0] ?? null)
+      .catch(() => null);
+    return NextResponse.json({ case: caseData, activityLogs, humanReview, latestReport });
   } catch (error) {
     const message =
       error instanceof Error

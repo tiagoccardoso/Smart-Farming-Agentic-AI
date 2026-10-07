@@ -18,6 +18,7 @@
   "include": [
     "lib/billing/**/*.ts",
     "lib/agronomic/review-workflow.ts",
+    "lib/agronomic/client-review.ts",
     "lib/server/supabaseAdmin.ts",
     "lib/stripe/signature.ts",
     "lib/stripe/webhook-events.ts",

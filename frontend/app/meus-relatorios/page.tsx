@@ -110,7 +110,7 @@ function getHumanReviewStatusLabel(status: string | null) {
 
 function hasCompletedHumanReview(caseItem: ReportCase) {
   return Boolean(
-    caseItem.latestHumanReview ||
+    caseItem.latestHumanReview?.status === "completed" ||
       ["reviewed", "completed"].includes(caseItem.human_review_status ?? "") ||
       ["human_reviewed", "completed"].includes(caseItem.status ?? "")
   );
@@ -218,10 +218,10 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
           Abrir análise IA
         </Link>
         <Link href={`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`} className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-semibold text-leaf-700 shadow-soft hover:border-leaf-300">
-          Pagar revisão humana
+          {hasHumanReview ? "Abrir revisão humana" : "Revisão humana"}
         </Link>
         {hasHumanReview ? (
-          <Link href={`#revisao-${caseItem.id}`} className="rounded-full border border-slate-200 bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700">
+          <Link href={`/revisao-humana?caseId=${encodeURIComponent(caseItem.id)}`} className="rounded-full border border-slate-200 bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-soft hover:bg-slate-700">
             Ver parecer humano
           </Link>
         ) : (
@@ -240,7 +240,7 @@ function CaseCard({ caseItem }: { caseItem: ReportCase }) {
         )}
       </div>
 
-      {caseItem.latestHumanReview && (
+      {caseItem.latestHumanReview?.status === "completed" && (
         <div id={`revisao-${caseItem.id}`} className="mt-6 rounded-2xl border border-leaf-100 bg-leaf-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h4 className="font-semibold text-slate-900">Revisão humana mais recente</h4>
