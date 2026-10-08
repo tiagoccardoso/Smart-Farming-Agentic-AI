@@ -7,297 +7,161 @@ import {
   generateAgronomicPreAnalysis,
   getAuthenticatedUser,
   getCurrentPendingQuestion,
-  getSupabaseConfig,
   logPendingQuestionSync,
   syncAnalysisMissingQuestionsWithPendingQueue,
   insertCaseChatMessage,
   supabaseRequest,
   updateAgronomicCaseWithAnalysis,
-  type CaseChatMessageType,
+  type AgronomicCaseChatMessage,
 } from "../../../../../lib/agronomic/case";
 import {
-  getSafeUploadContentType,
-  isAllowedUploadFile,
-} from "../../../../../lib/mobile-image-upload";
+  AUDIO_EXTENSIONS,
+  AUDIO_MIME_TYPES,
+  CASE_ATTACHMENT_LIMITS,
+  MAX_REQUEST_BODY_BYTES,
+  PHOTO_EXTENSIONS,
+  PHOTO_MIME_TYPES,
+  buildCaseAttachmentPath,
+  isValidClientUploadId,
+} from "../../../../../lib/agronomic/case-attachments";
+import {
+  AUDIO_MESSAGE_LABEL,
+  IMAGE_MESSAGE_LABEL,
+  buildUserTurnContext,
+  trailingUserMessages,
+  type ChatMessageRow,
+} from "../../../../../lib/agronomic/case-chat";
+import {
+  PLAN_LIMIT_REACHED_MESSAGE,
+  PlanLimitExceededError,
+  UserInactiveError,
+  assertPlanLimit,
+  recordUsageEvent,
+} from "../../../../../lib/billing/check-plan-limits";
+import { isAllowedUploadFile } from "../../../../../lib/mobile-image-upload";
+import { CaseEditError, deleteCaseObjects, uploadCaseObject } from "../../../../../lib/server/agronomic-case-edit";
 
-const STORAGE_BUCKET = "agronomic-cases";
-const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const MAX_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
-const ACCEPTED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-];
-const ACCEPTED_IMAGE_EXTENSIONS = [
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "heic",
-  "heif",
-];
-const GENERIC_MOBILE_FILE_TYPES = ["", "application/octet-stream"];
-const ACCEPTED_AUDIO_TYPES = [
-  "audio/webm",
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/wav",
-  "audio/x-wav",
-];
-const ACCEPTED_AUDIO_EXTENSIONS = ["webm", "mp3", "wav"];
+export const maxDuration = 60;
 
 type RouteContext = { params: { caseId: string } };
 
+type TranscriptionStatus = "success" | "failed" | "unavailable";
+
 class FriendlyRequestError extends Error {
   status: number;
+  code: string;
 
-  constructor(message: string, status = 400) {
+  constructor(message: string, status = 400, code = "INVALID_REQUEST") {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
 function getToken(request: NextRequest) {
-  return (
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
-  );
+  return request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
 }
 
 function isFile(value: FormDataEntryValue | null): value is File {
   return value instanceof File && value.size > 0;
 }
 
-function sanitizeFileName(fileName: string) {
-  return (
-    fileName
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase() || "arquivo"
-  );
-}
-
 function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function getNormalizedFileType(file: File) {
-  const normalizedType = file.type.toLowerCase();
-
-  if (normalizedType && normalizedType !== "application/octet-stream") {
-    return normalizedType;
-  }
-
-  const extension = getFileExtension(file.name);
-  const typeByExtension: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-  };
-
-  return typeByExtension[extension] ?? normalizedType;
+function normalizeAudioMime(type: string) {
+  const base = type.split(";")[0].trim().toLowerCase();
+  if (base === "audio/x-m4a" || base === "audio/m4a" || base === "audio/aac") return "audio/mp4";
+  if (base === "audio/mp3") return "audio/mpeg";
+  if (base === "audio/x-wav") return "audio/wav";
+  return base;
 }
 
-function isAllowedMobileUpload(
-  file: File,
-  allowedTypes: string[],
-  allowedExtensions: string[],
-) {
-  const extension = getFileExtension(file.name);
-  const hasAllowedExtension = allowedExtensions.includes(extension);
-  const normalizedType = file.type.toLowerCase();
-  const inferredType = getNormalizedFileType(file);
+const AUDIO_TYPE_BY_EXTENSION: Record<string, string> = {
+  webm: "audio/webm",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
+  m4a: "audio/mp4",
+  mp4: "audio/mp4",
+  aac: "audio/mp4",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+};
 
-  if (
-    allowedTypes.includes(normalizedType) ||
-    allowedTypes.includes(inferredType)
-  ) {
-    return true;
-  }
-
-  return (
-    hasAllowedExtension && GENERIC_MOBILE_FILE_TYPES.includes(normalizedType)
-  );
+/**
+ * Tipo de conteúdo do áudio para o storage. Navegadores rotulam arquivos .webm
+ * e .m4a como "video/*" no seletor de arquivos; o bucket aceita só "audio/*".
+ */
+function resolveAudioContentType(file: File) {
+  const type = normalizeAudioMime(file.type || "");
+  if (type === "video/webm") return "audio/webm";
+  if (type === "video/mp4") return "audio/mp4";
+  if (type.startsWith("audio/")) return type;
+  return AUDIO_TYPE_BY_EXTENSION[getFileExtension(file.name)] ?? "audio/webm";
 }
 
-async function validateUploadFile(
-  file: File,
-  allowedTypes: string[],
-  allowedExtensions: string[],
-  maxSize: number,
-  label: string,
-) {
-  const shouldInspectImageContent = allowedTypes.some((type) =>
-    type.startsWith("image/"),
-  );
-  const isAllowed = shouldInspectImageContent
-    ? await isAllowedUploadFile(file, allowedTypes, allowedExtensions)
-    : isAllowedMobileUpload(file, allowedTypes, allowedExtensions);
-
-  if (!isAllowed) {
-    throw new FriendlyRequestError(`${label} em formato inválido.`);
-  }
-
-  if (file.size > maxSize) {
-    throw new FriendlyRequestError(`${label} excede o limite permitido.`);
-  }
+function isAllowedAudio(file: File) {
+  const type = normalizeAudioMime(file.type || "");
+  if (AUDIO_MIME_TYPES.map(normalizeAudioMime).includes(type)) return true;
+  const genericType = !type || type === "application/octet-stream" || type === "video/webm" || type === "video/mp4";
+  return genericType && AUDIO_EXTENSIONS.includes(getFileExtension(file.name));
 }
 
-function safeJsonParse(text: string) {
+async function transcribeAudio(file: File): Promise<{ status: TranscriptionStatus; text: string | null }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { status: "unavailable", text: null };
+
   try {
-    return JSON.parse(text) as {
-      message?: string;
-      error?: string;
-      code?: string;
-    };
-  } catch {
-    return null;
-  }
-}
+    const formData = new FormData();
+    formData.append("file", file, file.name || "audio.webm");
+    formData.append("model", process.env.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe");
+    formData.append("language", "pt");
 
-async function uploadToStorage(file: File, path: string, token: string) {
-  const config = getSupabaseConfig();
-  const response = await fetch(
-    `${config.supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`,
-    {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: {
-        apikey: config.anonKey,
-        Authorization: `Bearer ${token}`,
-        "Content-Type": await getSafeUploadContentType(file),
-        "x-upsert": "false",
-      },
-      body: Buffer.from(await file.arrayBuffer()),
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
       cache: "no-store",
-    },
-  );
-  const text = await response.text();
-  const payload = text ? safeJsonParse(text) : null;
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    const payload = await response.json().catch(() => null);
+    const text = String(payload?.text || "").trim();
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new FriendlyRequestError(
-        "Sua sessão expirou durante o upload. Faça login novamente e tente enviar o arquivo.",
-        401,
-      );
+    if (!response.ok || !text) {
+      console.warn("[case-chat] transcrição não concluída", { status: response.status });
+      return { status: "failed", text: null };
     }
-
-    if (response.status === 403 || payload?.code === "42501") {
-      throw new FriendlyRequestError(
-        "Não foi possível anexar o arquivo por falta de permissão no storage.",
-        403,
-      );
-    }
-
-    throw new FriendlyRequestError(
-      payload?.message ||
-        payload?.error ||
-        `Não foi possível enviar o arquivo "${file.name}".`,
-      response.status >= 500 ? 502 : 400,
-    );
+    return { status: "success", text };
+  } catch (error) {
+    console.warn("[case-chat] transcrição falhou", { message: error instanceof Error ? error.message : String(error) });
+    return { status: "failed", text: null };
   }
-
-  return `${config.supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
 }
 
-async function attachImageToCase(
-  caseId: string,
-  userId: string,
-  imageUrl: string,
-  imageType: string,
-  token: string,
-) {
+async function attachImageToCase(caseId: string, userId: string, imageUrl: string, imageType: string, token: string) {
+  const existing = await supabaseRequest<Array<{ id: string }>>(
+    `/rest/v1/case_images?case_id=eq.${encodeURIComponent(caseId)}&image_url=eq.${encodeURIComponent(imageUrl)}&select=id&limit=1`,
+    { method: "GET" },
+    token,
+  ).catch(() => []);
+  if (existing.length) return;
   await supabaseRequest(
     "/rest/v1/case_images",
     {
       method: "POST",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        case_id: caseId,
-        user_id: userId,
-        image_url: imageUrl,
-        image_type: imageType,
-      }),
+      body: JSON.stringify({ case_id: caseId, user_id: userId, image_url: imageUrl, image_type: imageType }),
     },
     token,
   );
 }
 
-async function transcribeAudio(file: File) {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return "Transcrição automática indisponível neste ambiente. O áudio foi salvo e deve ser revisado manualmente ou transcrito quando a API estiver configurada.";
-  }
-
-  const formData = new FormData();
-  formData.append("file", file, file.name || "audio.webm");
-  formData.append(
-    "model",
-    process.env.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
-  );
-  formData.append("language", "pt");
-
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
-      cache: "no-store",
-    },
-  );
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message || "Não foi possível transcrever o áudio.",
-    );
-  }
-
-  return (
-    String(payload?.text || "").trim() ||
-    "Áudio recebido, mas a transcrição retornou vazia."
-  );
-}
-
-function buildContextMessage(input: {
-  text: string;
-  messageType: CaseChatMessageType;
-  fileUrl?: string | null;
-}) {
-  if (input.messageType === "image") {
-    return `Nova imagem enviada pelo usuário durante a conversa. URL: ${input.fileUrl}. Observação do usuário: ${input.text}`;
-  }
-
-  if (input.messageType === "audio" || input.messageType === "transcription") {
-    return `Resposta por áudio transcrita durante a conversa: ${input.text}`;
-  }
-
-  return input.text;
-}
-
-async function generateAssistantTurn(
-  caseId: string,
-  userId: string,
-  token: string,
-  userContext: string,
-) {
-  const pendingState = await answerCurrentPendingQuestion(
-    caseId,
-    userContext,
-    token,
-  ).catch(() => ({
-    answered: null,
-    next: null,
-  }));
+async function generateAssistantTurn(caseId: string, userId: string, token: string, userContext: string) {
+  const pendingState = await answerCurrentPendingQuestion(caseId, userContext, token).catch(() => ({ answered: null, next: null }));
   const refreshedCase = await fetchAgronomicCase(caseId, token);
   const [conversationMessages, pendingQuestions] = await Promise.all([
     fetchCaseChatMessages(caseId, token).catch(() => []),
@@ -305,49 +169,37 @@ async function generateAssistantTurn(
   ]);
   const answeredContext = pendingQuestions
     .filter((question) => question.status === "answered")
-    .map(
-      (question) =>
-        `Pergunta respondida: ${question.question} Resposta: ${question.answer ?? "não registrada"}`,
-    )
+    .map((question) => `Pergunta respondida: ${question.question} Resposta: ${question.answer ?? "não registrada"}`)
     .join("\n");
   const conversationContext = conversationMessages
     .slice(-16)
-    .map(
-      (message) =>
-        `${message.role === "assistant" ? "IA" : "Usuário"} (${message.message_type}): ${message.message}`,
-    )
+    .map((message) => `${message.role === "assistant" ? "IA" : "Usuário"} (${message.message_type}): ${message.message}`)
     .join("\n");
+  const pendingCount = pendingQuestions.filter((question) => question.status === "pending").length;
   const analysisQuestion = [
     "Contexto acumulado da conversa deste caseId:",
     conversationContext || "Sem mensagens anteriores.",
     answeredContext || "Sem perguntas pendentes respondidas ainda.",
-    `Estado oficial da fila no banco: pendingQuestions.length === ${pendingQuestions.filter((question) => question.status === "pending").length}. Perguntas pendentes oficiais restantes: ${pendingQuestions.filter((question) => question.status === "pending").length}.`,
+    `Estado oficial da fila no banco: pendingQuestions.length === ${pendingCount}. Perguntas pendentes oficiais restantes: ${pendingCount}.`,
     "Se pendingQuestions.length === 0, não gere novas missingQuestions; conclua a triagem com limitação natural se necessário.",
     "Nova entrada do usuário:",
     userContext,
   ].join("\n");
-  const modelAnalysis = await generateAgronomicPreAnalysis(
-    refreshedCase!,
-    analysisQuestion,
-    token,
-  );
-  const syncedPendingQuestions = await fetchCasePendingQuestions(
-    caseId,
-    token,
-  ).catch(() => pendingQuestions);
+  const modelAnalysis = await generateAgronomicPreAnalysis(refreshedCase!, analysisQuestion, token);
+  const syncedPendingQuestions = await fetchCasePendingQuestions(caseId, token).catch(() => pendingQuestions);
   logPendingQuestionSync({
     scope: "agronomic-case-chat-post",
     aiMissingQuestions: modelAnalysis.missingQuestions,
     questions: syncedPendingQuestions,
   });
-  const analysis = syncAnalysisMissingQuestionsWithPendingQueue(
-    modelAnalysis,
-    syncedPendingQuestions,
+  const analysis = await updateAgronomicCaseWithAnalysis(
+    caseId,
+    token,
+    syncAnalysisMissingQuestionsWithPendingQueue(modelAnalysis, syncedPendingQuestions),
+    { source: "chat" },
   );
-  await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
 
   const nextQuestion = getCurrentPendingQuestion(syncedPendingQuestions);
-
   const assistantText = nextQuestion
     ? `${analysis.conversationalAnswer?.trim() || "Entendi. Vou atualizar o contexto e avançar para a próxima pergunta pendente."}\n\n${nextQuestion.question}`
     : analysis.conversationalAnswer?.trim() ||
@@ -356,10 +208,7 @@ async function generateAssistantTurn(
           ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
           : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
 
-  const assistantMessage = await insertCaseChatMessage(
-    { caseId, userId, role: "assistant", message: assistantText },
-    token,
-  );
+  const assistantMessage = await insertCaseChatMessage({ caseId, userId, role: "assistant", message: assistantText }, token);
 
   return {
     analysis,
@@ -370,155 +219,226 @@ async function generateAssistantTurn(
   };
 }
 
+async function loadOwnedCase(request: NextRequest, caseId: string) {
+  const token = getToken(request);
+  if (!token) throw new FriendlyRequestError("Faça login para usar o chat do caso.", 401, "AUTH_REQUIRED");
+  const user = await getAuthenticatedUser(token).catch(() => {
+    throw new FriendlyRequestError("Sua sessão expirou. Faça login novamente.", 401, "AUTH_REQUIRED");
+  });
+  const caseData = await fetchAgronomicCase(caseId, token);
+  // Cada conversa pertence a um único caso e ao dono do caso.
+  if (!caseData || caseData.user_id !== user.id) {
+    throw new FriendlyRequestError("Caso não encontrado ou sem permissão.", 404, "NOT_FOUND");
+  }
+  return { token, user, caseData };
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof PlanLimitExceededError) {
+    return NextResponse.json({ error: error.message || PLAN_LIMIT_REACHED_MESSAGE, code: "PLAN_LIMIT_REACHED", cta: error.result?.cta ?? null }, { status: 402 });
+  }
+  if (error instanceof UserInactiveError) {
+    return NextResponse.json({ error: error.message, code: "USER_INACTIVE" }, { status: 403 });
+  }
+  if (error instanceof FriendlyRequestError || error instanceof CaseEditError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+  }
+  console.error("[case-chat] falha inesperada", { message: error instanceof Error ? error.message : String(error) });
+  return NextResponse.json({ error: "Não foi possível processar a mensagem agora. Tente novamente.", code: "UNEXPECTED" }, { status: 500 });
+}
+
+async function runAssistantTurnSafely(caseId: string, userId: string, token: string, context: string) {
+  try {
+    const turn = await generateAssistantTurn(caseId, userId, token, context);
+    await recordUsageEvent(userId, "ai_question").catch(() => null);
+    return { turn, aiError: null as string | null };
+  } catch (error) {
+    console.error("[case-chat] IA não respondeu", { message: error instanceof Error ? error.message : String(error) });
+    return {
+      turn: null,
+      aiError: "Sua mensagem e os anexos foram salvos, mas a IA não conseguiu responder agora. Toque em \"Tentar novamente\" para gerar a resposta.",
+    };
+  }
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const token = getToken(request);
-
-    if (!token) {
-      return NextResponse.json(
-        { error: "Faça login para carregar o chat do caso." },
-        { status: 401 },
-      );
-    }
-
-    const user = await getAuthenticatedUser(token);
-    const caseData = await fetchAgronomicCase(context.params.caseId, token);
-
-    if (!caseData || caseData.user_id !== user.id) {
-      return NextResponse.json(
-        { error: "Caso não encontrado ou sem permissão." },
-        { status: 404 },
-      );
-    }
-
+    const { token } = await loadOwnedCase(request, context.params.caseId);
     const [messages, pendingQuestions] = await Promise.all([
       fetchCaseChatMessages(context.params.caseId, token),
       fetchCasePendingQuestions(context.params.caseId, token).catch(() => []),
     ]);
-    return NextResponse.json({
-      messages,
-      pendingQuestions,
-      currentQuestion: getCurrentPendingQuestion(pendingQuestions),
-    });
+    return NextResponse.json(
+      {
+        messages,
+        awaitingAssistant: trailingUserMessages(messages as ChatMessageRow[]).length > 0,
+        pendingQuestions,
+        currentQuestion: getCurrentPendingQuestion(pendingQuestions),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Não foi possível carregar o chat.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return errorResponse(error);
   }
 }
 
+/**
+ * Envia texto, fotos (várias) e/ou um áudio em uma única mensagem.
+ * - Tudo é validado antes de qualquer upload; o plano é verificado antes.
+ * - Arquivos e mensagens são gravados ANTES de chamar a IA: se a IA falhar,
+ *   nada se perde e a resposta pode ser refeita com `{ "retry": true }`.
+ * - Falha de transcrição não descarta o áudio.
+ */
 export async function POST(request: NextRequest, context: RouteContext) {
+  const caseId = context.params.caseId;
+  const uploadedPaths: string[] = [];
+
   try {
-    const token = getToken(request);
-
-    if (!token) {
-      return NextResponse.json(
-        { error: "Faça login para registrar mensagens no chat." },
-        { status: 401 },
-      );
+    const declaredLength = Number(request.headers.get("content-length") || 0);
+    if (declaredLength > MAX_REQUEST_BODY_BYTES) {
+      throw new FriendlyRequestError("Os anexos ficaram grandes demais para envio. Remova uma foto ou grave um áudio mais curto.", 413, "PAYLOAD_TOO_LARGE");
     }
 
-    const user = await getAuthenticatedUser(token);
-    const caseData = await fetchAgronomicCase(context.params.caseId, token);
-
-    if (!caseData || caseData.user_id !== user.id) {
-      return NextResponse.json(
-        { error: "Caso não encontrado ou sem permissão." },
-        { status: 404 },
-      );
-    }
-
+    const { token, user } = await loadOwnedCase(request, caseId);
     const contentType = request.headers.get("content-type") || "";
     let text = "";
-    let messageType: CaseChatMessageType = "text";
-    let fileUrl: string | null = null;
+    let images: File[] = [];
+    let audio: File | null = null;
+    let clientMessageId: string | null = null;
+    let retry = false;
 
     if (contentType.includes("multipart/form-data")) {
-      const formData = await request.formData();
-      const file = formData.get("file");
-      const requestedType = String(
-        formData.get("messageType") || "text",
-      ) as CaseChatMessageType;
-      text = String(formData.get("message") || "").trim();
-
-      if (isFile(file)) {
-        const safeName = sanitizeFileName(file.name);
-        const suffix = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-
-        if (requestedType === "image") {
-          await validateUploadFile(
-            file,
-            ACCEPTED_IMAGE_TYPES,
-            ACCEPTED_IMAGE_EXTENSIONS,
-            MAX_IMAGE_SIZE_BYTES,
-            "Imagem",
-          );
-          const path = `${user.id}/${context.params.caseId}/chat/images/${suffix}`;
-          fileUrl = await uploadToStorage(file, path, token);
-          await attachImageToCase(
-            context.params.caseId,
-            user.id,
-            fileUrl,
-            "chat_image",
-            token,
-          );
-          messageType = "image";
-          text = text || "Nova imagem enviada pelo usuário durante a conversa.";
-        } else if (requestedType === "audio") {
-          await validateUploadFile(
-            file,
-            ACCEPTED_AUDIO_TYPES,
-            ACCEPTED_AUDIO_EXTENSIONS,
-            MAX_AUDIO_SIZE_BYTES,
-            "Áudio",
-          );
-          const path = `${user.id}/${context.params.caseId}/chat/audio/${suffix}`;
-          fileUrl = await uploadToStorage(file, path, token);
-          messageType = "audio";
-          text = await transcribeAudio(file);
-        }
+      const formData = await request.formData().catch(() => {
+        throw new FriendlyRequestError("Não foi possível ler os anexos. Tente novamente.", 400, "INVALID_BODY");
+      });
+      text = String(formData.get("message") || "").trim().slice(0, 4000);
+      images = formData.getAll("images").filter(isFile);
+      const audioEntry = formData.get("audio");
+      audio = isFile(audioEntry) ? audioEntry : null;
+      // Compatibilidade: campo único "file" + messageType.
+      const legacyFile = formData.get("file");
+      if (isFile(legacyFile)) {
+        if (formData.get("messageType") === "audio") audio = legacyFile;
+        else images.push(legacyFile);
       }
+      const rawId = formData.get("clientMessageId");
+      clientMessageId = isValidClientUploadId(rawId) ? rawId : null;
     } else {
-      const payload = (await request.json().catch(() => null)) as {
-        message?: string;
-      } | null;
-      text = payload?.message?.trim() || "";
+      const payload = (await request.json().catch(() => null)) as { message?: string; retry?: boolean } | null;
+      text = payload?.message?.trim().slice(0, 4000) || "";
+      retry = payload?.retry === true;
     }
 
-    if (!text && !fileUrl) {
-      return NextResponse.json(
-        { error: "Informe uma mensagem, foto ou áudio válido." },
-        { status: 400 },
-      );
+    if (retry) {
+      const messages = (await fetchCaseChatMessages(caseId, token)) as ChatMessageRow[];
+      const pending = trailingUserMessages(messages);
+      if (!pending.length) {
+        return NextResponse.json({ messages, aiError: null, retried: false });
+      }
+      await assertPlanLimit(user.id, "ai_question");
+      const { turn, aiError } = await runAssistantTurnSafely(caseId, user.id, token, buildUserTurnContext(pending));
+      const refreshed = await fetchCaseChatMessages(caseId, token).catch(() => messages);
+      return NextResponse.json({ messages: refreshed, aiError, analysis: turn?.analysis ?? null, retried: true });
     }
 
-    const userMessage = await insertCaseChatMessage(
-      {
-        caseId: context.params.caseId,
-        userId: user.id,
-        role: "user",
-        message: text,
-        messageType,
-        fileUrl,
-      },
-      token,
-    );
-    const aiTurn = await generateAssistantTurn(
-      context.params.caseId,
-      user.id,
-      token,
-      buildContextMessage({ text, messageType, fileUrl }),
-    );
+    if (!text && !images.length && !audio) {
+      throw new FriendlyRequestError("Escreva uma mensagem, anexe uma foto ou grave um áudio.", 400, "EMPTY_MESSAGE");
+    }
 
-    return NextResponse.json({ userMessage, ...aiTurn });
+    // 1) Validação completa antes de qualquer gravação.
+    if (images.length > CASE_ATTACHMENT_LIMITS.maxChatImages) {
+      throw new FriendlyRequestError(`Envie até ${CASE_ATTACHMENT_LIMITS.maxChatImages} fotos por mensagem.`, 400, "TOO_MANY_FILES");
+    }
+    for (const image of images) {
+      if (!(await isAllowedUploadFile(image, PHOTO_MIME_TYPES, PHOTO_EXTENSIONS))) {
+        throw new FriendlyRequestError(`A foto "${image.name}" não está em um formato aceito (JPG, PNG, WEBP ou HEIC).`, 400, "UNSUPPORTED_TYPE");
+      }
+      if (image.size > CASE_ATTACHMENT_LIMITS.maxPhotoBytes) {
+        throw new FriendlyRequestError(`A foto "${image.name}" é grande demais. Escolha uma imagem menor.`, 400, "FILE_TOO_LARGE");
+      }
+    }
+    if (audio) {
+      if (!isAllowedAudio(audio)) {
+        throw new FriendlyRequestError("Formato de áudio não aceito. Use WEBM, OGG, M4A, MP3 ou WAV.", 400, "UNSUPPORTED_TYPE");
+      }
+      if (audio.size > CASE_ATTACHMENT_LIMITS.maxAudioBytes) {
+        throw new FriendlyRequestError("O áudio é longo demais. Grave uma mensagem de até 3 minutos.", 400, "FILE_TOO_LARGE");
+      }
+    }
+
+    // 2) Limite do plano antes de gravar: se não houver saldo, nada é enviado e
+    //    a mensagem continua no campo do usuário.
+    await assertPlanLimit(user.id, "ai_question");
+
+    // 3) Uploads (caminhos determinísticos por mensagem → repetição não duplica).
+    const messageKey = clientMessageId ?? crypto.randomUUID();
+    const imageUrls: string[] = [];
+    for (const [index, image] of images.entries()) {
+      const path = buildCaseAttachmentPath({ userId: user.id, caseId, kind: "chat_image", clientUploadId: `${messageKey}-${index}`, fileName: image.name });
+      const { url, alreadyExisted } = await uploadCaseObject(image, path, token);
+      if (!alreadyExisted) uploadedPaths.push(path);
+      imageUrls.push(url);
+    }
+    let audioUrl: string | null = null;
+    if (audio) {
+      const contentType = resolveAudioContentType(audio);
+      if (audio.type !== contentType) {
+        audio = new File([await audio.arrayBuffer()], audio.name || "mensagem-de-voz.webm", { type: contentType });
+      }
+      const path = buildCaseAttachmentPath({ userId: user.id, caseId, kind: "chat_audio", clientUploadId: messageKey, fileName: audio.name || "mensagem-de-voz.webm" });
+      const { url, alreadyExisted } = await uploadCaseObject(audio, path, token);
+      if (!alreadyExisted) uploadedPaths.push(path);
+      audioUrl = url;
+    }
+
+    // 4) Registro das mensagens (ordem preservada). Se o mesmo envio já foi
+    //    gravado (nova tentativa após queda de rede), não duplica.
+    const existingMessages = (await fetchCaseChatMessages(caseId, token).catch(() => [])) as AgronomicCaseChatMessage[];
+    const alreadyRecorded = (url: string) => existingMessages.some((message) => message.file_url === url);
+    const transcription = audio ? await transcribeAudio(audio) : null;
+
+    // Reenvio da mesma mensagem ainda sem resposta (ex.: queda de rede) não duplica.
+    const unansweredTexts = trailingUserMessages(existingMessages as ChatMessageRow[])
+      .filter((message) => message.message_type === "text")
+      .map((message) => message.message);
+    if (text && !unansweredTexts.includes(text)) {
+      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: text }, token);
+    }
+    for (const url of imageUrls) {
+      if (alreadyRecorded(url)) continue;
+      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: IMAGE_MESSAGE_LABEL, messageType: "image", fileUrl: url }, token);
+      await attachImageToCase(caseId, user.id, url, "chat_image", token).catch((error) => {
+        console.warn("[case-chat] foto do chat não vinculada aos anexos do caso", { message: error instanceof Error ? error.message : String(error) });
+      });
+    }
+    if (audioUrl && !alreadyRecorded(audioUrl)) {
+      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: AUDIO_MESSAGE_LABEL, messageType: "audio", fileUrl: audioUrl }, token);
+      if (transcription?.status === "success" && transcription.text) {
+        await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: transcription.text, messageType: "transcription" }, token);
+      }
+    }
+    // A partir daqui os arquivos estão referenciados no banco.
+    uploadedPaths.length = 0;
+
+    // 5) Resposta da IA (falha não apaga o que foi salvo).
+    const afterInsert = (await fetchCaseChatMessages(caseId, token)) as ChatMessageRow[];
+    const pending = trailingUserMessages(afterInsert);
+    const { turn, aiError } = await runAssistantTurnSafely(caseId, user.id, token, buildUserTurnContext(pending));
+    const messages = turn ? await fetchCaseChatMessages(caseId, token).catch(() => afterInsert) : afterInsert;
+
+    return NextResponse.json({
+      messages,
+      aiError,
+      analysis: turn?.analysis ?? null,
+      currentQuestion: turn?.currentQuestion ?? null,
+      transcription: transcription ? { status: transcription.status } : null,
+    });
   } catch (error) {
-    const status = error instanceof FriendlyRequestError ? error.status : 500;
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Não foi possível salvar a mensagem.";
-    return NextResponse.json({ error: message }, { status });
+    // Arquivos enviados sem registro no banco não ficam órfãos.
+    if (uploadedPaths.length) {
+      const token = getToken(request);
+      if (token) await deleteCaseObjects(uploadedPaths, token);
+    }
+    return errorResponse(error);
   }
 }

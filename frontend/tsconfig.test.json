@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "module": "CommonJS",
     "moduleResolution": "Node",
     "strict": true,
@@ -13,7 +16,9 @@
     "incremental": false,
     "outDir": ".test-build",
     "rootDir": ".",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "lib/billing/**/*.ts",
@@ -31,6 +36,16 @@
     "lib/server/public-requests/ai-assist.ts",
     "lib/server/public-requests/rate-limit.ts",
     "lib/server/public-requests/submit.ts",
+    "lib/agronomic/analysis-sections.ts",
+    "lib/agronomic/ai-response-formatting.ts",
+    "lib/agronomic/case-freshness.ts",
+    "lib/agronomic/case-chat.ts",
+    "lib/agronomic/case-save.ts",
+    "lib/agronomic/case-attachments.ts",
+    "lib/agronomic/specialist-timeline.ts",
+    "lib/server/agronomic-case-edit.ts",
+    "lib/server/supabase-rest.ts",
+    "lib/mobile-image-upload.ts",
     "tests/**/*.ts"
   ]
 }

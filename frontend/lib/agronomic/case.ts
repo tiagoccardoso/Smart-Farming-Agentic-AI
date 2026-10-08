@@ -5,6 +5,11 @@ import {
 } from "../ai/embeddings";
 import { normalizeCropInput } from "../crop/normalization";
 import { normalizeAiResponseText, normalizeAiTextFields } from "./ai-response-formatting";
+import {
+  getAuthenticatedUser as sharedGetAuthenticatedUser,
+  getSupabaseConfig as getSharedSupabaseConfig,
+  supabaseRequest as sharedSupabaseRequest,
+} from "../server/supabase-rest";
 export type AgronomicFarm = {
   id: string;
   name: string | null;
@@ -168,6 +173,12 @@ export type AgronomicPreAnalysis = {
   internetResearch?: InternetResearchResult;
   sourceMetadata?: AgronomicSourceMetadata;
   conversationalAnswer?: string;
+  /** Medidas preventivas e cuidados (análises novas; ausente nas antigas). */
+  preventiveCare?: string[];
+  /** Próximos passos objetivos (análises novas; ausente nas antigas). */
+  nextSteps?: string[];
+  /** Momento em que esta análise foi gravada no caso (ISO). */
+  analyzedAt?: string;
 };
 
 type SupabaseConfig = {
@@ -223,16 +234,7 @@ const KNOWLEDGE_ITEM_MAX_CHARS = 1200;
 const KNOWLEDGE_MAX_ITEMS = 6;
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !anonKey) {
-    throw new Error(
-      "Configure NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY para consultar casos.",
-    );
-  }
-
-  return { supabaseUrl: supabaseUrl.replace(/\/$/, ""), anonKey };
+  return getSharedSupabaseConfig();
 }
 
 export async function supabaseRequest<T>(
@@ -241,44 +243,14 @@ export async function supabaseRequest<T>(
   token: string,
   config = getSupabaseConfig(),
 ) {
-  const response = await fetch(`${config.supabaseUrl}${path}`, {
-    ...init,
-    headers: {
-      apikey: config.anonKey,
-      Authorization: `Bearer ${token}`,
-      ...(init.body instanceof FormData
-        ? {}
-        : { "Content-Type": "application/json" }),
-      ...init.headers,
-    },
-    cache: "no-store",
-  });
-
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.message ||
-        payload?.error_description ||
-        payload?.error ||
-        "Erro ao comunicar com o Supabase.",
-    );
-  }
-
-  return payload as T;
+  return sharedSupabaseRequest<T>(path, init, token, config);
 }
 
 export async function getAuthenticatedUser(
   token: string,
   config = getSupabaseConfig(),
-) {
-  return supabaseRequest<AuthenticatedUser>(
-    "/auth/v1/user",
-    { method: "GET", headers: { "Content-Type": "application/json" } },
-    token,
-    config,
-  );
+): Promise<AuthenticatedUser> {
+  return sharedGetAuthenticatedUser(token, config);
 }
 
 function getSupabaseServerCredentials(
@@ -1332,13 +1304,14 @@ export async function updateAgronomicCaseWithAnalysis(
   caseId: string,
   token: string,
   analysis: AgronomicPreAnalysis,
+  options: { source?: "analysis" | "chat" } = {},
 ) {
   const config = getSupabaseConfig();
   const serverCredentials = getSupabaseServerCredentials(token, config);
   const encodedCaseId = encodeURIComponent(caseId);
 
-  const currentRows = await supabaseRequest<Array<{ status: string | null; human_review_requested: boolean | null; human_review_status: string | null }>>(
-    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=status,human_review_requested,human_review_status&limit=1`,
+  const currentRows = await supabaseRequest<Array<{ user_id: string | null; status: string | null; human_review_requested: boolean | null; human_review_status: string | null; ai_analysis_json: AgronomicPreAnalysis | null }>>(
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=user_id,status,human_review_requested,human_review_status,ai_analysis_json&limit=1`,
     { method: "GET" },
     serverCredentials.token,
     serverCredentials.config,
@@ -1351,6 +1324,8 @@ export async function updateAgronomicCaseWithAnalysis(
     "completed",
     "cancelled",
   ].includes(currentCase?.status ?? "");
+  const analyzedAt = new Date().toISOString();
+  const storedAnalysis: AgronomicPreAnalysis = { ...analysis, analyzedAt };
 
   await supabaseRequest(
     `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}`,
@@ -1360,7 +1335,7 @@ export async function updateAgronomicCaseWithAnalysis(
       body: JSON.stringify({
         ai_summary: analysis.initialDiagnosis,
         ai_recommendation: analysis.initialRecommendation,
-        ai_analysis_json: analysis,
+        ai_analysis_json: storedAnalysis,
         risk_level: analysis.riskLevel,
         status: keepHumanReviewStatus ? currentCase?.status ?? "ai_analyzed" : "ai_analyzed",
       }),
@@ -1368,6 +1343,36 @@ export async function updateAgronomicCaseWithAnalysis(
     serverCredentials.token,
     serverCredentials.config,
   );
+
+  // Histórico: a versão anterior da análise fica registrada antes de ser
+  // substituída (case_activity_logs, sem migration). Pareceres humanos ficam em
+  // human_reviews e nunca são tocados aqui.
+  const ownerId = currentCase?.user_id;
+  if (ownerId) {
+    await supabaseRequest(
+      "/rest/v1/case_activity_logs",
+      {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          case_id: caseId,
+          user_id: ownerId,
+          action: options.source === "chat" ? "Análise refinada pela conversa" : "IA analisou",
+          metadata: {
+            kind: "ai_analysis",
+            source: options.source ?? "analysis",
+            analyzedAt,
+            riskLevel: analysis.riskLevel,
+            previous: currentCase?.ai_analysis_json ?? null,
+          },
+        }),
+      },
+      serverCredentials.token,
+      serverCredentials.config,
+    ).catch(() => null);
+  }
+
+  return storedAnalysis;
 }
 
 export async function insertCaseChatMessage(

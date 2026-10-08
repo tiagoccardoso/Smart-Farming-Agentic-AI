@@ -22,6 +22,10 @@ import {
 } from "../../../../lib/billing/check-plan-limits";
 import type { UsageEventType } from "../../../../lib/billing/check-plan-limits";
 
+const RECENT_ANALYSIS_WINDOW_MS = 30_000;
+
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
     const token =
@@ -71,6 +75,19 @@ export async function POST(request: NextRequest) {
     const usageEventType: UsageEventType = question
       ? "ai_question"
       : "case_analysis";
+
+    // Proteção contra disparo repetido (duplo clique, duas abas): uma análise
+    // gravada há poucos segundos é devolvida sem chamar a IA nem consumir crédito.
+    const lastAnalyzedAt = caseData.ai_analysis_json?.analyzedAt
+      ? new Date(caseData.ai_analysis_json.analyzedAt).getTime()
+      : 0;
+    if (!question && caseData.ai_analysis_json && Date.now() - lastAnalyzedAt < RECENT_ANALYSIS_WINDOW_MS) {
+      return NextResponse.json({
+        analysis: caseData.ai_analysis_json,
+        sourceMetadata: caseData.ai_analysis_json.sourceMetadata,
+        deduplicated: true,
+      });
+    }
 
     await assertPlanLimit(user.id, usageEventType);
 
@@ -145,7 +162,7 @@ export async function POST(request: NextRequest) {
         modelAnalysis,
         pendingQuestions,
       );
-      await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
+      analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "analysis" });
       await recordUsageEvent(user.id, usageEventType);
       const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
       const intro =
@@ -190,7 +207,7 @@ export async function POST(request: NextRequest) {
         modelAnalysis,
         pendingQuestions,
       );
-      await updateAgronomicCaseWithAnalysis(caseId, token, analysis);
+      analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "chat" });
       await recordUsageEvent(user.id, usageEventType);
       nextPendingQuestion = getCurrentPendingQuestion(pendingQuestions);
 

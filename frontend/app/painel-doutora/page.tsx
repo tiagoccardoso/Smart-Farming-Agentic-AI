@@ -7,6 +7,7 @@ import MobileImagePicker from "../../components/MobileImagePicker";
 import SectionTitle from "../../components/SectionTitle";
 import WorkflowStepper from "../../components/agronomic/WorkflowStepper";
 import LoadingCard from "../../components/agronomic/LoadingCard";
+import SpecialistCaseTimeline from "../../components/agronomic/case/SpecialistCaseTimeline";
 import { Badge, RiskBadge } from "../../components/agronomic/StatusBadge";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
 import type { AgronomicCase } from "../../lib/agronomic/case";
@@ -2116,6 +2117,14 @@ export default function PainelDoutoraPage() {
                             </p>
                           </div>
                         </div>
+                      </DetailBlock>
+
+                      <DetailBlock title="Histórico completo: conversa, atualizações e análises">
+                        <SpecialistCaseTimeline
+                          caseId={selectedCase.id}
+                          userId={currentUserId}
+                          getAccessToken={getStoredSupabaseAccessToken}
+                        />
                       </DetailBlock>
 
                       {selectedBucket !== "completed" && (

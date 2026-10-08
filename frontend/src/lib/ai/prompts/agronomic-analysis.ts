@@ -175,6 +175,8 @@ Regras específicas:
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
+- Não escreva URLs dentro dos textos (popularSummary, technicalDetails, listas). As fontes externas ficam somente em internetResearch.sources; quando precisar citar, use a referência numerada [1], [2] na ordem dessas fontes.
+- Não invente percentuais de confiança; use apenas os níveis low, medium e high.
 
 Formato obrigatório:
 {
@@ -201,6 +203,8 @@ Formato obrigatório:
   "attentionPoints": ["Pontos que chamaram atenção e devem ser monitorados."],
   "initialRecommendation": "Recomendação inicial segura e acionável, sem doses ou prescrição controlada.",
   "safeInitialRecommendations": ["Ações iniciais seguras e práticas para o produtor."],
+  "preventiveCare": ["Cuidados e medidas preventivas para evitar agravamento ou recorrência, sem doses de defensivos."],
+  "nextSteps": ["Próximos passos objetivos e em ordem: o que observar, que informação ou foto nova enviar e quando acionar a especialista."],
   "whenToCallHumanSpecialist": "Quando a revisão humana é recomendada como continuidade especializada.",
   "humanReviewReason": "Explicação clara do motivo da revisão humana, sem parecer falha da IA.",
   "conversationalAnswer": ${hasQuestion ? '"resposta conversacional direta para a pergunta complementar"' : "null"},

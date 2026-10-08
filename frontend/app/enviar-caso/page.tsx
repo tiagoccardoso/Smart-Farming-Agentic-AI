@@ -21,7 +21,6 @@ import LoadingCard from "../../components/agronomic/LoadingCard";
 import MobileImagePicker from "../../components/MobileImagePicker";
 import {
   ApiRequestError,
-  analyzeAgronomicCase,
   getAgronomicCase,
   getHumanOpinionStatus,
   submitAgronomicCase,
@@ -644,10 +643,11 @@ function EnviarCasoContent() {
     try {
       if (isEditingExistingCase) {
         await updateAgronomicCase(caseId, formData, accessToken);
+        // A nova análise não é disparada automaticamente (não consome crédito
+        // sem pedido): a tela do caso oferece "Atualizar análise com IA".
         setSuccessMessage(
-          "Caso atualizado. A IA está reprocessando os dados e novas imagens...",
+          "Alterações salvas com sucesso. Na tela do caso você pode atualizar a análise da IA com as novas informações.",
         );
-        await analyzeAgronomicCase(caseId, accessToken).catch(() => null);
         window.setTimeout(
           () => router.push(`/revisao-humana?caseId=${caseId}`),
           650,

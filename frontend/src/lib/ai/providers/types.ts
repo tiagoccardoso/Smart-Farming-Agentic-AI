@@ -114,6 +114,10 @@ export type AgronomicAnalysisOutput = {
   sourceMetadata: AgronomicSourceMetadata;
   disclaimer: string;
   conversationalAnswer?: string;
+  /** Cuidados e medidas preventivas (opcional; ausente em análises antigas). */
+  preventiveCare?: string[];
+  /** Próximos passos objetivos (opcional; ausente em análises antigas). */
+  nextSteps?: string[];
 };
 
 export type KnowledgeDocument = {

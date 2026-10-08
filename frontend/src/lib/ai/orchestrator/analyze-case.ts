@@ -770,6 +770,14 @@ function normalizeAnalysis(
       output.conversationalAnswer.trim()
         ? sanitizeAiSafetyText(output.conversationalAnswer)
         : fallback.conversationalAnswer,
+    // Campos novos e opcionais: só entram quando a IA os devolve (sem inventar
+    // conteúdo para preencher seção).
+    ...(normalizeStringArray(output.preventiveCare, []).length
+      ? { preventiveCare: normalizeStringArray(output.preventiveCare, []) }
+      : {}),
+    ...(normalizeStringArray(output.nextSteps, []).length
+      ? { nextSteps: normalizeStringArray(output.nextSteps, []) }
+      : {}),
   };
   const sourceMetadata = buildSourceMetadata({
     internetResearch: normalizedInternetResearch,

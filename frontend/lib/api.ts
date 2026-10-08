@@ -204,7 +204,16 @@ export async function updateAgronomicCase(
     },
   );
 
-  return parseResponse(response);
+  const payload = await parseResponse<{ code?: string; error?: string }>(response);
+  // 207: textos salvos, mas algum anexo falhou. Não é sucesso completo.
+  if (payload?.code === "PARTIAL_SAVE") {
+    throw new ApiRequestError(payload.error || "Parte das alterações não foi salva.", {
+      status: 207,
+      code: payload.code,
+      payload,
+    });
+  }
+  return payload;
 }
 
 export async function deleteAgronomicCase(caseId: string, accessToken: string) {
@@ -219,8 +228,15 @@ export async function deleteAgronomicCase(caseId: string, accessToken: string) {
   return parseResponse(response);
 }
 
-export async function getAgronomicCases(accessToken: string) {
-  const response = await fetch("/api/agronomic-cases", {
+export async function getAgronomicCases(
+  accessToken: string,
+  options: { limit?: number; page?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.page) params.set("page", String(options.page));
+  const query = params.toString();
+  const response = await fetch(`/api/agronomic-cases${query ? `?${query}` : ""}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
