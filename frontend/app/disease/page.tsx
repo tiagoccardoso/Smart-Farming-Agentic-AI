@@ -526,6 +526,10 @@ export default function DiseasePage() {
           ),
         );
       }
+      if (typeof payload.aiError === "string" && payload.aiError) {
+        // A pergunta foi salva, mas a IA não respondeu: nunca exibir resposta antiga.
+        setError(payload.aiError);
+      }
       if (payload.assistantMessage) {
         setChatMessages((current) => [
           ...current,

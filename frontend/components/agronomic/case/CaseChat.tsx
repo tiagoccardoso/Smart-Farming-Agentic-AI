@@ -6,14 +6,16 @@ import { buildChatTimeline, chatErrorMessage, type ChatMessageRow } from "../../
 import { CASE_ATTACHMENT_LIMITS, PHOTO_INPUT_ACCEPT, formatFileSize } from "../../../lib/agronomic/case-attachments";
 import { createClientId, prepareCasePhoto } from "../../../lib/agronomic/client-files";
 import { RequestTransportError, postFormWithProgress } from "../../../lib/public-requests/client";
-import { splitAiResponseIntoBlocks } from "../../../lib/agronomic/ai-response-formatting";
-import type { AgronomicPreAnalysis } from "../../../lib/agronomic/case";
+import { parseChatMarkdown, type InlineSegment } from "../../../lib/agronomic/chat-markdown";
 import ImageLightbox, { type LightboxImage } from "./ImageLightbox";
 import { IconCamera, IconChat, IconClose, IconImage, IconMic, IconRetry, IconSend, IconSparkle, IconUser } from "./icons";
 
 type PendingImage = { id: string; file: File; url: string };
 
 type ChatError = { message: string; retry: "resend" | "assistant" | null };
+
+/** Pergunta exibida na hora do envio, antes da confirmação do servidor. */
+type OptimisticTurn = { id: string; text: string; imageUrls: string[]; hasAudio: boolean };
 
 const QUICK_PROMPTS = [
   "Explique a análise em linguagem simples.",
@@ -28,39 +30,59 @@ function formatTime(value?: string | null) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function Inline({ segments }: { segments: InlineSegment[] }) {
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.bold ? <strong key={index} className="font-bold">{segment.text}</strong> : segment.italic ? <em key={index}>{segment.text}</em> : <span key={index}>{segment.text}</span>,
+      )}
+    </>
+  );
+}
+
+/** Resposta da IA em Markdown simples (listas numeradas preservam o número). */
 function MessageText({ text }: { text: string }) {
-  const blocks = splitAiResponseIntoBlocks(text);
+  const blocks = parseChatMarkdown(text);
   if (!blocks.length) return null;
   return (
-    <div className="space-y-2 break-words">
-      {blocks.map((block, index) =>
-        block.type === "list" ? (
+    <div className="space-y-2 break-words [overflow-wrap:anywhere]">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") return <p key={index} className="font-bold text-slate-900"><Inline segments={block.segments} /></p>;
+        if (block.type === "paragraph") return <p key={index}><Inline segments={block.segments} /></p>;
+        if (block.type === "numbered") {
+          return (
+            <ol key={index} start={block.start} className="list-decimal space-y-1 pl-5 marker:font-bold marker:text-leaf-700">
+              {block.items.map((item, itemIndex) => <li key={itemIndex} className="pl-1"><Inline segments={item} /></li>)}
+            </ol>
+          );
+        }
+        return (
           <ul key={index} className="space-y-1 pl-1">
             {block.items.map((item, itemIndex) => (
               <li key={itemIndex} className="flex gap-2">
                 <span className="mt-[0.6rem] h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" aria-hidden="true" />
-                <span>{item}</span>
+                <span className="min-w-0"><Inline segments={item} /></span>
               </li>
             ))}
           </ul>
-        ) : (
-          <p key={index} className={block.type === "heading" ? "font-bold" : undefined}>{block.text}</p>
-        ),
-      )}
+        );
+      })}
     </div>
   );
+}
+
+function UserText({ text }: { text: string }) {
+  return <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{text}</p>;
 }
 
 export default function CaseChat({
   caseId,
   initialMessages,
   getAccessToken,
-  onAnalysisUpdated,
 }: {
   caseId: string;
   initialMessages: ChatMessageRow[];
   getAccessToken: () => string | null;
-  onAnalysisUpdated?: (analysis: AgronomicPreAnalysis) => void;
 }) {
   const [rows, setRows] = useState<ChatMessageRow[]>(initialMessages);
   const [draft, setDraft] = useState("");
@@ -75,6 +97,12 @@ export default function CaseChat({
   const [error, setError] = useState<ChatError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [optimistic, setOptimistic] = useState<OptimisticTurn | null>(null);
+  // Caso ativo e trava de envio: respostas que chegam depois de trocar de caso
+  // são descartadas, e um duplo clique não dispara dois envios.
+  const activeCaseRef = useRef(caseId);
+  activeCaseRef.current = caseId;
+  const sendingRef = useRef(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const galleryRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +123,7 @@ export default function CaseChat({
     });
     setAudio(null);
     setShowRecorder(false);
+    setOptimistic(null);
     messageKeyRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
@@ -112,7 +141,7 @@ export default function CaseChat({
   useLayoutEffect(() => {
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
-  }, [timeline.length, sending]);
+  }, [timeline.length, sending, optimistic]);
 
   const canSend = !sending && !preparing && !recording && Boolean(draft.trim() || images.length || audio);
 
@@ -157,23 +186,19 @@ export default function CaseChat({
     messageKeyRef.current = null;
   }
 
-  const applyResponse = useCallback(
-    (payload: Record<string, unknown> | null) => {
-      if (Array.isArray(payload?.messages)) setRows(payload!.messages as ChatMessageRow[]);
-      if (payload?.analysis && onAnalysisUpdated) onAnalysisUpdated(payload.analysis as AgronomicPreAnalysis);
-      const transcription = payload?.transcription as { status?: string } | null | undefined;
-      if (transcription?.status === "failed") setNotice("O áudio foi salvo, mas a transcrição automática não foi concluída.");
-      if (transcription?.status === "unavailable") setNotice("O áudio foi salvo. A transcrição automática não está disponível no momento.");
-      if (typeof payload?.aiError === "string" && payload.aiError) {
-        setError({ message: payload.aiError, retry: "assistant" });
-      }
-    },
-    [onAnalysisUpdated],
-  );
+  const applyResponse = useCallback((payload: Record<string, unknown> | null) => {
+    if (Array.isArray(payload?.messages)) setRows(payload!.messages as ChatMessageRow[]);
+    const transcription = payload?.transcription as { status?: string } | null | undefined;
+    if (transcription?.status === "failed") setNotice("O áudio foi salvo, mas a transcrição automática não foi concluída.");
+    if (transcription?.status === "unavailable") setNotice("O áudio foi salvo. A transcrição automática não está disponível no momento.");
+    if (typeof payload?.aiError === "string" && payload.aiError) {
+      setError({ message: payload.aiError, retry: "assistant" });
+    }
+  }, []);
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
-    if (!canSend) return;
+    if (!canSend || sendingRef.current) return;
     const token = getAccessToken();
     if (!token) {
       setError({ message: "Sua sessão expirou. Faça login novamente; sua mensagem continua no campo.", retry: null });
@@ -191,11 +216,14 @@ export default function CaseChat({
     messageKeyRef.current = messageKeyRef.current ?? createClientId("msg");
     body.append("clientMessageId", messageKeyRef.current);
 
+    const sentCaseId = caseId;
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     setNotice(null);
+    setOptimistic({ id: messageKeyRef.current, text, imageUrls: images.map((image) => image.url), hasAudio: Boolean(audio) });
     setProgress(images.length || audio ? 0 : null);
-    setStatusText(images.length ? (images.length > 1 ? "Enviando imagens..." : "Enviando imagem...") : audio ? "Processando áudio..." : "Analisando as informações...");
+    setStatusText(images.length ? (images.length > 1 ? "Enviando imagens..." : "Enviando imagem...") : audio ? "Processando áudio..." : "A IA está preparando a resposta...");
 
     try {
       const result = await postFormWithProgress(`/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`, body, {
@@ -203,9 +231,11 @@ export default function CaseChat({
         timeoutMs: 90000,
         onProgress: (fraction) => {
           setProgress(fraction);
-          if (fraction >= 1) setStatusText(audio ? "Processando áudio e analisando..." : "Analisando as informações...");
+          if (fraction >= 1) setStatusText(audio ? "Processando áudio e preparando a resposta..." : "A IA está preparando a resposta...");
         },
       });
+
+      if (activeCaseRef.current !== sentCaseId) return;
 
       if (!result.ok) {
         // Nada é descartado: texto, fotos e áudio continuam no campo.
@@ -225,6 +255,7 @@ export default function CaseChat({
       messageKeyRef.current = null;
       applyResponse(result.payload);
     } catch (cause) {
+      if (activeCaseRef.current !== sentCaseId) return;
       const timeout = cause instanceof RequestTransportError && cause.kind === "timeout";
       setError({
         message: timeout
@@ -233,6 +264,8 @@ export default function CaseChat({
         retry: "resend",
       });
     } finally {
+      sendingRef.current = false;
+      setOptimistic(null);
       setSending(false);
       setProgress(null);
       setStatusText(null);
@@ -241,10 +274,12 @@ export default function CaseChat({
 
   async function retryAssistant() {
     const token = getAccessToken();
-    if (!token || sending) return;
+    if (!token || sending || sendingRef.current) return;
+    const sentCaseId = caseId;
+    sendingRef.current = true;
     setSending(true);
     setError(null);
-    setStatusText("Analisando as informações...");
+    setStatusText("A IA está preparando a resposta...");
     try {
       const response = await fetch(`/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`, {
         method: "POST",
@@ -252,14 +287,16 @@ export default function CaseChat({
         body: JSON.stringify({ retry: true }),
       });
       const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (activeCaseRef.current !== sentCaseId) return;
       if (!response.ok) {
         setError({ message: chatErrorMessage(response.status, typeof payload?.error === "string" ? payload.error : null), retry: response.status === 402 ? null : "assistant" });
         return;
       }
       applyResponse(payload);
     } catch {
-      setError({ message: "Sem conexão com o servidor. Tente novamente.", retry: "assistant" });
+      if (activeCaseRef.current === sentCaseId) setError({ message: "Sem conexão com o servidor. Tente novamente.", retry: "assistant" });
     } finally {
+      sendingRef.current = false;
       setSending(false);
       setStatusText(null);
     }
@@ -314,7 +351,7 @@ export default function CaseChat({
                     {mine ? "Você" : "IA PlantaSa"}
                     {item.createdAt ? <span className="font-medium normal-case tracking-normal opacity-80">· {formatTime(item.createdAt)}</span> : null}
                   </p>
-                  {item.kind === "text" ? <MessageText text={item.text} /> : null}
+                  {item.kind === "text" ? mine ? <UserText text={item.text} /> : <MessageText text={item.text} /> : null}
                   {item.kind === "image" ? (
                     <button type="button" onClick={() => setLightboxIndex(thisImageIndex)} className="block overflow-hidden rounded-xl" aria-label="Ampliar foto enviada">
                       {/* eslint-disable-next-line @next/next/no-img-element -- storage do Supabase */}
@@ -341,6 +378,25 @@ export default function CaseChat({
             );
           })
         )}
+        {optimistic ? (
+          <div className="flex justify-end" data-testid="chat-optimistic">
+            <div className="max-w-[88%] rounded-2xl rounded-br-md bg-leaf-700/90 px-3.5 py-2.5 text-[0.95rem] leading-6 text-white shadow-sm sm:max-w-[78%]">
+              <p className="mb-1 flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-wide text-white/70">
+                <IconUser className="h-3.5 w-3.5" /> Você <span className="font-medium normal-case tracking-normal opacity-80">· enviando</span>
+              </p>
+              {optimistic.imageUrls.length ? (
+                <div className="mb-1.5 flex flex-wrap gap-1.5">
+                  {optimistic.imageUrls.map((url) => (
+                    // eslint-disable-next-line @next/next/no-img-element -- prévia local
+                    <img key={url} src={url} alt="Foto sendo enviada" className="h-20 w-20 rounded-lg object-cover opacity-90" />
+                  ))}
+                </div>
+              ) : null}
+              {optimistic.hasAudio ? <p className="text-sm text-white/85">Mensagem de áudio</p> : null}
+              {optimistic.text ? <UserText text={optimistic.text} /> : null}
+            </div>
+          </div>
+        ) : null}
         {sending ? (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 rounded-2xl bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-slate-200" role="status">

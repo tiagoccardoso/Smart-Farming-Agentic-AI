@@ -185,10 +185,6 @@ export default function CaseDetailPanel({
     void load({ silent: true });
   }
 
-  const handleAnalysisFromChat = useCallback(() => {
-    void load({ silent: true });
-  }, [load]);
-
   if (loading && !data) {
     return (
       <div className="space-y-3 p-1" role="status" aria-live="polite">
@@ -362,11 +358,12 @@ export default function CaseDetailPanel({
         )}
       </section>
 
+      {/* Chat separado da análise inicial: conversar não altera a análise. */}
       <CaseChat
+        key={caseId}
         caseId={caseId}
         initialMessages={(caseData.chat_messages ?? []) as unknown as ChatMessageRow[]}
         getAccessToken={getAccessToken}
-        onAnalysisUpdated={handleAnalysisFromChat}
       />
 
       {/* Anexos */}

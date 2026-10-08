@@ -1,23 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  answerCurrentPendingQuestion,
   fetchAgronomicCase,
-  fetchCaseChatMessages,
-  fetchCasePendingQuestions,
-  generateAgronomicPreAnalysis,
   getAuthenticatedUser,
   getCurrentPendingQuestion,
-  logPendingQuestionSync,
-  syncAnalysisMissingQuestionsWithPendingQueue,
-  insertCaseChatMessage,
   supabaseRequest,
-  updateAgronomicCaseWithAnalysis,
-  type AgronomicCaseChatMessage,
+  type CasePendingQuestion,
 } from "../../../../../lib/agronomic/case";
 import {
   AUDIO_EXTENSIONS,
   AUDIO_MIME_TYPES,
   CASE_ATTACHMENT_LIMITS,
+  CASE_STORAGE_BUCKET,
   MAX_REQUEST_BODY_BYTES,
   PHOTO_EXTENSIONS,
   PHOTO_MIME_TYPES,
@@ -27,10 +20,14 @@ import {
 import {
   AUDIO_MESSAGE_LABEL,
   IMAGE_MESSAGE_LABEL,
-  buildUserTurnContext,
   trailingUserMessages,
   type ChatMessageRow,
 } from "../../../../../lib/agronomic/case-chat";
+import { CaseChatAIError, defaultChatLogger, loadChatImages } from "../../../../../lib/agronomic/case-chat-ai";
+import { getCaseChatProviders } from "../../../../../lib/agronomic/case-chat-providers";
+import { CaseChatAccessError, assertCaseChatAccess, recordUserTurn, runAssistantTurn, type CaseChatStore } from "../../../../../lib/server/case-chat-service";
+import { createSupabaseCaseChatStore } from "../../../../../lib/server/case-chat-store";
+import { getSupabaseConfig } from "../../../../../lib/server/supabase-rest";
 import {
   PLAN_LIMIT_REACHED_MESSAGE,
   PlanLimitExceededError,
@@ -42,6 +39,10 @@ import { isAllowedUploadFile } from "../../../../../lib/mobile-image-upload";
 import { CaseEditError, deleteCaseObjects, uploadCaseObject } from "../../../../../lib/server/agronomic-case-edit";
 
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+/** Tempo útil da função antes do limite da Vercel (folga para gravar e responder). */
+const TURN_BUDGET_MS = 54_000;
 
 type RouteContext = { params: { caseId: string } };
 
@@ -121,7 +122,7 @@ async function transcribeAudio(file: File): Promise<{ status: TranscriptionStatu
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25_000);
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const response = await fetch(`${(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "")}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: formData,
@@ -160,63 +161,8 @@ async function attachImageToCase(caseId: string, userId: string, imageUrl: strin
   );
 }
 
-async function generateAssistantTurn(caseId: string, userId: string, token: string, userContext: string) {
-  const pendingState = await answerCurrentPendingQuestion(caseId, userContext, token).catch(() => ({ answered: null, next: null }));
-  const refreshedCase = await fetchAgronomicCase(caseId, token);
-  const [conversationMessages, pendingQuestions] = await Promise.all([
-    fetchCaseChatMessages(caseId, token).catch(() => []),
-    fetchCasePendingQuestions(caseId, token).catch(() => []),
-  ]);
-  const answeredContext = pendingQuestions
-    .filter((question) => question.status === "answered")
-    .map((question) => `Pergunta respondida: ${question.question} Resposta: ${question.answer ?? "não registrada"}`)
-    .join("\n");
-  const conversationContext = conversationMessages
-    .slice(-16)
-    .map((message) => `${message.role === "assistant" ? "IA" : "Usuário"} (${message.message_type}): ${message.message}`)
-    .join("\n");
-  const pendingCount = pendingQuestions.filter((question) => question.status === "pending").length;
-  const analysisQuestion = [
-    "Contexto acumulado da conversa deste caseId:",
-    conversationContext || "Sem mensagens anteriores.",
-    answeredContext || "Sem perguntas pendentes respondidas ainda.",
-    `Estado oficial da fila no banco: pendingQuestions.length === ${pendingCount}. Perguntas pendentes oficiais restantes: ${pendingCount}.`,
-    "Se pendingQuestions.length === 0, não gere novas missingQuestions; conclua a triagem com limitação natural se necessário.",
-    "Nova entrada do usuário:",
-    userContext,
-  ].join("\n");
-  const modelAnalysis = await generateAgronomicPreAnalysis(refreshedCase!, analysisQuestion, token);
-  const syncedPendingQuestions = await fetchCasePendingQuestions(caseId, token).catch(() => pendingQuestions);
-  logPendingQuestionSync({
-    scope: "agronomic-case-chat-post",
-    aiMissingQuestions: modelAnalysis.missingQuestions,
-    questions: syncedPendingQuestions,
-  });
-  const analysis = await updateAgronomicCaseWithAnalysis(
-    caseId,
-    token,
-    syncAnalysisMissingQuestionsWithPendingQueue(modelAnalysis, syncedPendingQuestions),
-    { source: "chat" },
-  );
-
-  const nextQuestion = getCurrentPendingQuestion(syncedPendingQuestions);
-  const assistantText = nextQuestion
-    ? `${analysis.conversationalAnswer?.trim() || "Entendi. Vou atualizar o contexto e avançar para a próxima pergunta pendente."}\n\n${nextQuestion.question}`
-    : analysis.conversationalAnswer?.trim() ||
-      "Com as informações fornecidas, a triagem inicial foi concluída. Ainda pode existir alguma incerteza natural devido às limitações da análise remota, mas no momento não há perguntas pendentes obrigatórias. " +
-        (analysis.riskLevel === "medium" || analysis.riskLevel === "high"
-          ? "Como há risco ou incerteza relevante, recomendo revisão humana antes de decisões de manejo importantes."
-          : "Mantenha o monitoramento e solicite revisão humana se os sintomas evoluírem ou houver decisão de manejo relevante.");
-
-  const assistantMessage = await insertCaseChatMessage({ caseId, userId, role: "assistant", message: assistantText }, token);
-
-  return {
-    analysis,
-    assistantMessage,
-    currentQuestion: nextQuestion,
-    answeredQuestion: pendingState.answered,
-    pendingQuestions: syncedPendingQuestions,
-  };
+function createStore(token: string) {
+  return createSupabaseCaseChatStore({ token, fetchCase: fetchAgronomicCase });
 }
 
 async function loadOwnedCase(request: NextRequest, caseId: string) {
@@ -225,12 +171,58 @@ async function loadOwnedCase(request: NextRequest, caseId: string) {
   const user = await getAuthenticatedUser(token).catch(() => {
     throw new FriendlyRequestError("Sua sessão expirou. Faça login novamente.", 401, "AUTH_REQUIRED");
   });
-  const caseData = await fetchAgronomicCase(caseId, token);
-  // Cada conversa pertence a um único caso e ao dono do caso.
-  if (!caseData || caseData.user_id !== user.id) {
-    throw new FriendlyRequestError("Caso não encontrado ou sem permissão.", 404, "NOT_FOUND");
+  const store = createStore(token);
+  // Cada conversa pertence a um único caso e ao dono do caso (checagem no
+  // servidor; a RLS do banco é a segunda barreira).
+  const caseData = assertCaseChatAccess(await store.loadCase(caseId), user.id);
+  return { token, user, caseData, store };
+}
+
+function requestIdFrom(request: NextRequest) {
+  return request.headers.get("x-vercel-id")?.split("::").pop()?.slice(0, 40) || crypto.randomUUID().slice(0, 12);
+}
+
+const AI_FAILURE_MESSAGE = "Não foi possível obter a resposta da IA neste momento. Sua pergunta foi preservada. Tente novamente.";
+const AI_NOT_CONFIGURED_MESSAGE = "A IA está indisponível no momento. Sua pergunta foi preservada; tente novamente mais tarde.";
+
+async function pendingState(store: CaseChatStore, caseId: string) {
+  const pendingQuestions = (await store.listPendingQuestions(caseId).catch(() => [])) as CasePendingQuestion[];
+  return { pendingQuestions, currentQuestion: getCurrentPendingQuestion(pendingQuestions) };
+}
+
+/**
+ * Gera a resposta da IA para o turno pendente. Falha da IA nunca vira resposta
+ * falsa: devolve `aiError` e a pergunta continua salva para "Tentar novamente".
+ */
+async function respondToPendingTurn(input: { store: CaseChatStore; caseId: string; userId: string; requestId: string; startedAt: number }) {
+  const supabaseUrl = getSupabaseConfig().supabaseUrl;
+  try {
+    const result = await runAssistantTurn(input.store, {
+      caseId: input.caseId,
+      userId: input.userId,
+      requestId: input.requestId,
+      providers: getCaseChatProviders(),
+      deadlineAt: input.startedAt + TURN_BUDGET_MS,
+      loadImages: (candidates) => loadChatImages(candidates, { allowedPrefix: `${supabaseUrl}/storage/v1/object/public/${CASE_STORAGE_BUCKET}/` }),
+    });
+    if (result.status === "answered") {
+      await recordUsageEvent(input.userId, "ai_question").catch(() => null);
+    }
+    defaultChatLogger("turn_completed", { requestId: input.requestId, caseId: input.caseId, status: "success", result: result.status, persisted: result.status === "answered" });
+    return { aiError: null as string | null, aiErrorCode: null as string | null, assistantMessage: result.message };
+  } catch (error) {
+    if (error instanceof CaseChatAccessError) throw error;
+    const category = error instanceof CaseChatAIError ? error.category : "unexpected";
+    defaultChatLogger("turn_failed", {
+      requestId: input.requestId,
+      caseId: input.caseId,
+      status: "error",
+      errorCategory: category,
+      persisted: false,
+      ...(error instanceof CaseChatAIError ? {} : { message: (error instanceof Error ? error.message : String(error)).slice(0, 200) }),
+    });
+    return { aiError: category === "not_configured" ? AI_NOT_CONFIGURED_MESSAGE : AI_FAILURE_MESSAGE, aiErrorCode: `AI_${String(category).toUpperCase()}`, assistantMessage: null };
   }
-  return { token, user, caseData };
 }
 
 function errorResponse(error: unknown) {
@@ -240,40 +232,22 @@ function errorResponse(error: unknown) {
   if (error instanceof UserInactiveError) {
     return NextResponse.json({ error: error.message, code: "USER_INACTIVE" }, { status: 403 });
   }
-  if (error instanceof FriendlyRequestError || error instanceof CaseEditError) {
+  if (error instanceof FriendlyRequestError || error instanceof CaseEditError || error instanceof CaseChatAccessError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
   }
   console.error("[case-chat] falha inesperada", { message: error instanceof Error ? error.message : String(error) });
   return NextResponse.json({ error: "Não foi possível processar a mensagem agora. Tente novamente.", code: "UNEXPECTED" }, { status: 500 });
 }
 
-async function runAssistantTurnSafely(caseId: string, userId: string, token: string, context: string) {
-  try {
-    const turn = await generateAssistantTurn(caseId, userId, token, context);
-    await recordUsageEvent(userId, "ai_question").catch(() => null);
-    return { turn, aiError: null as string | null };
-  } catch (error) {
-    console.error("[case-chat] IA não respondeu", { message: error instanceof Error ? error.message : String(error) });
-    return {
-      turn: null,
-      aiError: "Sua mensagem e os anexos foram salvos, mas a IA não conseguiu responder agora. Toque em \"Tentar novamente\" para gerar a resposta.",
-    };
-  }
-}
-
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const { token } = await loadOwnedCase(request, context.params.caseId);
-    const [messages, pendingQuestions] = await Promise.all([
-      fetchCaseChatMessages(context.params.caseId, token),
-      fetchCasePendingQuestions(context.params.caseId, token).catch(() => []),
-    ]);
+    const { store } = await loadOwnedCase(request, context.params.caseId);
+    const [messages, pending] = await Promise.all([store.listMessages(context.params.caseId), pendingState(store, context.params.caseId)]);
     return NextResponse.json(
       {
         messages,
         awaitingAssistant: trailingUserMessages(messages as ChatMessageRow[]).length > 0,
-        pendingQuestions,
-        currentQuestion: getCurrentPendingQuestion(pendingQuestions),
+        ...pending,
       },
       { headers: { "Cache-Control": "no-store" } },
     );
@@ -292,6 +266,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const caseId = context.params.caseId;
   const uploadedPaths: string[] = [];
+  const startedAt = Date.now();
+  const requestId = requestIdFrom(request);
 
   try {
     const declaredLength = Number(request.headers.get("content-length") || 0);
@@ -299,7 +275,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       throw new FriendlyRequestError("Os anexos ficaram grandes demais para envio. Remova uma foto ou grave um áudio mais curto.", 413, "PAYLOAD_TOO_LARGE");
     }
 
-    const { token, user } = await loadOwnedCase(request, caseId);
+    const { token, user, store } = await loadOwnedCase(request, caseId);
     const contentType = request.headers.get("content-type") || "";
     let text = "";
     let images: File[] = [];
@@ -324,21 +300,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const rawId = formData.get("clientMessageId");
       clientMessageId = isValidClientUploadId(rawId) ? rawId : null;
     } else {
-      const payload = (await request.json().catch(() => null)) as { message?: string; retry?: boolean } | null;
+      const payload = (await request.json().catch(() => null)) as { message?: string; retry?: boolean; clientMessageId?: string } | null;
       text = payload?.message?.trim().slice(0, 4000) || "";
       retry = payload?.retry === true;
+      clientMessageId = isValidClientUploadId(payload?.clientMessageId) ? payload!.clientMessageId! : null;
     }
 
     if (retry) {
-      const messages = (await fetchCaseChatMessages(caseId, token)) as ChatMessageRow[];
-      const pending = trailingUserMessages(messages);
-      if (!pending.length) {
-        return NextResponse.json({ messages, aiError: null, retried: false });
+      const messages = (await store.listMessages(caseId)) as ChatMessageRow[];
+      if (!trailingUserMessages(messages).length) {
+        return NextResponse.json({ messages, aiError: null, retried: false, requestId, ...(await pendingState(store, caseId)) });
       }
       await assertPlanLimit(user.id, "ai_question");
-      const { turn, aiError } = await runAssistantTurnSafely(caseId, user.id, token, buildUserTurnContext(pending));
-      const refreshed = await fetchCaseChatMessages(caseId, token).catch(() => messages);
-      return NextResponse.json({ messages: refreshed, aiError, analysis: turn?.analysis ?? null, retried: true });
+      const { aiError, aiErrorCode, assistantMessage } = await respondToPendingTurn({ store, caseId, userId: user.id, requestId, startedAt });
+      const refreshed = await store.listMessages(caseId).catch(() => messages);
+      return NextResponse.json({ messages: refreshed, aiError, aiErrorCode, assistantMessage, retried: true, requestId, ...(await pendingState(store, caseId)) });
     }
 
     if (!text && !images.length && !audio) {
@@ -391,47 +367,41 @@ export async function POST(request: NextRequest, context: RouteContext) {
       audioUrl = url;
     }
 
-    // 4) Registro das mensagens (ordem preservada). Se o mesmo envio já foi
-    //    gravado (nova tentativa após queda de rede), não duplica.
-    const existingMessages = (await fetchCaseChatMessages(caseId, token).catch(() => [])) as AgronomicCaseChatMessage[];
-    const alreadyRecorded = (url: string) => existingMessages.some((message) => message.file_url === url);
+    // 4) Registro das mensagens ANTES da IA (ordem preservada). Reenvio com o
+    //    mesmo clientMessageId não duplica pergunta nem anexos.
     const transcription = audio ? await transcribeAudio(audio) : null;
-
-    // Reenvio da mesma mensagem ainda sem resposta (ex.: queda de rede) não duplica.
-    const unansweredTexts = trailingUserMessages(existingMessages as ChatMessageRow[])
-      .filter((message) => message.message_type === "text")
-      .map((message) => message.message);
-    if (text && !unansweredTexts.includes(text)) {
-      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: text }, token);
-    }
+    const recorded = await recordUserTurn(store, {
+      caseId,
+      userId: user.id,
+      text,
+      clientMessageId,
+      imageUrls,
+      audio: audioUrl ? { url: audioUrl, transcription: transcription?.status === "success" ? transcription.text : null } : null,
+      imageLabel: IMAGE_MESSAGE_LABEL,
+      audioLabel: AUDIO_MESSAGE_LABEL,
+    });
     for (const url of imageUrls) {
-      if (alreadyRecorded(url)) continue;
-      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: IMAGE_MESSAGE_LABEL, messageType: "image", fileUrl: url }, token);
       await attachImageToCase(caseId, user.id, url, "chat_image", token).catch((error) => {
         console.warn("[case-chat] foto do chat não vinculada aos anexos do caso", { message: error instanceof Error ? error.message : String(error) });
       });
     }
-    if (audioUrl && !alreadyRecorded(audioUrl)) {
-      await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: AUDIO_MESSAGE_LABEL, messageType: "audio", fileUrl: audioUrl }, token);
-      if (transcription?.status === "success" && transcription.text) {
-        await insertCaseChatMessage({ caseId, userId: user.id, role: "user", message: transcription.text, messageType: "transcription" }, token);
-      }
-    }
     // A partir daqui os arquivos estão referenciados no banco.
     uploadedPaths.length = 0;
+    defaultChatLogger("user_turn_persisted", { requestId, caseId, status: "success", inserted: recorded.inserted.length, duplicateText: recorded.duplicateText, images: imageUrls.length, audio: Boolean(audioUrl) });
 
     // 5) Resposta da IA (falha não apaga o que foi salvo).
-    const afterInsert = (await fetchCaseChatMessages(caseId, token)) as ChatMessageRow[];
-    const pending = trailingUserMessages(afterInsert);
-    const { turn, aiError } = await runAssistantTurnSafely(caseId, user.id, token, buildUserTurnContext(pending));
-    const messages = turn ? await fetchCaseChatMessages(caseId, token).catch(() => afterInsert) : afterInsert;
+    const { aiError, aiErrorCode, assistantMessage } = await respondToPendingTurn({ store, caseId, userId: user.id, requestId, startedAt });
+    const messages = await store.listMessages(caseId);
 
     return NextResponse.json({
       messages,
       aiError,
-      analysis: turn?.analysis ?? null,
-      currentQuestion: turn?.currentQuestion ?? null,
+      aiErrorCode,
+      assistantMessage,
+      userMessageSaved: true,
+      requestId,
       transcription: transcription ? { status: transcription.status } : null,
+      ...(await pendingState(store, caseId)),
     });
   } catch (error) {
     // Arquivos enviados sem registro no banco não ficam órfãos.

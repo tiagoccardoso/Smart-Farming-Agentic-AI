@@ -1,7 +1,9 @@
 # E2E — casos agronômicos (Consultoria IA + Painel da Doutora)
 
 Roda o app **compilado** contra um Supabase falso em memória (PostgREST, Auth e
-Storage), sem rede externa e sem chaves de IA (a IA usa a triagem local segura).
+Storage) e uma OpenAI falsa (`/openai/v1/responses`, no mesmo servidor), sem
+rede externa. A OpenAI falsa responde citando a pergunta atual, o que permite
+verificar que cada pergunta do chat gera uma resposta própria.
 O Supabase falso reproduz a RLS real de UPDATE em `agronomic_cases`, que era a
 causa das edições perdidas em casos enviados para parecer.
 
@@ -15,7 +17,8 @@ node fake-supabase.mjs &                   # porta 54321
 cd ../..
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=anon-key-e2e npx next build
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=anon-key-e2e \
-SUPABASE_SERVICE_ROLE_KEY=service-key-e2e npx next start -p 3100 &
+SUPABASE_SERVICE_ROLE_KEY=service-key-e2e OPENAI_API_KEY=fake OPENAI_BASE_URL=http://127.0.0.1:54321/openai/v1 \
+npx next start -p 3100 &
 
 cd tests/e2e
 npx -y playwright@1.56.0 install chromium  # uma vez

@@ -7,7 +7,23 @@ function getGeminiApiKey() {
 }
 
 export function getGeminiModel() {
-  return process.env.GEMINI_MODEL || process.env.GOOGLE_AI_MODEL || "gemini-2.5-pro";
+  return process.env.GEMINI_MODEL || process.env.GOOGLE_AI_MODEL || DEFAULT_GEMINI_MODEL;
+}
+
+/**
+ * "gemini-2.5-pro" foi descontinuado para novas contas (o Google responde
+ * "is no longer available to new users"), o que derrubava o fallback inteiro.
+ * Quando o modelo configurado é recusado por indisponibilidade, a chamada é
+ * repetida uma vez com GEMINI_FALLBACK_MODEL (padrão abaixo).
+ */
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview";
+
+export function getGeminiReplacementModel() {
+  return process.env.GEMINI_FALLBACK_MODEL || DEFAULT_GEMINI_MODEL;
+}
+
+export function isGeminiModelUnavailableError(message: string | null | undefined) {
+  return /no longer available|is not found|not found for API version|is not supported for generateContent|has been deprecated|deprecated/i.test(message ?? "");
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 35000) {
@@ -21,15 +37,26 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 3500
   }
 }
 
-function toGeminiContents(messages: AIMessage[]) {
+/**
+ * Converte o histórico para o formato do Gemini. O prompt de sistema vai em
+ * `systemInstruction` (antes era repetido dentro de cada mensagem do usuário,
+ * o que duplicava o contexto em conversas com várias mensagens). Imagens com
+ * conteúdo base64 viram `inlineData`, para que o modelo veja a imagem.
+ */
+export function toGeminiRequest(messages: AIMessage[]) {
   const system = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
-  const userMessages = messages.filter((message) => message.role !== "system");
-  const contents = userMessages.length ? userMessages : [{ role: "user" as const, content: system }];
-
-  return contents.map((message) => ({
-    role: message.role === "assistant" ? "model" : "user",
-    parts: [{ text: message.role === "user" && system ? `${system}\n\n${message.content}` : message.content }]
-  }));
+  const conversation = messages.filter((message) => message.role !== "system");
+  const contents = (conversation.length ? conversation : [{ role: "user" as const, content: system }]).map((message) => {
+    const parts: Array<Record<string, unknown>> = [{ text: message.content }];
+    for (const image of message.role === "user" ? message.images ?? [] : []) {
+      if (image.base64 && image.mimeType) parts.push({ inlineData: { mimeType: image.mimeType, data: image.base64 } });
+    }
+    return { role: message.role === "assistant" ? "model" : "user", parts };
+  });
+  return {
+    contents,
+    ...(system && conversation.length ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+  };
 }
 
 function getText(payload: any) {
@@ -64,25 +91,38 @@ export class GeminiProvider implements AIProvider {
       throw new Error("Configure GEMINI_API_KEY para usar Gemini.");
     }
 
-    const model = options.model || getGeminiModel();
+    const requestedModel = options.model || getGeminiModel();
     const startedAt = Date.now();
-    const response = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: toGeminiContents(messages),
-          generationConfig: {
-            temperature: options.temperature ?? 0.2,
-            maxOutputTokens: options.maxOutputTokens ?? 1600,
-            responseMimeType: options.promptType?.includes("structured") ? "application/json" : undefined
-          }
-        })
-      },
-      options.timeoutMs
-    );
-    const payload = await response.json().catch(() => null);
+    const request = toGeminiRequest(messages);
+    const call = (model: string) =>
+      fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...request,
+            generationConfig: {
+              temperature: options.temperature ?? 0.2,
+              maxOutputTokens: options.maxOutputTokens ?? 1600,
+              responseMimeType: options.promptType?.includes("structured") ? "application/json" : undefined
+            }
+          })
+        },
+        options.timeoutMs
+      );
+
+    let model = requestedModel;
+    let response = await call(model);
+    let payload = await response.json().catch(() => null);
+
+    const replacement = getGeminiReplacementModel();
+    if (!response.ok && isGeminiModelUnavailableError(payload?.error?.message) && replacement !== model) {
+      console.warn("[ai-provider] modelo Gemini indisponível; usando modelo substituto", { requestedModel: model, replacementModel: replacement });
+      model = replacement;
+      response = await call(model);
+      payload = await response.json().catch(() => null);
+    }
 
     if (!response.ok) {
       throw new Error(payload?.error?.message || "Falha na chamada do Gemini.");

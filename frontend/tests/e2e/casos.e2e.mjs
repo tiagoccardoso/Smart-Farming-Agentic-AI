@@ -169,12 +169,29 @@ await reset();
     const before = await page.evaluate(() => window.scrollY);
     await chat.locator("textarea").fill("Apareceram há 5 dias.");
     await chat.getByRole("button", { name: "Enviar mensagem" }).click();
-    await chat.getByText("Apareceram há 5 dias.").waitFor();
+    await chat.locator('[data-testid="chat-messages"]').getByText("Apareceram há 5 dias.", { exact: true }).first().waitFor();
     await chat.locator('[data-testid="chat-messages"][aria-busy="false"]').waitFor({ timeout: 30000 });
     await page.waitForTimeout(300);
     assert((await chat.locator('[data-testid="chat-messages"] .justify-start').count()) >= 2, "IA não respondeu");
+    await chat.getByText('Resposta da IA para: "Apareceram há 5 dias."').waitFor();
     const after = await page.evaluate(() => window.scrollY);
     assert(Math.abs(after - before) <= 2, `página rolou ${before} -> ${after}`);
+  });
+
+  await check("chat: perguntas diferentes recebem respostas diferentes (nova inferência por pergunta)", async () => {
+    const chat = soja.locator('[data-testid="case-chat"]');
+    for (const question of ["A irrigação pode influenciar?", "Que informações faltam para confirmar o diagnóstico?"]) {
+      await chat.locator("textarea").fill(question);
+      await chat.getByRole("button", { name: "Enviar mensagem" }).click();
+      await chat.getByText(`Resposta da IA para: "${question}".`).waitFor({ timeout: 30000 });
+    }
+    const state = await dbState();
+    const calls = state.ai_calls ?? [];
+    assert(calls.length >= 3, `inferências: ${calls.length}`);
+    const lastCall = calls[calls.length - 1];
+    assert(lastCall.roles[0] === "system" && lastCall.roles.includes("assistant"), `papéis: ${lastCall.roles}`);
+    const analysis = state.agronomic_cases.find((item) => item.id === CASE_SOJA).ai_analysis_json;
+    assert(analysis.initialDiagnosis === "Triagem indica doença foliar fúngica.", "chat alterou a análise inicial");
   });
 
   await check("chat: enviar foto (galeria) e ver miniatura", async () => {
@@ -206,7 +223,7 @@ await reset();
   });
 
   await check("chat: falha da IA preserva a mensagem e 'Tentar novamente' gera a resposta", async () => {
-    await failNext({ method: "PATCH", match: `/rest/v1/agronomic_cases?id=eq.${CASE_SOJA}`, times: 1 });
+    await failNext({ method: "POST", match: "/openai/v1/responses", times: 1 });
     const chat = soja.locator('[data-testid="case-chat"]');
     await chat.locator("textarea").fill("E agora, o que faço?");
     await chat.getByRole("button", { name: "Enviar mensagem" }).click();
@@ -226,7 +243,7 @@ await reset();
     await page.reload({ waitUntil: "networkidle" });
     await card(page, CASE_SOJA).locator('[data-testid="case-detail"]').waitFor({ timeout: 15000 });
     const chat = card(page, CASE_SOJA).locator('[data-testid="case-chat"]');
-    await chat.getByText("Apareceram há 5 dias.").waitFor();
+    await chat.getByText("Apareceram há 5 dias.", { exact: true }).waitFor();
     assert((await chat.locator('img[alt="Foto enviada no chat"]').count()) === 1, "foto do chat sumiu");
     assert((await chat.locator('[data-testid="chat-messages"] audio').count()) === 1, "áudio sumiu");
     await openCase(page, CASE_MILHO);

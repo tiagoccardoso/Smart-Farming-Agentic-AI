@@ -14,6 +14,12 @@ export type AgronomicDetailedHypothesis = {
 export type AIMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  /**
+   * Imagens anexadas a esta mensagem (somente role "user"). Devem trazer o
+   * conteúdo em base64 para que o modelo receba a imagem de fato; uma URL
+   * sozinha não garante que o modelo consiga ver o arquivo.
+   */
+  images?: AIImageInput[];
 };
 
 export type AIImageInput = {
@@ -36,6 +42,8 @@ export type AIProviderCallOptions = {
   timeoutMs?: number;
   promptType?: string;
   responseSchema?: unknown;
+  /** Esforço de raciocínio para modelos que o suportam (gpt-5*, o*). */
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
 };
 
 export type AIProviderResult<T = string> = {

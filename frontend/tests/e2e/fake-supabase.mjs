@@ -220,6 +220,25 @@ const server = http.createServer(async (req, res) => {
     return res.end(object.bytes);
   }
 
+  // OpenAI falso (Responses API) para o chat do caso: responde citando a
+  // PERGUNTA ATUAL recebida e quantas fotos chegaram como conteúdo, para o E2E
+  // provar que cada pergunta gera uma resposta própria. Falhas via /__fail.
+  if (url.pathname === "/openai/v1/responses" && method === "POST") {
+    const body = JSON.parse((await readBody(req)).toString() || "{}");
+    const input = Array.isArray(body.input) ? body.input : [];
+    const last = input[input.length - 1] ?? { content: [] };
+    const text = (last.content ?? []).map((part) => part.text).filter(Boolean).join("\n");
+    const question = (text.split("\n")[1] ?? text).trim();
+    const images = (last.content ?? []).filter((part) => part.type === "input_image").length;
+    table("ai_calls").push({ question, images, roles: input.map((item) => item.role), created_at: now() });
+    const markdown = /causas/i.test(question)
+      ? "\n\nHipóteses mais prováveis:\n1. **Mancha-alvo**: lesões com anéis e halo amarelado.\n2. **Septoriose**: pontuações pequenas nas folhas baixeiras.\n\n- Confirme com fotos de perto do *verso* da folha."
+      : "";
+    const output = `Resposta da IA para: "${question}".${images ? ` Recebi ${images} foto(s).` : ""}${markdown}`;
+    return send(res, 200, { output_text: output, usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } });
+  }
+  if (url.pathname.startsWith("/openai/v1/")) return send(res, 404, { error: { message: "rota OpenAI não simulada" } });
+
   const user = userFrom(req);
   if (url.pathname === "/auth/v1/user") {
     if (!user || user.service) return send(res, 401, { message: "invalid token" });

@@ -46,6 +46,14 @@
     "lib/server/agronomic-case-edit.ts",
     "lib/server/supabase-rest.ts",
     "lib/mobile-image-upload.ts",
+    "lib/agronomic/case-chat-context.ts",
+    "lib/agronomic/case-chat-ai.ts",
+    "lib/agronomic/chat-markdown.ts",
+    "lib/server/case-chat-service.ts",
+    "lib/server/case-chat-store.ts",
+    "src/lib/ai/providers/*.ts",
+    "src/lib/ai/utils/*.ts",
+    "lib/agronomic/case-chat-providers.ts",
     "tests/**/*.ts"
   ]
 }

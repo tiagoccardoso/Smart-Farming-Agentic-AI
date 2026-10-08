@@ -12,6 +12,11 @@ function getOpenAiApiKey() {
   return process.env.OPENAI_API_KEY || null;
 }
 
+/** Base da API (padrão OpenAI). Permite apontar para um servidor falso nos testes E2E. */
+export function getOpenAiBaseUrl() {
+  return (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+}
+
 export function getOpenAiChatModel() {
   return process.env.OPENAI_CHAT_MODEL || "gpt-5-mini";
 }
@@ -64,6 +69,50 @@ function modelSupportsTemperature(model: string) {
   return !normalized.startsWith("gpt-5");
 }
 
+function modelSupportsReasoning(model: string) {
+  const normalized = model.toLowerCase();
+  return normalized.startsWith("gpt-5") || /^o\d/.test(normalized);
+}
+
+function imageDataUrl(image: AIImageInput) {
+  if (image.base64 && image.mimeType) return `data:${image.mimeType};base64,${image.base64}`;
+  return image.url || null;
+}
+
+/**
+ * Converte as mensagens para o formato da Responses API. Mensagens do
+ * assistente precisam de partes "output_text" (o formato "input_text" é
+ * rejeitado para role assistant); imagens viram partes "input_image".
+ */
+export function toResponsesInput(messages: AIMessage[]) {
+  return messages.map((message) => {
+    if (message.role === "assistant") {
+      return { role: "assistant", content: [{ type: "output_text", text: message.content }] };
+    }
+    const parts: Array<Record<string, unknown>> = [{ type: "input_text", text: message.content }];
+    for (const image of message.role === "user" ? message.images ?? [] : []) {
+      const url = imageDataUrl(image);
+      if (url) parts.push({ type: "input_image", image_url: url, detail: "low" });
+    }
+    return { role: message.role, content: parts };
+  });
+}
+
+/** Formato da Chat Completions API (usado só como fallback de compatibilidade). */
+export function toChatCompletionsMessages(messages: AIMessage[]) {
+  return messages.map((message) => {
+    const images = message.role === "user" ? (message.images ?? []).map(imageDataUrl).filter((url): url is string => Boolean(url)) : [];
+    if (!images.length) return { role: message.role, content: message.content };
+    return {
+      role: message.role,
+      content: [
+        { type: "text", text: message.content },
+        ...images.map((url) => ({ type: "image_url", image_url: { url, detail: "low" } })),
+      ],
+    };
+  });
+}
+
 function normalizeUsage(payload: any, fallbackInputTokens: number, fallbackOutputText = "") {
   const inputTokens = payload.usage?.input_tokens ?? payload.usage?.prompt_tokens ?? fallbackInputTokens;
   const outputTokens = payload.usage?.output_tokens ?? payload.usage?.completion_tokens ?? estimateTokens(fallbackOutputText);
@@ -80,16 +129,20 @@ function normalizeUsage(payload: any, fallbackInputTokens: number, fallbackOutpu
 async function requestChatCompletionsFallback(apiKey: string, model: string, messages: AIMessage[], options: AIProviderCallOptions = {}) {
   const body: Record<string, unknown> = {
     model,
-    messages: messages.map((message) => ({ role: message.role, content: message.content })),
+    messages: toChatCompletionsMessages(messages),
     max_completion_tokens: options.maxOutputTokens ?? 1400
   };
+
+  if (modelSupportsReasoning(model) && options.reasoningEffort) {
+    body.reasoning_effort = options.reasoningEffort;
+  }
 
   if (modelSupportsTemperature(model) && typeof options.temperature === "number") {
     body.temperature = options.temperature;
   }
 
   const response = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
+    `${getOpenAiBaseUrl()}/chat/completions`,
     {
       method: "POST",
       headers: {
@@ -127,19 +180,20 @@ export class OpenAIProvider implements AIProvider {
     const startedAt = Date.now();
     const body: Record<string, unknown> = {
       model,
-      input: messages.map((message) => ({
-        role: message.role,
-        content: [{ type: "input_text", text: message.content }]
-      })),
+      input: toResponsesInput(messages),
       max_output_tokens: options.maxOutputTokens ?? 1400
     };
+
+    if (modelSupportsReasoning(model) && options.reasoningEffort) {
+      body.reasoning = { effort: options.reasoningEffort };
+    }
 
     if (modelSupportsTemperature(model) && typeof options.temperature === "number") {
       body.temperature = options.temperature;
     }
 
     const response = await fetchWithTimeout(
-      "https://api.openai.com/v1/responses",
+      `${getOpenAiBaseUrl()}/responses`,
       {
         method: "POST",
         headers: {
@@ -202,7 +256,7 @@ export class OpenAIProvider implements AIProvider {
     const model = options.model || getOpenAiEmbeddingModel();
     const startedAt = Date.now();
     const response = await fetchWithTimeout(
-      "https://api.openai.com/v1/embeddings",
+      `${getOpenAiBaseUrl()}/embeddings`,
       {
         method: "POST",
         headers: {

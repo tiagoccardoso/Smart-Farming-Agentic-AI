@@ -961,12 +961,14 @@ export async function analyzeAgronomicCase(
     if (cacheEnabled) responseCache.set(key, normalized);
     return normalized;
   } catch (primaryError) {
+    // O fallback precisa ser um provedor DIFERENTE do que falhou. Antes, casos
+    // "heavy_multimodal" iam para o Gemini e o "fallback" era o mesmo Gemini.
+    const fallbackProvider = selected.provider.name === "gemini" ? getPrimaryProvider() : getFallbackProvider();
+    const fallbackModel = fallbackProvider.name === "gemini" ? getGeminiModel() : getOpenAiComplexModel();
     console.warn(
-      "Provider principal falhou; executando fallback Gemini.",
-      primaryError,
+      `Provider principal (${selected.provider.name}) falhou; executando fallback ${fallbackProvider.name}.`,
+      primaryError instanceof Error ? primaryError.message : primaryError,
     );
-    const fallbackProvider = getFallbackProvider();
-    const fallbackModel = getGeminiModel();
 
     try {
       const result = await callProvider(
@@ -982,8 +984,8 @@ export async function analyzeAgronomicCase(
       return normalized;
     } catch (fallbackError) {
       console.warn(
-        "Fallback Gemini falhou; retornando triagem local segura.",
-        fallbackError,
+        "Fallback de IA falhou; retornando triagem local segura.",
+        fallbackError instanceof Error ? fallbackError.message : fallbackError,
       );
       if (options.logUsage !== false) {
         await writeUsageLog({
