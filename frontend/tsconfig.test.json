@@ -54,6 +54,11 @@
     "src/lib/ai/providers/*.ts",
     "src/lib/ai/utils/*.ts",
     "lib/agronomic/case-chat-providers.ts",
+    "lib/agronomic/case-analysis.ts",
+    "src/lib/ai/orchestrator/*.ts",
+    "src/lib/ai/prompts/*.ts",
+    "src/lib/ai/research/*.ts",
+    "src/lib/ai/embeddings/*.ts",
     "tests/**/*.ts"
   ]
 }

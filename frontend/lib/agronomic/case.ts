@@ -1,4 +1,4 @@
-import { analyzeAgronomicCase } from "../../src/lib/ai/orchestrator/analyze-case";
+import { analyzeAgronomicCase, type AgronomicAnalysisRunInfo, type AnalyzeAgronomicCaseOptions } from "../../src/lib/ai/orchestrator/analyze-case";
 import {
   areEmbeddingsConfigured,
   generateEmbeddingIfConfigured,
@@ -179,6 +179,13 @@ export type AgronomicPreAnalysis = {
   nextSteps?: string[];
   /** Momento em que esta análise foi gravada no caso (ISO). */
   analyzedAt?: string;
+  /** Fotos efetivamente enviadas à IA nesta análise (sem URLs). Ausente nas antigas. */
+  imageAnalysis?: {
+    total: number;
+    analyzed: number;
+    skipped: number;
+    unavailable: Array<{ label: string; reason: string }>;
+  };
 };
 
 type SupabaseConfig = {
@@ -1284,6 +1291,8 @@ export async function generateAgronomicPreAnalysis(
   caseData: AgronomicCase,
   question?: string,
   _token?: string,
+  options: Pick<AnalyzeAgronomicCaseOptions, "deadlineAt" | "prepareImages" | "allowLocalFallback"> = {},
+  runInfo?: AgronomicAnalysisRunInfo,
 ): Promise<AgronomicPreAnalysis> {
   const cropContext =
     caseData.crop_context ??
@@ -1296,7 +1305,9 @@ export async function generateAgronomicPreAnalysis(
       userId: caseData.user_id,
       enableKnowledgeSearch: true,
       logUsage: true,
+      ...options,
     },
+    runInfo,
   );
 }
 

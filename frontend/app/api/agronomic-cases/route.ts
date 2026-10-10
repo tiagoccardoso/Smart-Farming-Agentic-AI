@@ -26,7 +26,10 @@ import {
 import { supabaseAdminRequest } from "../../../lib/server/supabaseAdmin";
 
 const STORAGE_BUCKET = "agronomic-cases";
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+// Mesmo limite do navegador (CASE_ATTACHMENT_LIMITS): a Vercel recusa corpos
+// acima de 4,5 MB antes de o código rodar, então 10 MB nunca era alcançável.
+const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_SIZE_LABEL = "4MB";
 const ACCEPTED_PHOTO_TYPES = [
   "image/jpeg",
   "image/png",
@@ -222,9 +225,17 @@ async function validateUploadFile(
     );
   }
 
+  if (file.size === 0) {
+    throw new FriendlyRequestError(
+      `${label} "${file.name}" está vazio. Escolha o arquivo novamente.`,
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+
   if (file.size > MAX_FILE_SIZE_BYTES) {
     throw new FriendlyRequestError(
-      `${label} "${file.name}" excede o limite de 10MB.`,
+      `${label} "${file.name}" excede o limite de ${MAX_FILE_SIZE_LABEL}.`,
       400,
       "VALIDATION_ERROR",
     );

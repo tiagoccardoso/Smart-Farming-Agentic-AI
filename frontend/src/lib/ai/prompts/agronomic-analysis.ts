@@ -41,11 +41,18 @@ export function buildAgronomicAnalysisPrompt(
   question?: string,
   knowledge: KnowledgeDocument[] = [],
   internetResearch?: InternetResearchResult,
+  /**
+   * Situação das fotos enviadas ao modelo (anexadas como imagem, sem URL).
+   * Quando ausente, mantém o formato anterior (lista das URLs).
+   */
+  imageNotes?: string,
 ) {
   const location =
     [caseData.farm?.city, caseData.farm?.state].filter(Boolean).join("/") ||
     "não informada";
-  const images = caseData.images?.length
+  const images = imageNotes
+    ? imageNotes
+    : caseData.images?.length
     ? caseData.images
         .map(
           (image, index) =>

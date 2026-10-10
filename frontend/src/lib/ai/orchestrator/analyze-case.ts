@@ -10,6 +10,7 @@ import { getGeminiModel } from "../providers/gemini";
 import { getOpenAiChatModel, getOpenAiComplexModel } from "../providers/openai";
 import type {
   AgronomicAnalysisOutput,
+  AIMessage,
   AIProvider,
   AIProviderResult,
   AIUsageLogInput,
@@ -23,6 +24,17 @@ import {
   estimateTokens,
 } from "../utils/token-estimator";
 import { classifyAgronomicRisk } from "./classify-risk";
+import {
+  ANALYSIS_MIN_PROVIDER_MS,
+  AgronomicAnalysisError,
+  classifyProviderFailure,
+  describeAnalysisImages,
+  providerTimeoutMs,
+  remainingMs,
+  researchBudgetMs,
+  settleWithin,
+  type AnalysisImagesResult,
+} from "../../../../lib/agronomic/case-analysis";
 import { normalizeAiResponseText, normalizeAiTextFields } from "../../../../lib/agronomic/ai-response-formatting";
 
 type AgronomicCaseForAI = {
@@ -68,11 +80,41 @@ export type AgronomicCaseComplexity =
   | "complex"
   | "heavy_multimodal";
 
-type AnalyzeAgronomicCaseOptions = {
+type ProviderChoice = { provider: AIProvider; model: string };
+
+export type AnalyzeAgronomicCaseOptions = {
   question?: string;
   userId?: string | null;
   enableKnowledgeSearch?: boolean;
   logUsage?: boolean;
+  /**
+   * Momento (epoch ms) em que a resposta precisa estar pronta. Pesquisa,
+   * provedor principal e fallback dividem esse orçamento; nada passa do limite
+   * da função na Vercel. Sem deadline, mantém os tempos anteriores.
+   */
+  deadlineAt?: number;
+  /**
+   * Carrega as fotos do caso (conteúdo base64) em paralelo com a pesquisa. As
+   * fotos carregadas vão como partes de imagem na mensagem do usuário — para
+   * OpenAI e para o Gemini — e as indisponíveis são declaradas no prompt.
+   */
+  prepareImages?: () => Promise<AnalysisImagesResult>;
+  /**
+   * `false`: se nenhum provedor responder, lança AgronomicAnalysisError em vez
+   * de devolver a triagem local fixa (que não olha as fotos). A rota de análise
+   * usa `false` para nunca gravar/mostrar sucesso sem análise real.
+   */
+  allowLocalFallback?: boolean;
+  /** Injeção para testes (sem rede). */
+  deps?: {
+    searchKnowledge?: typeof searchSpecialistKnowledge;
+    searchInternet?: typeof searchInternetForAgronomicCase;
+    selectProviders?: (complexity: AgronomicCaseComplexity) => { primary: ProviderChoice; fallback: ProviderChoice | null };
+  };
+};
+
+export type AgronomicAnalysisRunInfo = {
+  images: AnalysisImagesResult | null;
 };
 
 const responseCache = new Map<string, AgronomicAnalysisOutput>();
@@ -863,11 +905,15 @@ async function writeUsageLog(input: AIUsageLogInput) {
   }
 }
 
+const ANALYSIS_PROVIDER_TIMEOUT_MS = 60000;
+
 async function callProvider(
   provider: AIProvider,
   model: string,
-  messages: Array<{ role: "system" | "user"; content: string }>,
+  messages: AIMessage[],
+  options: { timeoutMs?: number; retries?: number } = {},
 ) {
+  const timeoutMs = options.timeoutMs ?? ANALYSIS_PROVIDER_TIMEOUT_MS;
   return retry(
     () =>
       provider.generateStructuredOutput<Partial<AgronomicAnalysisOutput>>(
@@ -876,10 +922,12 @@ async function callProvider(
           model,
           promptType: "agronomic_analysis",
           maxOutputTokens: 6500,
-          timeoutMs: 60000,
+          timeoutMs,
+          // Mantém a análise dentro do tempo da função (só afeta gpt-5*/o*).
+          reasoningEffort: "low",
         },
       ),
-    { retries: 1, baseDelayMs: 600, timeoutMs: 65000 },
+    { retries: options.retries ?? 1, baseDelayMs: 600, timeoutMs: timeoutMs + 1000 },
   );
 }
 
@@ -907,24 +955,60 @@ async function logResult(
   });
 }
 
+function defaultProviders(complexity: AgronomicCaseComplexity): { primary: ProviderChoice; fallback: ProviderChoice | null } {
+  const selected = selectProviderAndModel(complexity);
+  // O fallback precisa ser um provedor DIFERENTE do que falhou. Antes, casos
+  // "heavy_multimodal" iam para o Gemini e o "fallback" era o mesmo Gemini.
+  const fallbackProvider = selected.provider.name === "gemini" ? getPrimaryProvider() : getFallbackProvider();
+  const fallbackModel = fallbackProvider.name === "gemini" ? getGeminiModel() : getOpenAiComplexModel();
+  return { primary: selected, fallback: { provider: fallbackProvider, model: fallbackModel } };
+}
+
+function unavailableResearch(query: string): InternetResearchResult {
+  return {
+    status: "unavailable",
+    query,
+    summary: "A pesquisa externa não respondeu a tempo nesta execução; a análise seguiu com os dados do caso.",
+    sources: [],
+  };
+}
+
 export async function analyzeAgronomicCase(
   caseData: AgronomicCaseForAI,
   options: AnalyzeAgronomicCaseOptions = {},
+  runInfo?: AgronomicAnalysisRunInfo,
 ): Promise<AgronomicAnalysisOutput> {
+  const allowLocalFallback = options.allowLocalFallback !== false;
+  // Com fotos para enviar, o cache por texto não serve: a resposta depende delas.
   const key = cacheKey(caseData, options.question);
-  const cacheEnabled = isCacheEnabled();
+  const cacheEnabled = isCacheEnabled() && !options.prepareImages;
   const cached = cacheEnabled ? responseCache.get(key) : null;
   if (cached) {
     return withCacheMetadata(cached);
   }
 
+  const searchKnowledge = options.deps?.searchKnowledge ?? searchSpecialistKnowledge;
+  const searchInternet = options.deps?.searchInternet ?? searchInternetForAgronomicCase;
   const complexity = classifyCaseComplexity(caseData, options.question);
-  const [knowledge, internetResearch] = await Promise.all([
+
+  // Pesquisa e carga das fotos rodam em paralelo e com teto: o que não chegar a
+  // tempo é tratado como indisponível, sem consumir o tempo do modelo.
+  const researchMs = researchBudgetMs(options.deadlineAt);
+  const [knowledge, internetResearch, images] = await Promise.all([
     options.enableKnowledgeSearch === false
-      ? Promise.resolve([])
-      : searchSpecialistKnowledge(caseData, options.question),
-    searchInternetForAgronomicCase(caseData, options.question),
+      ? Promise.resolve([] as KnowledgeDocument[])
+      : settleWithin(searchKnowledge(caseData, options.question).catch(() => [] as KnowledgeDocument[]), researchMs, () => [] as KnowledgeDocument[]),
+    settleWithin(
+      searchInternet(caseData, options.question),
+      researchMs,
+      () => unavailableResearch(`${caseData.crop} ${caseData.symptoms}`.slice(0, 200)),
+    ),
+    options.prepareImages
+      ? settleWithin(options.prepareImages().catch(() => null), researchMs, () => null)
+      : Promise.resolve(null),
   ]);
+  if (runInfo) runInfo.images = images;
+
   const fallback = {
     ...buildFallbackAnalysis(caseData, options.question),
     popularSummary: buildPopularSummary(caseData, classifyAgronomicRisk(caseData), internetResearch),
@@ -941,67 +1025,75 @@ export async function analyzeAgronomicCase(
     options.question,
     knowledge,
     internetResearch,
+    options.prepareImages ? describeAnalysisImages(images) : undefined,
   );
-  const messages = [
-    { role: "system" as const, content: AGRONOMIC_SYSTEM_PROMPT },
-    { role: "user" as const, content: prompt },
+  const imageInputs = images?.loaded.map((image) => image.input) ?? [];
+  const messages: AIMessage[] = [
+    { role: "system", content: AGRONOMIC_SYSTEM_PROMPT },
+    { role: "user", content: prompt, ...(imageInputs.length ? { images: imageInputs } : {}) },
   ];
-  const selected = selectProviderAndModel(complexity);
+  const { primary, fallback: fallbackChoice } = (options.deps?.selectProviders ?? defaultProviders)(complexity);
+  const failures: unknown[] = [];
 
-  try {
-    const result = await callProvider(
-      selected.provider,
-      selected.model,
-      messages,
-    );
+  const attempt = async (choice: ProviderChoice, isFallback: boolean, hasFallback: boolean) => {
+    const timeoutMs = providerTimeoutMs({ deadlineAt: options.deadlineAt, hasFallback, defaultMs: ANALYSIS_PROVIDER_TIMEOUT_MS });
+    if (timeoutMs < ANALYSIS_MIN_PROVIDER_MS && Number.isFinite(remainingMs(options.deadlineAt))) {
+      throw new AgronomicAnalysisError("AI_TIMEOUT");
+    }
+    // Sem deadline: comportamento anterior (1 retry). Com deadline: o retry só
+    // acontece se ainda couber, decidido pela própria janela restante.
+    const retries = options.deadlineAt ? 0 : 1;
+    const result = await callProvider(choice.provider, choice.model, messages, { timeoutMs, retries });
     const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
     if (options.logUsage !== false) {
-      await logResult(result, options.userId ?? caseData.user_id, false, true);
+      await logResult(result, options.userId ?? caseData.user_id, isFallback, true).catch(() => null);
     }
     if (cacheEnabled) responseCache.set(key, normalized);
     return normalized;
-  } catch (primaryError) {
-    // O fallback precisa ser um provedor DIFERENTE do que falhou. Antes, casos
-    // "heavy_multimodal" iam para o Gemini e o "fallback" era o mesmo Gemini.
-    const fallbackProvider = selected.provider.name === "gemini" ? getPrimaryProvider() : getFallbackProvider();
-    const fallbackModel = fallbackProvider.name === "gemini" ? getGeminiModel() : getOpenAiComplexModel();
-    console.warn(
-      `Provider principal (${selected.provider.name}) falhou; executando fallback ${fallbackProvider.name}.`,
-      primaryError instanceof Error ? primaryError.message : primaryError,
-    );
+  };
 
+  try {
+    return await attempt(primary, false, Boolean(fallbackChoice));
+  } catch (primaryError) {
+    failures.push(primaryError);
+    console.warn(
+      `Provider principal (${primary.provider.name}) falhou na análise inicial.`,
+      { category: classifyProviderFailure(primaryError), images: imageInputs.length },
+    );
+  }
+
+  if (fallbackChoice) {
     try {
-      const result = await callProvider(
-        fallbackProvider,
-        fallbackModel,
-        messages,
-      );
-      const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
-      if (options.logUsage !== false) {
-        await logResult(result, options.userId ?? caseData.user_id, true, true);
-      }
-      if (cacheEnabled) responseCache.set(key, normalized);
-      return normalized;
+      return await attempt(fallbackChoice, true, false);
     } catch (fallbackError) {
+      failures.push(fallbackError);
       console.warn(
-        "Fallback de IA falhou; retornando triagem local segura.",
-        fallbackError instanceof Error ? fallbackError.message : fallbackError,
+        `Fallback (${fallbackChoice.provider.name}) falhou na análise inicial.`,
+        { category: classifyProviderFailure(fallbackError), images: imageInputs.length },
       );
-      if (options.logUsage !== false) {
-        await writeUsageLog({
-          userId: options.userId ?? caseData.user_id,
-          provider: "local",
-          model: "safe-local-fallback",
-          promptType: "agronomic_analysis",
-          tokensInput: estimateMessagesTokens(messages),
-          tokensOutput: estimateTokens(JSON.stringify(fallback)),
-          estimatedCost: 0,
-          responseTimeMs: 0,
-          success: false,
-          fallbackUsed: true,
-        });
-      }
-      return fallback;
     }
   }
+
+  if (options.logUsage !== false) {
+    await writeUsageLog({
+      userId: options.userId ?? caseData.user_id,
+      provider: "local",
+      model: "safe-local-fallback",
+      promptType: "agronomic_analysis",
+      tokensInput: estimateMessagesTokens(messages),
+      tokensOutput: allowLocalFallback ? estimateTokens(JSON.stringify(fallback)) : 0,
+      estimatedCost: 0,
+      responseTimeMs: 0,
+      success: false,
+      fallbackUsed: true,
+    }).catch(() => null);
+  }
+
+  if (!allowLocalFallback) {
+    const codes = failures.map((error) => (error instanceof AgronomicAnalysisError ? error.code : classifyProviderFailure(error)));
+    throw new AgronomicAnalysisError(
+      codes.includes("AI_TIMEOUT") ? "AI_TIMEOUT" : codes.every((code) => code === "AI_INVALID_RESPONSE") ? "AI_INVALID_RESPONSE" : "AI_UNAVAILABLE",
+    );
+  }
+  return fallback;
 }

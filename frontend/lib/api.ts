@@ -47,6 +47,10 @@ function fallbackErrorMessage(status: number) {
   if (status === 404) return "O registro solicitado não foi encontrado.";
   if (status === 409)
     return "Há um conflito com os dados enviados. Revise as informações e tente novamente.";
+  if (status === 413)
+    return "Os arquivos anexados ultrapassam o limite de envio (4 MB no total). Remova uma foto ou anexe a análise de solo depois, em “Editar caso”. Seus dados continuam preenchidos.";
+  if (status === 504 || status === 408)
+    return "O servidor demorou mais que o esperado para responder. Seus dados continuam preenchidos; tente novamente em instantes.";
   if (status >= 500)
     return "O serviço encontrou uma instabilidade temporária. Tente novamente em instantes.";
   return "A solicitação não pôde ser concluída.";

@@ -25,7 +25,7 @@ type CasePayload = {
   humanReview?: ClientHumanReview | null;
 };
 
-type Banner = { tone: "success" | "error" | "info"; text: string } | null;
+type Banner = { tone: "success" | "error" | "info"; text: string; detail?: string; retry?: boolean } | null;
 
 function formatDate(value?: string | null) {
   if (!value) return "Sem data";
@@ -54,6 +54,79 @@ function activityLabel(log: ActivityLog) {
   if (kind === "attachment_added") return log.metadata?.attachment === "soil_analysis" ? "Análise de solo anexada" : "Nova foto anexada";
   if (kind && ACTIVITY_LABELS[kind]) return ACTIVITY_LABELS[kind];
   return log.action;
+}
+
+type ImageAnalysisSummary = { total: number; analyzed: number; skipped: number; unavailable: Array<{ label: string; reason: string }> };
+
+type AnalysisRequestResult =
+  | { ok: true; imageAnalysis: ImageAnalysisSummary | null }
+  | { ok: false; message: string; reference: string | null; retryable: boolean };
+
+const ANALYSIS_CLIENT_TIMEOUT_MS = 75_000;
+
+/**
+ * Chama a rota de análise e traduz cada falha em mensagem acionável. Antes,
+ * uma resposta sem JSON (ex.: função encerrada pela plataforma) virava sempre
+ * "Não foi possível gerar a análise agora", escondendo a causa.
+ */
+async function requestCaseAnalysis(caseId: string, token: string): Promise<AnalysisRequestResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), ANALYSIS_CLIENT_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch("/api/agronomic-ai/analyze-case", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ caseId }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const aborted = error instanceof DOMException && error.name === "AbortError";
+    return {
+      ok: false,
+      retryable: true,
+      reference: null,
+      message: aborted
+        ? "A análise demorou mais que o esperado. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes."
+        : "Sem conexão com o servidor. Verifique sua internet e tente novamente — seus dados e fotos continuam salvos.",
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
+
+  const text = await response.text().catch(() => "");
+  let payload: { error?: string; code?: string; requestId?: string; imageAnalysis?: ImageAnalysisSummary } | null = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null;
+  }
+  if (response.ok) return { ok: true, imageAnalysis: payload?.imageAnalysis ?? null };
+
+  const reference = payload?.requestId ?? response.headers.get("x-vercel-id")?.split("::").pop() ?? null;
+  if (payload?.error) {
+    const retryable = !["PLAN_LIMIT_REACHED", "AUTH_REQUIRED"].includes(payload.code ?? "") && ![401, 402, 403, 404, 429].includes(response.status);
+    return { ok: false, message: payload.error, reference, retryable };
+  }
+  // Resposta sem JSON: tempo esgotado ou erro da plataforma.
+  if (response.status === 504 || response.status === 408) {
+    return { ok: false, retryable: true, reference, message: "A análise demorou mais que o esperado e foi interrompida. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes." };
+  }
+  if (response.status === 401) {
+    return { ok: false, retryable: false, reference, message: "Sua sessão expirou. Faça login novamente para gerar a análise." };
+  }
+  return { ok: false, retryable: true, reference, message: "O serviço de análise ficou indisponível. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes." };
+}
+
+function describeImageAnalysis(summary: ImageAnalysisSummary | null) {
+  if (!summary || summary.total === 0) return undefined;
+  const parts = [`A IA analisou ${summary.analyzed} de ${summary.total} ${summary.total === 1 ? "foto" : "fotos"}.`];
+  if (summary.unavailable.length) {
+    const reasons = Array.from(new Set(summary.unavailable.map((item) => item.reason)));
+    parts.push(`${summary.unavailable.length} não ${summary.unavailable.length === 1 ? "pôde ser lida" : "puderam ser lidas"} (${reasons.join("; ")}). Para incluí-las, envie em JPG ou PNG.`);
+  }
+  if (summary.skipped > 0) parts.push(`${summary.skipped} ficaram de fora pelo limite de fotos por análise.`);
+  return parts.join(" ");
 }
 
 export default function CaseDetailPanel({
@@ -154,22 +227,29 @@ export default function CaseDetailPanel({
 
   async function generateAnalysis() {
     const token = getAccessToken();
-    if (!token || generatingRef.current) return;
+    if (!token) {
+      setBanner({ tone: "error", text: "Sua sessão expirou. Faça login novamente para gerar a análise." });
+      return;
+    }
+    if (generatingRef.current) return;
     generatingRef.current = true;
     setGenerating(true);
-    setBanner({ tone: "info", text: "Analisando as informações..." });
+    const photoCount = caseData?.images?.length ?? 0;
+    setBanner({
+      tone: "info",
+      text: photoCount
+        ? `Gerando análise com ${photoCount === 1 ? "1 foto" : `${photoCount} fotos`}… isso pode levar até 1 minuto.`
+        : "Gerando análise… isso pode levar até 1 minuto.",
+    });
     try {
-      const response = await fetch("/api/agronomic-ai/analyze-case", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ caseId }),
-      });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || "Não foi possível gerar a análise agora.");
-      await load({ silent: true });
-      setBanner({ tone: "success", text: hasAnalysis ? "Análise atualizada com sucesso" : "Análise gerada com sucesso" });
-    } catch (error) {
-      setBanner({ tone: "error", text: error instanceof Error ? error.message : "Não foi possível gerar a análise agora." });
+      const result = await requestCaseAnalysis(caseId, token);
+      if (result.ok) {
+        // Sucesso só depois de a análise estar gravada e recarregada do servidor.
+        await load({ silent: true });
+        setBanner({ tone: "success", text: hasAnalysis ? "Análise atualizada com sucesso." : "Análise gerada com sucesso.", detail: describeImageAnalysis(result.imageAnalysis) });
+      } else {
+        setBanner({ tone: "error", text: result.message, detail: result.reference ? `Código para suporte: ${result.reference}` : undefined, retry: result.retryable });
+      }
     } finally {
       generatingRef.current = false;
       setGenerating(false);
@@ -249,7 +329,15 @@ export default function CaseDetailPanel({
           data-testid="case-banner"
         >
           {banner.tone === "success" ? <IconCheck className="mt-0.5 h-4 w-4" /> : banner.tone === "error" ? <IconAlert className="mt-0.5 h-4 w-4" /> : <span className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" aria-hidden="true" />}
-          <span>{banner.text}</span>
+          <div className="min-w-0 flex-1">
+            <p>{banner.text}</p>
+            {banner.detail ? <p className="mt-0.5 text-xs font-medium opacity-80">{banner.detail}</p> : null}
+            {banner.retry && !generating ? (
+              <button type="button" onClick={() => void generateAnalysis()} className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-700" data-testid="retry-analysis">
+                <IconRetry className="h-4 w-4" /> Tentar novamente
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

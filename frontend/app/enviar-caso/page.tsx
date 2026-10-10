@@ -32,9 +32,17 @@ import {
   isAllowedUploadFile,
 } from "../../lib/mobile-image-upload";
 import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
+import {
+  CASE_ATTACHMENT_LIMITS,
+  MAX_REQUEST_BODY_BYTES,
+  formatFileSize,
+} from "../../lib/agronomic/case-attachments";
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-const MAX_FILE_SIZE_LABEL = "10MB";
+// Limites reais do envio: cada arquivo até 4 MB e a requisição inteira abaixo
+// de 4,3 MB (a Vercel recusa corpos maiores com HTTP 413, sem JSON).
+const MAX_FILE_SIZE_BYTES = CASE_ATTACHMENT_LIMITS.maxPhotoBytes;
+const MAX_FILE_SIZE_LABEL = "4MB";
+const MAX_SUBMIT_ATTACHMENTS_BYTES = MAX_REQUEST_BODY_BYTES - 64 * 1024;
 const PHOTO_COMPRESSION_TRIGGER_BYTES = 1200 * 1024;
 const PHOTO_COMPRESSION_TARGET_BYTES = 900 * 1024;
 const PHOTO_MAX_DIMENSION = 1600;
@@ -434,6 +442,10 @@ function EnviarCasoContent() {
       return `${label} "${file.name}" não está em um formato aceito.`;
     }
 
+    if (file.size === 0) {
+      return `${label} "${file.name}" está vazio. Escolha o arquivo novamente.`;
+    }
+
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return `${label} "${file.name}" excede o limite de ${MAX_FILE_SIZE_LABEL}.`;
     }
@@ -491,7 +503,10 @@ function EnviarCasoContent() {
         0,
       );
 
-      if (nextPayloadSize > MAX_TOTAL_PHOTO_PAYLOAD_BYTES) {
+      if (
+        nextPayloadSize > MAX_TOTAL_PHOTO_PAYLOAD_BYTES ||
+        nextPayloadSize + (soilAnalysis?.size ?? 0) > MAX_SUBMIT_ATTACHMENTS_BYTES
+      ) {
         setAttachmentErrors((prev) => ({
           ...prev,
           photos: `As fotos selecionadas somam mais de ${MAX_TOTAL_PHOTO_PAYLOAD_LABEL} após a compactação. Remova uma imagem ou tire fotos um pouco mais distantes/menores e tente novamente.`,
@@ -542,6 +557,17 @@ function EnviarCasoContent() {
       setAttachmentErrors((prev) => ({
         ...prev,
         soilAnalysis: invalidFileMessage,
+      }));
+      event.target.value = "";
+      return;
+    }
+
+    const photosSize = photos.reduce((total, file) => total + file.size, 0);
+    if (photosSize + selectedFile.size > MAX_SUBMIT_ATTACHMENTS_BYTES) {
+      setSoilAnalysis(null);
+      setAttachmentErrors((prev) => ({
+        ...prev,
+        soilAnalysis: `Fotos e análise de solo somam ${formatFileSize(photosSize + selectedFile.size)}, acima do limite de 4 MB por envio. Envie o caso agora e anexe a análise de solo depois, em “Editar caso”.`,
       }));
       event.target.value = "";
       return;
@@ -610,6 +636,17 @@ function EnviarCasoContent() {
 
     if (preparingPhotos) {
       setSubmitError("Aguarde a preparação da imagem antes de enviar o caso.");
+      return;
+    }
+
+    const attachmentsSize =
+      photos.reduce((total, file) => total + file.size, 0) +
+      (soilAnalysis?.size ?? 0);
+
+    if (attachmentsSize > MAX_SUBMIT_ATTACHMENTS_BYTES) {
+      setSubmitError(
+        `Os anexos somam ${formatFileSize(attachmentsSize)}, acima do limite de 4 MB por envio. Remova uma foto ou anexe a análise de solo depois, em “Editar caso”. Seus dados continuam preenchidos.`,
+      );
       return;
     }
 
@@ -855,7 +892,9 @@ function EnviarCasoContent() {
                 ? "Carregando caso existente"
                 : preparingPhotos
                   ? "Preparando imagem"
-                  : "Salvando o caso agronômico"
+                  : photos.length > 0 || soilAnalysis
+                    ? "Enviando imagens e salvando o caso"
+                    : "Salvando o caso agronômico"
             }
             description={
               loadingExistingCase
@@ -1017,9 +1056,10 @@ function EnviarCasoContent() {
                 />
                 <span className="text-xs text-slate-500">
                   Formatos aceitos: JPG, JPEG, PNG, WEBP, HEIC e HEIF. Limite de{" "}
-                  {MAX_FILE_SIZE_LABEL} por arquivo. Fotos grandes do celular
-                  são compactadas automaticamente para evitar falha no envio
-                  mobile.
+                  {MAX_FILE_SIZE_LABEL} por arquivo e 4MB somando todos os
+                  anexos. Fotos grandes do celular são compactadas
+                  automaticamente. Fotos HEIC/HEIF ficam salvas no caso, mas a
+                  análise da IA só consegue ler JPG, PNG ou WEBP.
                 </span>
                 {preparingPhotos && (
                   <span className="rounded-xl bg-leaf-50 p-3 text-leaf-800">
@@ -1162,7 +1202,9 @@ function EnviarCasoContent() {
             {preparingPhotos
               ? "Preparando imagem..."
               : loading
-                ? "Enviando..."
+                ? photos.length > 0
+                  ? `Enviando ${photos.length === 1 ? "imagem" : `${photos.length} imagens`}...`
+                  : "Enviando..."
                 : isEditingExistingCase
                   ? "Atualizar mesmo caso e reanalisar"
                   : isAiOnlyCase
