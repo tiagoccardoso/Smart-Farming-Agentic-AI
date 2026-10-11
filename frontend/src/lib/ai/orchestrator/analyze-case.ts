@@ -18,6 +18,7 @@ import type {
   KnowledgeDocument,
 } from "../providers/types";
 import { retry } from "../utils/retry";
+import { parseJsonObject } from "../utils/json-parser";
 import {
   estimateCost,
   estimateMessagesTokens,
@@ -973,23 +974,41 @@ function unavailableResearch(query: string): InternetResearchResult {
   };
 }
 
-export async function analyzeAgronomicCase(
-  caseData: AgronomicCaseForAI,
-  options: AnalyzeAgronomicCaseOptions = {},
-  runInfo?: AgronomicAnalysisRunInfo,
-): Promise<AgronomicAnalysisOutput> {
-  const allowLocalFallback = options.allowLocalFallback !== false;
-  // Com fotos para enviar, o cache por texto não serve: a resposta depende delas.
-  const key = cacheKey(caseData, options.question);
-  const cacheEnabled = isCacheEnabled() && !options.prepareImages;
-  const cached = cacheEnabled ? responseCache.get(key) : null;
-  if (cached) {
-    return withCacheMetadata(cached);
-  }
+export type AgronomicAnalysisContext = {
+  /** Triagem local usada para completar campos ausentes na resposta do modelo. */
+  fallback: AgronomicAnalysisOutput;
+  knowledge: KnowledgeDocument[];
+  internetResearch: InternetResearchResult;
+};
 
+export type PreparedAgronomicAnalysis = {
+  messages: AIMessage[];
+  complexity: AgronomicCaseComplexity;
+  images: AnalysisImagesResult | null;
+  context: AgronomicAnalysisContext;
+  /** Duração da etapa de pesquisa + carga das fotos (ms). */
+  researchMs: number;
+};
+
+/** Teto de saída da análise inicial (JSON estruturado). */
+export const ANALYSIS_MAX_OUTPUT_TOKENS = 6500;
+
+/**
+ * Pesquisa (internet + base interna), carga das fotos e montagem das
+ * mensagens. Não chama o modelo: serve tanto ao fluxo síncrono quanto ao
+ * processamento em background.
+ */
+export async function prepareAgronomicAnalysis(
+  caseData: AgronomicCaseForAI,
+  options: Pick<AnalyzeAgronomicCaseOptions, "question" | "enableKnowledgeSearch" | "deadlineAt" | "prepareImages" | "deps"> & {
+    /** Resolução das fotos enviadas ao modelo (padrão "low"). */
+    imageDetail?: "low" | "high" | "auto";
+  } = {},
+): Promise<PreparedAgronomicAnalysis> {
   const searchKnowledge = options.deps?.searchKnowledge ?? searchSpecialistKnowledge;
   const searchInternet = options.deps?.searchInternet ?? searchInternetForAgronomicCase;
   const complexity = classifyCaseComplexity(caseData, options.question);
+  const startedAt = Date.now();
 
   // Pesquisa e carga das fotos rodam em paralelo e com teto: o que não chegar a
   // tempo é tratado como indisponível, sem consumir o tempo do modelo.
@@ -1007,7 +1026,6 @@ export async function analyzeAgronomicCase(
       ? settleWithin(options.prepareImages().catch(() => null), researchMs, () => null)
       : Promise.resolve(null),
   ]);
-  if (runInfo) runInfo.images = images;
 
   const fallback = {
     ...buildFallbackAnalysis(caseData, options.question),
@@ -1027,11 +1045,73 @@ export async function analyzeAgronomicCase(
     internetResearch,
     options.prepareImages ? describeAnalysisImages(images) : undefined,
   );
-  const imageInputs = images?.loaded.map((image) => image.input) ?? [];
+  const imageInputs = (images?.loaded ?? []).map((image) => (options.imageDetail ? { ...image.input, detail: options.imageDetail } : image.input));
   const messages: AIMessage[] = [
     { role: "system", content: AGRONOMIC_SYSTEM_PROMPT },
     { role: "user", content: prompt, ...(imageInputs.length ? { images: imageInputs } : {}) },
   ];
+
+  return {
+    messages,
+    complexity,
+    images,
+    context: { fallback, knowledge, internetResearch },
+    researchMs: Date.now() - startedAt,
+  };
+}
+
+/**
+ * Converte a saída do modelo (texto JSON ou objeto) na análise final. Lança
+ * AI_INVALID_RESPONSE quando o conteúdo não é um objeto aproveitável.
+ */
+export function completeAgronomicAnalysis(
+  content: unknown,
+  context: AgronomicAnalysisContext,
+  caseData: AgronomicCaseForAI,
+): AgronomicAnalysisOutput {
+  let output: unknown = content;
+  if (typeof content === "string") {
+    try {
+      output = parseJsonObject<Partial<AgronomicAnalysisOutput>>(content);
+    } catch {
+      throw new AgronomicAnalysisError("AI_INVALID_RESPONSE");
+    }
+  }
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    throw new AgronomicAnalysisError("AI_INVALID_RESPONSE");
+  }
+  return normalizeAnalysis(output as Partial<AgronomicAnalysisOutput>, context.fallback, context.knowledge, context.internetResearch, caseData);
+}
+
+/**
+ * Modelo OpenAI do processamento em background. Mantém a seleção por
+ * complexidade; casos "heavy_multimodal" (antes enviados ao Gemini, que não
+ * tem execução durável nesta integração) usam o modelo complexo da OpenAI,
+ * que também aceita imagens.
+ */
+export function selectBackgroundAnalysisModel(complexity: AgronomicCaseComplexity) {
+  return complexity === "complex" || complexity === "heavy_multimodal" ? getOpenAiComplexModel() : getOpenAiChatModel();
+}
+
+export async function analyzeAgronomicCase(
+  caseData: AgronomicCaseForAI,
+  options: AnalyzeAgronomicCaseOptions = {},
+  runInfo?: AgronomicAnalysisRunInfo,
+): Promise<AgronomicAnalysisOutput> {
+  const allowLocalFallback = options.allowLocalFallback !== false;
+  // Com fotos para enviar, o cache por texto não serve: a resposta depende delas.
+  const key = cacheKey(caseData, options.question);
+  const cacheEnabled = isCacheEnabled() && !options.prepareImages;
+  const cached = cacheEnabled ? responseCache.get(key) : null;
+  if (cached) {
+    return withCacheMetadata(cached);
+  }
+
+  const prepared = await prepareAgronomicAnalysis(caseData, options);
+  const { messages, complexity, images } = prepared;
+  const { fallback, knowledge, internetResearch } = prepared.context;
+  if (runInfo) runInfo.images = images;
+  const imageInputs = images?.loaded ?? [];
   const { primary, fallback: fallbackChoice } = (options.deps?.selectProviders ?? defaultProviders)(complexity);
   const failures: unknown[] = [];
 
@@ -1040,8 +1120,8 @@ export async function analyzeAgronomicCase(
     if (timeoutMs < ANALYSIS_MIN_PROVIDER_MS && Number.isFinite(remainingMs(options.deadlineAt))) {
       throw new AgronomicAnalysisError("AI_TIMEOUT");
     }
-    // Sem deadline: comportamento anterior (1 retry). Com deadline: o retry só
-    // acontece se ainda couber, decidido pela própria janela restante.
+    // Sem deadline: comportamento anterior (1 retry). Com deadline: sem retry
+    // sobreposto; a janela restante decide se o fallback ainda cabe.
     const retries = options.deadlineAt ? 0 : 1;
     const result = await callProvider(choice.provider, choice.model, messages, { timeoutMs, retries });
     const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
@@ -1058,7 +1138,7 @@ export async function analyzeAgronomicCase(
     failures.push(primaryError);
     console.warn(
       `Provider principal (${primary.provider.name}) falhou na análise inicial.`,
-      { category: classifyProviderFailure(primaryError), images: imageInputs.length },
+      { category: primaryError instanceof AgronomicAnalysisError ? primaryError.code : classifyProviderFailure(primaryError), images: imageInputs.length },
     );
   }
 
@@ -1068,8 +1148,8 @@ export async function analyzeAgronomicCase(
     } catch (fallbackError) {
       failures.push(fallbackError);
       console.warn(
-        `Fallback (${fallbackChoice.provider.name}) falhou na análise inicial.`,
-        { category: classifyProviderFailure(fallbackError), images: imageInputs.length },
+        `Fallback (${fallbackChoice.provider.name}) ${fallbackError instanceof AgronomicAnalysisError ? "não executado por falta de tempo" : "falhou"} na análise inicial.`,
+        { category: fallbackError instanceof AgronomicAnalysisError ? fallbackError.code : classifyProviderFailure(fallbackError), images: imageInputs.length },
       );
     }
   }
@@ -1096,4 +1176,28 @@ export async function analyzeAgronomicCase(
     );
   }
   return fallback;
+}
+
+/** Registra no ai_usage_logs o uso de uma análise concluída em background. */
+export async function logBackgroundAnalysisUsage(input: {
+  userId: string | null | undefined;
+  model: string;
+  usage?: { inputTokens: number; outputTokens: number };
+  responseTimeMs: number;
+  success: boolean;
+}) {
+  const inputTokens = input.usage?.inputTokens ?? 0;
+  const outputTokens = input.usage?.outputTokens ?? 0;
+  await writeUsageLog({
+    userId: input.userId,
+    provider: "openai",
+    model: input.model,
+    promptType: "agronomic_analysis",
+    tokensInput: inputTokens,
+    tokensOutput: outputTokens,
+    estimatedCost: estimateCost(input.model, inputTokens, outputTokens),
+    responseTimeMs: input.responseTimeMs,
+    success: input.success,
+    fallbackUsed: false,
+  }).catch(() => null);
 }

@@ -29,7 +29,17 @@ export const ANALYSIS_MAX_IMAGES = 4;
 const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-export type AnalysisErrorCode = "AI_TIMEOUT" | "AI_UNAVAILABLE" | "AI_INVALID_RESPONSE";
+export type AnalysisErrorCode = "AI_TIMEOUT" | "AI_UNAVAILABLE" | "AI_INVALID_RESPONSE" | "SAVE_FAILED";
+
+/* Processamento durável (agronomic_analysis_jobs) */
+/** Job sem resposta registrada no provedor há mais que isso: o início falhou. */
+export const JOB_START_STALE_MS = 90_000;
+/** Teto de uma análise em background; depois disso é cancelada no provedor. */
+export const JOB_MAX_PROCESSING_MS = 10 * 60_000;
+/** "saving" parado há mais que isso: o processo que gravava caiu; outro retoma. */
+export const JOB_SAVING_STALE_MS = 60_000;
+/** Tentativas de gravar uma análise já pronta antes de desistir. */
+export const JOB_MAX_SAVE_ATTEMPTS = 3;
 
 /** Falha real da IA: a rota responde com código próprio e NÃO grava análise falsa. */
 export class AgronomicAnalysisError extends Error {
@@ -39,7 +49,7 @@ export class AgronomicAnalysisError extends Error {
     super(message ?? ANALYSIS_ERROR_MESSAGES[code]);
     this.name = "AgronomicAnalysisError";
     this.code = code;
-    this.status = code === "AI_TIMEOUT" ? 504 : code === "AI_UNAVAILABLE" ? 503 : 502;
+    this.status = code === "AI_TIMEOUT" ? 504 : code === "AI_UNAVAILABLE" ? 503 : code === "SAVE_FAILED" ? 500 : 502;
   }
 }
 
@@ -50,6 +60,8 @@ export const ANALYSIS_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
     "O serviço de IA está indisponível no momento. Seus dados e fotos continuam salvos no caso. Tente novamente em alguns minutos.",
   AI_INVALID_RESPONSE:
     "A IA respondeu em um formato inesperado. Seus dados e fotos continuam salvos no caso. Tente gerar a análise novamente.",
+  SAVE_FAILED:
+    "A análise foi gerada, mas não pôde ser gravada no caso. Seus dados e fotos continuam salvos. Tente gerar a análise novamente.",
 };
 
 /** Classifica a falha de um provedor sem expor a mensagem original ao usuário. */
@@ -83,6 +95,11 @@ export function providerTimeoutMs(input: { deadlineAt?: number; hasFallback: boo
 }
 
 /** Resolve a promessa ou devolve `onTimeout()` quando o tempo acabar (sem lançar). */
+/** Quanto tempo resta do orçamento, nunca negativo. */
+export function timeLeftMs(deadlineAt: number | undefined, now = Date.now()) {
+  return Math.max(0, remainingMs(deadlineAt, now));
+}
+
 export async function settleWithin<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
   if (ms <= 0) {
     promise.catch(() => undefined);

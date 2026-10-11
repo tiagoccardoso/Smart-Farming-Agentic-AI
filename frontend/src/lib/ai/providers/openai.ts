@@ -92,7 +92,7 @@ export function toResponsesInput(messages: AIMessage[]) {
     const parts: Array<Record<string, unknown>> = [{ type: "input_text", text: message.content }];
     for (const image of message.role === "user" ? message.images ?? [] : []) {
       const url = imageDataUrl(image);
-      if (url) parts.push({ type: "input_image", image_url: url, detail: "low" });
+      if (url) parts.push({ type: "input_image", image_url: url, detail: image.detail ?? "low" });
     }
     return { role: message.role, content: parts };
   });
@@ -307,3 +307,116 @@ export class OpenAIProvider implements AIProvider {
 }
 
 export const openAIProvider = new OpenAIProvider();
+
+/* ------------------------------------------------------------------------- *
+ * Modo background da Responses API (processamento durável no provedor).
+ *
+ * A análise inicial pode levar mais que o limite de uma requisição. Em vez de
+ * segurar a função esperando, a requisição é criada com `background: true` e
+ * `store: true`: a OpenAI processa e guarda o resultado, e o servidor consulta
+ * o status por `GET /responses/{id}`. Nenhum trabalho depende de a função
+ * continuar viva depois de responder.
+ * ------------------------------------------------------------------------- */
+
+export type BackgroundResponseStatus = "queued" | "in_progress" | "completed" | "failed" | "cancelled" | "incomplete";
+
+export type BackgroundResponseState = {
+  id: string;
+  status: BackgroundResponseStatus;
+  model: string;
+  /** Texto final (somente quando status === "completed"). */
+  content?: string;
+  /** Motivo de "incomplete" (ex.: max_output_tokens) ou mensagem de "failed". */
+  reason?: string;
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+};
+
+export class OpenAIRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  /** 408/409/429/5xx e falhas de rede: vale tentar de novo; 4xx de validação não. */
+  readonly transient: boolean;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "OpenAIRequestError";
+    this.status = status;
+    this.code = code;
+    this.transient = status === 0 || status === 408 || status === 409 || status === 429 || status >= 500;
+  }
+}
+
+async function openAiJson(path: string, init: RequestInit, timeoutMs: number) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) throw new OpenAIRequestError("OPENAI_API_KEY ausente.", 401, "missing_api_key");
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${getOpenAiBaseUrl()}${path}`,
+      { ...init, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", ...(init.headers ?? {}) } },
+      timeoutMs,
+    );
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === "AbortError";
+    throw new OpenAIRequestError(aborted ? "Tempo limite ao falar com a OpenAI." : "Falha de rede ao falar com a OpenAI.", 0, aborted ? "timeout" : "network");
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new OpenAIRequestError(payload?.error?.message || `OpenAI respondeu ${response.status}.`, response.status, payload?.error?.code);
+  }
+  return payload;
+}
+
+function toBackgroundState(payload: any, fallbackModel: string): BackgroundResponseState {
+  const status = (payload?.status ?? "queued") as BackgroundResponseStatus;
+  const state: BackgroundResponseState = { id: String(payload?.id ?? ""), status, model: payload?.model || fallbackModel };
+  if (payload?.usage) {
+    state.usage = normalizeUsage(payload, 0);
+  }
+  if (status === "completed") {
+    try {
+      state.content = normalizeTextFromResponse(payload);
+    } catch {
+      state.status = "incomplete";
+      state.reason = "empty_output";
+    }
+  } else if (status === "incomplete") {
+    state.reason = payload?.incomplete_details?.reason || "incomplete";
+  } else if (status === "failed") {
+    state.reason = payload?.error?.code || payload?.error?.message || "failed";
+  }
+  return state;
+}
+
+export async function startBackgroundResponse(
+  messages: AIMessage[],
+  options: { model: string; maxOutputTokens: number; reasoningEffort?: AIProviderCallOptions["reasoningEffort"]; timeoutMs?: number },
+): Promise<BackgroundResponseState> {
+  const body: Record<string, unknown> = {
+    model: options.model,
+    input: toResponsesInput(messages),
+    max_output_tokens: options.maxOutputTokens,
+    background: true,
+    // Necessário para consultar o resultado depois (e mantê-lo além do polling).
+    store: true,
+  };
+  if (modelSupportsReasoning(options.model) && options.reasoningEffort) {
+    body.reasoning = { effort: options.reasoningEffort };
+  }
+  const payload = await openAiJson("/responses", { method: "POST", body: JSON.stringify(body) }, options.timeoutMs ?? 20_000);
+  if (!payload?.id) throw new OpenAIRequestError("A OpenAI não devolveu o identificador da resposta.", 502, "missing_id");
+  return toBackgroundState(payload, options.model);
+}
+
+export async function getBackgroundResponse(id: string, options: { model?: string; timeoutMs?: number } = {}): Promise<BackgroundResponseState> {
+  const payload = await openAiJson(`/responses/${encodeURIComponent(id)}`, { method: "GET" }, options.timeoutMs ?? 10_000);
+  return toBackgroundState(payload, options.model ?? "");
+}
+
+export async function cancelBackgroundResponse(id: string, options: { timeoutMs?: number } = {}): Promise<BackgroundResponseState | null> {
+  try {
+    const payload = await openAiJson(`/responses/${encodeURIComponent(id)}/cancel`, { method: "POST" }, options.timeoutMs ?? 8_000);
+    return toBackgroundState(payload, "");
+  } catch {
+    return null;
+  }
+}

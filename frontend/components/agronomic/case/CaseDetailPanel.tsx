@@ -58,64 +58,107 @@ function activityLabel(log: ActivityLog) {
 
 type ImageAnalysisSummary = { total: number; analyzed: number; skipped: number; unavailable: Array<{ label: string; reason: string }> };
 
-type AnalysisRequestResult =
-  | { ok: true; imageAnalysis: ImageAnalysisSummary | null }
-  | { ok: false; message: string; reference: string | null; retryable: boolean };
+type AnalysisJobInfo = {
+  status: "processing" | "saving";
+  startedAt: string | null;
+  requestId: string | null;
+  providerCheckFailed?: boolean;
+};
 
+type AnalysisApiResult =
+  | { kind: "completed"; imageAnalysis: ImageAnalysisSummary | null; justFinished: boolean }
+  | { kind: "processing"; job: AnalysisJobInfo }
+  | { kind: "idle" }
+  | { kind: "error"; message: string; reference: string | null; retryable: boolean; finishedAt?: string | null }
+  | { kind: "network"; aborted: boolean };
+
+/** Teto de espera de UMA requisição (o início leva segundos; o fluxo legado, até 1 min). */
 const ANALYSIS_CLIENT_TIMEOUT_MS = 75_000;
+const POLL_FAST_MS = 3_000;
+const POLL_SLOW_MS = 6_000;
+const POLL_OFFLINE_MS = 10_000;
 
 /**
- * Chama a rota de análise e traduz cada falha em mensagem acionável. Antes,
- * uma resposta sem JSON (ex.: função encerrada pela plataforma) virava sempre
- * "Não foi possível gerar a análise agora", escondendo a causa.
+ * Inicia (POST) ou acompanha (GET) a análise e traduz a resposta. A rota
+ * responde 202 enquanto a IA processa; uma falha de conexão aqui NÃO significa
+ * que a análise falhou — ela continua no servidor.
  */
-async function requestCaseAnalysis(caseId: string, token: string): Promise<AnalysisRequestResult> {
+async function callAnalysisApi(method: "POST" | "GET", caseId: string, token: string, signal?: AbortSignal): Promise<AnalysisApiResult> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), ANALYSIS_CLIENT_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
   let response: Response;
   try {
-    response = await fetch("/api/agronomic-ai/analyze-case", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ caseId }),
-      signal: controller.signal,
-    });
+    response = await fetch(
+      method === "GET" ? `/api/agronomic-ai/analyze-case?caseId=${encodeURIComponent(caseId)}` : "/api/agronomic-ai/analyze-case",
+      {
+        method,
+        headers: { ...(method === "POST" ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${token}` },
+        ...(method === "POST" ? { body: JSON.stringify({ caseId }) } : {}),
+        cache: "no-store",
+        signal: controller.signal,
+      },
+    );
   } catch (error) {
-    const aborted = error instanceof DOMException && error.name === "AbortError";
-    return {
-      ok: false,
-      retryable: true,
-      reference: null,
-      message: aborted
-        ? "A análise demorou mais que o esperado. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes."
-        : "Sem conexão com o servidor. Verifique sua internet e tente novamente — seus dados e fotos continuam salvos.",
-    };
+    return { kind: "network", aborted: error instanceof DOMException && error.name === "AbortError" };
   } finally {
     window.clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 
   const text = await response.text().catch(() => "");
-  let payload: { error?: string; code?: string; requestId?: string; imageAnalysis?: ImageAnalysisSummary } | null = null;
+  let payload: {
+    status?: string;
+    error?: string;
+    code?: string;
+    requestId?: string;
+    startedAt?: string;
+    retryable?: boolean;
+    providerCheckFailed?: boolean;
+    imageAnalysis?: ImageAnalysisSummary | null;
+    analysis?: unknown;
+    deduplicated?: boolean;
+    finishedAt?: string | null;
+  } | null = null;
   try {
     payload = text ? JSON.parse(text) : null;
   } catch {
     payload = null;
   }
-  if (response.ok) return { ok: true, imageAnalysis: payload?.imageAnalysis ?? null };
+
+  if (response.ok && (payload?.status === "processing" || payload?.status === "saving")) {
+    return {
+      kind: "processing",
+      job: { status: payload.status, startedAt: payload.startedAt ?? null, requestId: payload.requestId ?? null, providerCheckFailed: Boolean(payload.providerCheckFailed) },
+    };
+  }
+  if (response.ok && (payload?.status === "idle" || payload?.status === "unsupported")) return { kind: "idle" };
+  // `analysis` presente = a análise foi gravada nesta requisição.
+  if (response.ok && payload) return { kind: "completed", imageAnalysis: payload.imageAnalysis ?? null, justFinished: Boolean(payload.analysis) };
 
   const reference = payload?.requestId ?? response.headers.get("x-vercel-id")?.split("::").pop() ?? null;
   if (payload?.error) {
-    const retryable = !["PLAN_LIMIT_REACHED", "AUTH_REQUIRED"].includes(payload.code ?? "") && ![401, 402, 403, 404, 429].includes(response.status);
-    return { ok: false, message: payload.error, reference, retryable };
-  }
-  // Resposta sem JSON: tempo esgotado ou erro da plataforma.
-  if (response.status === 504 || response.status === 408) {
-    return { ok: false, retryable: true, reference, message: "A análise demorou mais que o esperado e foi interrompida. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes." };
+    const retryable =
+      payload.retryable ??
+      (!["PLAN_LIMIT_REACHED", "AUTH_REQUIRED"].includes(payload.code ?? "") && ![401, 402, 403, 404, 429].includes(response.status));
+    return { kind: "error", message: payload.error, reference, retryable, finishedAt: payload.finishedAt ?? null };
   }
   if (response.status === 401) {
-    return { ok: false, retryable: false, reference, message: "Sua sessão expirou. Faça login novamente para gerar a análise." };
+    return { kind: "error", retryable: false, reference, message: "Sua sessão expirou. Faça login novamente para gerar a análise." };
   }
-  return { ok: false, retryable: true, reference, message: "O serviço de análise ficou indisponível. Seus dados e fotos continuam salvos no caso. Tente novamente em instantes." };
+  // Resposta sem JSON (erro da plataforma): não dá para afirmar que a análise
+  // parou. O componente confere o andamento antes de oferecer nova tentativa.
+  return { kind: "network", aborted: false };
+}
+
+function formatElapsed(startedAt: string | null, now: number) {
+  const started = startedAt ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(started)) return null;
+  const seconds = Math.max(0, Math.round((now - started) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} min ${String(seconds % 60).padStart(2, "0")} s`;
 }
 
 function describeImageAnalysis(summary: ImageAnalysisSummary | null) {
@@ -163,6 +206,15 @@ export default function CaseDetailPanel({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const generatingRef = useRef(false);
   const requestIdRef = useRef(0);
+  // Análise em processamento no servidor (estado real vindo da API).
+  const [job, setJob] = useState<AnalysisJobInfo | null>(null);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const [clock, setClock] = useState(() => Date.now());
+  const pollTimerRef = useRef<number | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const pollAttemptRef = useRef(0);
+  // O POST falhou por conexão: ainda não sabemos se a análise começou.
+  const startUncertainRef = useRef(false);
 
   const load = useCallback(
     async (options: { silent?: boolean } = {}) => {
@@ -225,36 +277,150 @@ export default function CaseDetailPanel({
   const stageInfo = REVIEW_STAGE_INFO[stage];
   const review = data?.humanReview ?? null;
 
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
+    pollAbortRef.current?.abort();
+    pollAbortRef.current = null;
+  }, []);
+
+  const finishWithResult = useCallback(
+    async (result: AnalysisApiResult, previouslyHadAnalysis: boolean) => {
+      if (result.kind === "completed") {
+        setJob(null);
+        setConnectionLost(false);
+        // Sucesso só depois de a análise estar gravada e recarregada do servidor.
+        await load({ silent: true });
+        setBanner({ tone: "success", text: previouslyHadAnalysis ? "Análise atualizada com sucesso." : "Análise gerada com sucesso.", detail: describeImageAnalysis(result.imageAnalysis) });
+        return;
+      }
+      if (result.kind === "error") {
+        setJob(null);
+        setConnectionLost(false);
+        setBanner({ tone: "error", text: result.message, detail: result.reference ? `Código para suporte: ${result.reference}` : undefined, retry: result.retryable });
+      }
+    },
+    [load],
+  );
+
+  /** Consulta o andamento uma vez e agenda a próxima consulta se ainda estiver processando. */
+  const pollOnce = useCallback(
+    async (previouslyHadAnalysis: boolean, quiet = false) => {
+      const token = getAccessToken();
+      if (!token) return;
+      stopPolling();
+      const controller = new AbortController();
+      pollAbortRef.current = controller;
+      const result = await callAnalysisApi("GET", caseId, token, controller.signal);
+      if (controller.signal.aborted) return;
+      pollAttemptRef.current += 1;
+      const schedule = (ms: number) => {
+        pollTimerRef.current = window.setTimeout(() => void pollOnce(previouslyHadAnalysis), ms);
+      };
+      if (result.kind === "processing") {
+        startUncertainRef.current = false;
+        setJob(result.job);
+        setConnectionLost(false);
+        setBanner(null);
+        schedule(pollAttemptRef.current < 10 ? POLL_FAST_MS : POLL_SLOW_MS);
+        return;
+      }
+      if (result.kind === "network") {
+        // Consulta de abertura sem conexão: nada a afirmar, não insiste.
+        if (quiet) return;
+        // A análise continua no servidor; só a consulta falhou.
+        setConnectionLost(true);
+        schedule(POLL_OFFLINE_MS);
+        return;
+      }
+      if (result.kind === "idle") {
+        setJob(null);
+        setConnectionLost(false);
+        if (startUncertainRef.current) {
+          startUncertainRef.current = false;
+          setBanner({ tone: "error", text: "A análise não chegou a ser iniciada por falha de conexão. Seus dados e fotos continuam no caso.", retry: true });
+        }
+        return;
+      }
+      startUncertainRef.current = false;
+      if (quiet) {
+        // Ao abrir o caso, só avisa sobre análises que terminaram há pouco
+        // (o usuário saiu da tela durante o processamento).
+        const recent = result.kind === "error" && result.finishedAt ? Date.now() - Date.parse(result.finishedAt) < 15 * 60_000 : false;
+        if (!(result.kind === "completed" && result.justFinished) && !recent) {
+          setJob(null);
+          return;
+        }
+      }
+      await finishWithResult(result, previouslyHadAnalysis);
+    },
+    [caseId, getAccessToken, stopPolling, finishWithResult],
+  );
+
+  // Ao abrir o caso: retoma o acompanhamento se houver análise em andamento
+  // (ex.: o usuário saiu da tela ou recarregou a página durante o processamento).
+  const caseLoaded = Boolean(data?.case);
+  useEffect(() => {
+    if (!caseLoaded) return;
+    pollAttemptRef.current = 0;
+    void pollOnce(Boolean(data?.case?.ai_analysis_json || data?.case?.ai_summary), true);
+    return stopPolling;
+    // Só na abertura do caso.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId, caseLoaded]);
+
+  useEffect(() => stopPolling, [stopPolling]);
+
+  // Relógio do tempo decorrido (real, vindo do início registrado no servidor).
+  useEffect(() => {
+    if (!job) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [job]);
+
   async function generateAnalysis() {
     const token = getAccessToken();
     if (!token) {
       setBanner({ tone: "error", text: "Sua sessão expirou. Faça login novamente para gerar a análise." });
       return;
     }
-    if (generatingRef.current) return;
+    if (generatingRef.current || job) return;
     generatingRef.current = true;
     setGenerating(true);
+    setConnectionLost(false);
     const photoCount = caseData?.images?.length ?? 0;
     setBanner({
       tone: "info",
-      text: photoCount
-        ? `Gerando análise com ${photoCount === 1 ? "1 foto" : `${photoCount} fotos`}… isso pode levar até 1 minuto.`
-        : "Gerando análise… isso pode levar até 1 minuto.",
+      text: photoCount ? `Preparando as ${photoCount === 1 ? "informações e a foto" : `informações e ${photoCount} fotos`} para a IA…` : "Preparando as informações do caso para a IA…",
     });
     try {
-      const result = await requestCaseAnalysis(caseId, token);
-      if (result.ok) {
-        // Sucesso só depois de a análise estar gravada e recarregada do servidor.
-        await load({ silent: true });
-        setBanner({ tone: "success", text: hasAnalysis ? "Análise atualizada com sucesso." : "Análise gerada com sucesso.", detail: describeImageAnalysis(result.imageAnalysis) });
+      const result = await callAnalysisApi("POST", caseId, token);
+      if (result.kind === "processing") {
+        setJob(result.job);
+        setBanner(null);
+        pollAttemptRef.current = 0;
+        pollTimerRef.current = window.setTimeout(() => void pollOnce(hasAnalysis), POLL_FAST_MS);
+      } else if (result.kind === "network") {
+        // Não sabemos se o servidor recebeu: confere o andamento antes de oferecer nova tentativa.
+        setBanner(null);
+        setConnectionLost(true);
+        startUncertainRef.current = true;
+        pollAttemptRef.current = 0;
+        await pollOnce(hasAnalysis);
+      } else if (result.kind === "idle") {
+        setBanner(null);
       } else {
-        setBanner({ tone: "error", text: result.message, detail: result.reference ? `Código para suporte: ${result.reference}` : undefined, retry: result.retryable });
+        await finishWithResult(result, hasAnalysis);
       }
     } finally {
       generatingRef.current = false;
       setGenerating(false);
     }
   }
+
+  const analysisBusy = generating || Boolean(job);
+  const elapsed = job ? formatElapsed(job.startedAt, clock) : null;
 
   function handleSaved(_reloaded: ReloadedCase, info: { message: string }) {
     if (info.message) {
@@ -332,7 +498,7 @@ export default function CaseDetailPanel({
           <div className="min-w-0 flex-1">
             <p>{banner.text}</p>
             {banner.detail ? <p className="mt-0.5 text-xs font-medium opacity-80">{banner.detail}</p> : null}
-            {banner.retry && !generating ? (
+            {banner.retry && !analysisBusy ? (
               <button type="button" onClick={() => void generateAnalysis()} className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-700" data-testid="retry-analysis">
                 <IconRetry className="h-4 w-4" /> Tentar novamente
               </button>
@@ -341,7 +507,37 @@ export default function CaseDetailPanel({
         </div>
       ) : null}
 
-      {freshness?.hasUpdatesSinceAnalysis && !generating ? (
+      {job ? (
+        <div className="flex items-start gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" role="status" aria-live="polite" data-testid="analysis-job">
+          <span className="mt-0.5 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {job.status === "saving" ? "A IA terminou. Salvando a análise no caso…" : "A IA está analisando o caso…"}
+            </p>
+            <p className="mt-0.5 text-xs font-medium text-sky-800">
+              {elapsed ? `Iniciada há ${elapsed}. ` : ""}Você pode sair desta tela: a análise continua no servidor e aparece aqui quando estiver pronta.
+            </p>
+            {connectionLost ? (
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <p className="text-xs font-semibold text-amber-800">Sem conexão com o servidor agora. A análise não foi cancelada; vamos verificar de novo automaticamente.</p>
+                <button type="button" onClick={() => void pollOnce(hasAnalysis)} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-sky-300 bg-white px-4 text-sm font-bold text-sky-800 hover:bg-sky-100">
+                  <IconRetry className="h-4 w-4" /> Verificar agora
+                </button>
+              </div>
+            ) : null}
+            {job.requestId ? <p className="mt-1 text-[0.7rem] text-sky-700">Código para suporte: {job.requestId}</p> : null}
+          </div>
+        </div>
+      ) : connectionLost ? (
+        <div className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between" role="status" aria-live="polite">
+          <p className="font-semibold">Sem conexão com o servidor. Não foi possível confirmar se a análise começou; vamos verificar de novo automaticamente.</p>
+          <button type="button" onClick={() => void pollOnce(hasAnalysis)} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-amber-300 bg-white px-4 text-sm font-bold text-amber-900">
+            <IconRetry className="h-4 w-4" /> Verificar agora
+          </button>
+        </div>
+      ) : null}
+
+      {freshness?.hasUpdatesSinceAnalysis && !analysisBusy ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-gold-300 bg-gold-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" data-testid="freshness-banner">
           <div className="text-sm text-gold-900">
             <p className="font-bold">Novas informações disponíveis para análise</p>
@@ -350,7 +546,7 @@ export default function CaseDetailPanel({
               {analysesRemaining !== null ? ` Análises restantes no mês: ${analysesRemaining}.` : ""}
             </p>
           </div>
-          <button type="button" onClick={() => void generateAnalysis()} disabled={generating || analysesRemaining === 0} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-leaf-700 px-5 text-sm font-bold text-white hover:bg-leaf-800 disabled:bg-slate-300">
+          <button type="button" onClick={() => void generateAnalysis()} disabled={analysisBusy || analysesRemaining === 0} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-leaf-700 px-5 text-sm font-bold text-white hover:bg-leaf-800 disabled:bg-slate-300">
             <IconSparkle className="h-4 w-4" /> Atualizar análise com IA
           </button>
         </div>
@@ -362,9 +558,9 @@ export default function CaseDetailPanel({
           <IconEdit className="h-4 w-4" /> Editar caso
         </button>
         {!hasAnalysis || !freshness?.hasUpdatesSinceAnalysis ? (
-          <button type="button" onClick={() => void generateAnalysis()} disabled={generating} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-leaf-600 px-4 text-sm font-bold text-white hover:bg-leaf-700 disabled:bg-slate-300">
+          <button type="button" onClick={() => void generateAnalysis()} disabled={analysisBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-leaf-600 px-4 text-sm font-bold text-white hover:bg-leaf-700 disabled:bg-slate-300">
             <IconSparkle className="h-4 w-4" />
-            {generating ? "Analisando..." : hasAnalysis ? "Gerar nova análise" : "Gerar análise com IA"}
+            {analysisBusy ? "Analisando..." : hasAnalysis ? "Gerar nova análise" : "Gerar análise com IA"}
           </button>
         ) : null}
         {stage === "not_requested" || stage === "cancelled" ? (
@@ -439,8 +635,8 @@ export default function CaseDetailPanel({
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
             <p className="font-bold text-slate-800">Este caso ainda não tem análise da IA</p>
             <p className="mt-1 text-sm text-slate-500">Gere a análise para receber hipóteses, recomendações e próximos passos.</p>
-            <button type="button" onClick={() => void generateAnalysis()} disabled={generating} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full bg-leaf-600 px-5 text-sm font-bold text-white disabled:bg-slate-300">
-              <IconSparkle className="h-4 w-4" /> {generating ? "Analisando as informações..." : "Gerar análise com IA"}
+            <button type="button" onClick={() => void generateAnalysis()} disabled={analysisBusy} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full bg-leaf-600 px-5 text-sm font-bold text-white disabled:bg-slate-300">
+              <IconSparkle className="h-4 w-4" /> {analysisBusy ? "Analisando as informações..." : "Gerar análise com IA"}
             </button>
           </div>
         )}

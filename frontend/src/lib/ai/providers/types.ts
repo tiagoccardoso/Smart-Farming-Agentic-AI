@@ -27,6 +27,8 @@ export type AIImageInput = {
   base64?: string;
   mimeType?: string;
   description?: string;
+  /** Resolução pedida ao modelo (OpenAI). Padrão "low"; a análise inicial usa "high". */
+  detail?: "low" | "high" | "auto";
 };
 
 export type AIUsage = {

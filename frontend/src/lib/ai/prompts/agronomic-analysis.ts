@@ -1,4 +1,3 @@
-import { AGRONOMIC_AI_DISCLAIMER } from "./agronomic-system";
 import type { InternetResearchResult, KnowledgeDocument } from "../providers/types";
 
 type AgronomicPromptCase = {
@@ -174,21 +173,22 @@ Regras específicas:
 - Se faltarem informações na análise inicial, liste missingQuestions apenas como sugestões para o backend criar a fila progressiva; cada item deve ser uma pergunta curta, útil e contextualizada.
 - Faça perguntas específicas para a cultura: por exemplo soja (chuva, umidade, ferrugem, manchas), tomate (folhas inferiores, irrigação, manchas), milho (lagarta, cigarrinha, coloração, solo).
 - Não repita perguntas que já foram respondidas no histórico enviado na pergunta complementar.
-- Inclua sempre popularSummary com resumo completo em linguagem popular: simples, fácil de entender, mas cobrindo as principais conclusões da pesquisa externa, base interna, hipóteses, riscos e próximos passos seguros. Não reduza a resposta a 1 frase.
-- Inclua sempre technicalDetails com dados técnicos completos: contexto do caso, hipóteses detalhadas, achados, causas, impacto produtivo, recomendações seguras, limitações, pesquisa externa aproveitada e conteúdo relevante da base interna.
+- Inclua sempre popularSummary: um parágrafo em linguagem popular (3 a 6 frases) dizendo o que pode estar acontecendo, por quê e o próximo passo seguro. O sistema acrescenta depois, a partir dos campos estruturados, risco, hipóteses, impacto, próximos passos, pesquisa externa e base interna; não repita esses blocos.
+- Inclua sempre technicalDetails: somente o raciocínio técnico complementar (até 8 frases): como os sinais, as fotos, a cultura, o clima, o solo e o estádio se relacionam e o que diferencia as hipóteses. Não repita hipóteses detalhadas, achados, causas, recomendações, perguntas, fontes ou o aviso de segurança: o sistema monta esses blocos a partir dos campos estruturados.
+- Não devolva os campos internetResearch nem disclaimer: o sistema preenche ambos com os dados reais desta execução.
 - Não use o caractere de travessão Unicode U+2014 em nenhum campo textual. Quando precisar separar ideias, use ponto, vírgula, dois-pontos ou listas bem formatadas.
 - Evite hífens duplicados, markdown quebrado, quebras de linha excessivas e bullets sem texto.
 - O popularSummary e o technicalDetails devem ser gerados com base apenas nas fontes realmente disponíveis nesta execução: dados do caso, cadastro da cultura, pesquisa externa quando bem-sucedida e base specialist_knowledge quando houver conteúdo relevante. Nunca trate uma fonte com erro como fonte usada.
 - Quando houver pergunta complementar, responda em conversationalAnswer com continuidade natural de consulta, considerando histórico enviado, respostas anteriores, imagens novas, áudios/transcrições, dados do caso, pesquisa externa e base interna.
 - Solicite novas imagens apenas quando elas realmente puderem melhorar a triagem.
 - Não recomende aplicação exata de defensivos nem doses.
-- Não escreva URLs dentro dos textos (popularSummary, technicalDetails, listas). As fontes externas ficam somente em internetResearch.sources; quando precisar citar, use a referência numerada [1], [2] na ordem dessas fontes.
+- Não escreva URLs dentro dos textos (popularSummary, technicalDetails, listas). Quando precisar citar uma fonte externa, use a referência numerada [1], [2] na ordem de "Fontes externas encontradas" acima.
 - Não invente percentuais de confiança; use apenas os níveis low, medium e high.
 
 Formato obrigatório:
 {
-  "popularSummary": "Resumo completo em linguagem popular para usuário não técnico, dizendo com clareza o que pode estar acontecendo, o que sustenta a análise, o que a pesquisa/base interna acrescentaram, o que observar e o próximo passo seguro.",
-  "technicalDetails": "Dados técnicos completos e organizados para análise profissional, usando pesquisa externa, base interna, contexto da cultura, hipóteses, fatores favoráveis, incertezas, impacto produtivo, recomendações seguras e fontes disponíveis.",
+  "popularSummary": "Parágrafo em linguagem popular: o que pode estar acontecendo, o que sustenta a análise e o próximo passo seguro.",
+  "technicalDetails": "Raciocínio técnico complementar, sem repetir os demais campos.",
   "initialDiagnosis": "Visão geral rica do caso, com cultura, contexto, sintomas, base interna e pesquisa externa, sem diagnóstico definitivo.",
   "probableHypotheses": ["Resumo textual das hipóteses principais com raciocínio técnico."],
   "detailedHypotheses": [
@@ -215,13 +215,6 @@ Formato obrigatório:
   "whenToCallHumanSpecialist": "Quando a revisão humana é recomendada como continuidade especializada.",
   "humanReviewReason": "Explicação clara do motivo da revisão humana, sem parecer falha da IA.",
   "conversationalAnswer": ${hasQuestion ? '"resposta conversacional direta para a pergunta complementar"' : "null"},
-  "knowledgeUsed": [],
-  "internetResearch": {
-    "status": "success | unavailable | error",
-    "query": "consulta feita na internet",
-    "summary": "síntese do que foi aproveitado da pesquisa externa ou limitação encontrada",
-    "sources": [{ "title": "título da fonte externa", "url": "URL quando disponível" }]
-  },
-  "disclaimer": "${AGRONOMIC_AI_DISCLAIMER}"
+  "knowledgeUsed": []
 }`;
 }

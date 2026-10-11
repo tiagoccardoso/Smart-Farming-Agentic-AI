@@ -30,7 +30,31 @@ import {
   type AnalysisImagesResult,
 } from "../../../../lib/agronomic/case-analysis";
 import { CASE_STORAGE_BUCKET } from "../../../../lib/agronomic/case-attachments";
-import type { AgronomicAnalysisRunInfo } from "../../../../src/lib/ai/orchestrator/analyze-case";
+import {
+  ANALYSIS_MAX_OUTPUT_TOKENS,
+  completeAgronomicAnalysis,
+  logBackgroundAnalysisUsage,
+  prepareAgronomicAnalysis,
+  selectBackgroundAnalysisModel,
+  type AgronomicAnalysisRunInfo,
+} from "../../../../src/lib/ai/orchestrator/analyze-case";
+import {
+  cancelBackgroundResponse,
+  getBackgroundResponse,
+  startBackgroundResponse,
+} from "../../../../src/lib/ai/providers/openai";
+import { geminiProvider, getGeminiModel } from "../../../../src/lib/ai/providers/gemini";
+import {
+  AnalysisJobStoreUnavailableError,
+  createSupabaseAnalysisJobStore,
+} from "../../../../lib/server/analysis-jobs";
+import {
+  pollCaseAnalysis,
+  startCaseAnalysis,
+  type AnalysisJobView,
+  type AnalysisServiceDeps,
+} from "../../../../lib/server/case-analysis-service";
+import type { AgronomicCase } from "../../../../lib/agronomic/case";
 
 const RECENT_ANALYSIS_WINDOW_MS = 30_000;
 
@@ -56,16 +80,162 @@ function logAnalysis(event: string, data: Record<string, unknown>) {
   console.info(`[analyze-case] ${event}`, JSON.stringify(data));
 }
 
+function readToken(request: NextRequest) {
+  return (
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    request.cookies.get(AUTH_ACCESS_COOKIE)?.value ||
+    ""
+  );
+}
+
+function storageImagePrefix() {
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  return `${supabaseUrl}/storage/v1/object/public/${CASE_STORAGE_BUCKET}/`;
+}
+
+/**
+ * Grava a análise inicial no caso: fila oficial de perguntas, análise e
+ * histórico, uso do plano e mensagens de abertura do chat. Lança se a
+ * gravação da análise falhar (nada é dado como concluído sem isso).
+ */
+async function persistInitialAnalysis(input: {
+  caseId: string;
+  userId: string;
+  token: string;
+  analysis: AgronomicPreAnalysis;
+}) {
+  const { caseId, userId, token } = input;
+  const pendingQuestions = await replaceCasePendingQuestions(
+    caseId,
+    input.analysis.missingQuestions,
+    token,
+  ).catch((error) => {
+    console.warn("Não foi possível salvar a fila de perguntas pendentes do caso.", error instanceof Error ? error.name : error);
+    return [];
+  });
+  logPendingQuestionSync({
+    scope: "agronomic-analyze-initial",
+    aiMissingQuestions: input.analysis.missingQuestions,
+    questions: pendingQuestions,
+  });
+  let analysis = syncAnalysisMissingQuestionsWithPendingQueue(input.analysis, pendingQuestions);
+  analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "analysis" });
+  await recordUsageEvent(userId, "case_analysis");
+  const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
+  await insertCaseChatMessage(
+    {
+      caseId,
+      userId,
+      role: "assistant",
+      message: "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.",
+    },
+    token,
+  ).catch(() => null);
+  if (firstQuestion) {
+    await insertCaseChatMessage(
+      { caseId, userId, role: "assistant", message: firstQuestion.question },
+      token,
+    ).catch(() => null);
+  }
+  return { analysis, pendingQuestions, firstQuestion };
+}
+
+function buildServiceDeps(input: { caseData: AgronomicCase; userId: string; token: string }): AnalysisServiceDeps {
+  return {
+    store: createSupabaseAnalysisJobStore(),
+    background: process.env.OPENAI_API_KEY
+      ? {
+          start: (messages, options) => startBackgroundResponse(messages, options),
+          get: (id, options) => getBackgroundResponse(id, options),
+          cancel: (id) => cancelBackgroundResponse(id),
+        }
+      : null,
+    complete: (content, context) => completeAgronomicAnalysis(content, context, input.caseData),
+    persist: (analysis) =>
+      persistInitialAnalysis({ caseId: input.caseData.id, userId: input.userId, token: input.token, analysis }),
+    logUsage: (usage) => logBackgroundAnalysisUsage({ userId: input.userId, ...usage }),
+    log: logAnalysis,
+  };
+}
+
+/** Resposta pública de um job (sem contexto interno, URLs ou ids do provedor). */
+function jobResponse(view: AnalysisJobView & { providerCheckFailed?: boolean }, extra: Record<string, unknown> = {}) {
+  if (view.state === "idle") return NextResponse.json({ status: "idle", ...extra });
+  const job = view.job;
+  const body: Record<string, unknown> = {
+    status: view.state,
+    jobId: job.id,
+    requestId: job.request_id,
+    startedAt: job.started_at,
+    elapsedMs: Math.max(0, Date.now() - Date.parse(job.started_at)),
+    imageAnalysis: job.image_summary ?? null,
+    finishedAt: job.completed_at,
+    ...extra,
+  };
+  if (view.state === "failed") {
+    return NextResponse.json(
+      { ...body, error: view.message, code: view.code, retryable: view.retryable },
+      { status: view.code === "AI_TIMEOUT" ? 504 : view.code === "SAVE_FAILED" ? 500 : 503 },
+    );
+  }
+  if (view.state === "completed") {
+    return NextResponse.json({ ...body, ...(view.analysis ? { analysis: view.analysis } : {}) });
+  }
+  if ("reused" in view && view.reused) body.reused = true;
+  if (view.providerCheckFailed) body.providerCheckFailed = true;
+  return NextResponse.json(body, { status: 202 });
+}
+
+/**
+ * GET ?caseId=…  Andamento da análise inicial. Valida sessão e propriedade do
+ * caso; quando a resposta do provedor já está pronta, grava no caso aqui.
+ */
+export async function GET(request: NextRequest) {
+  const requestId = requestReference(request);
+  const startedAt = Date.now();
+  const caseId = request.nextUrl.searchParams.get("caseId")?.trim() ?? "";
+  try {
+    const token = readToken(request);
+    if (!token) {
+      return NextResponse.json({ error: "Faça login para acompanhar a análise.", code: "AUTH_REQUIRED" }, { status: 401 });
+    }
+    if (!caseId) {
+      return NextResponse.json({ error: "Informe o caseId." }, { status: 400 });
+    }
+    const user = await getAuthenticatedUser(token);
+    const caseData = await fetchAgronomicCase(caseId, token);
+    if (!caseData || caseData.user_id !== user.id) {
+      return NextResponse.json({ error: "Caso não encontrado ou sem permissão de acesso." }, { status: 404 });
+    }
+    const view = await pollCaseAnalysis({ caseId, userId: user.id, deps: buildServiceDeps({ caseData, userId: user.id, token }) });
+    // Loga mudanças de estado e, durante o processamento, ~1 vez a cada 30 s.
+    if (view.state !== "processing" || view.providerCheckFailed || (Date.now() - Date.parse(view.job.started_at)) % 30_000 < 5_000) {
+      logAnalysis("poll", { requestId, caseId, state: view.state, jobId: view.state === "idle" ? null : view.job.id, jobRequestId: view.state === "idle" ? null : view.job.request_id, ms: Date.now() - startedAt });
+    }
+    return jobResponse(view);
+  } catch (error) {
+    if (error instanceof AnalysisJobStoreUnavailableError) {
+      return NextResponse.json({ status: "unsupported" });
+    }
+    const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500;
+    logAnalysis("poll_failed", { requestId, caseId, status, errorName: error instanceof Error ? error.name : typeof error });
+    if (status === 401) {
+      return NextResponse.json({ error: "Sua sessão expirou. Faça login novamente.", code: "AUTH_REQUIRED" }, { status: 401 });
+    }
+    return NextResponse.json(
+      { error: "Não foi possível consultar o andamento da análise agora.", code: "STATUS_UNAVAILABLE", requestId, retryable: true },
+      { status: 503 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   const deadlineAt = startedAt + ANALYSIS_BUDGET_MS;
   const requestId = requestReference(request);
   let logCaseId: string | null = null;
   try {
-    const token =
-      request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-      request.cookies.get(AUTH_ACCESS_COOKIE)?.value ||
-      "";
+    const token = readToken(request);
 
     if (!token) {
       return NextResponse.json(
@@ -125,6 +295,46 @@ export async function POST(request: NextRequest) {
     }
 
     await assertPlanLimit(user.id, usageEventType);
+
+    // Análise inicial: processamento durável (job + modo background do
+    // provedor). Sem a migration dos jobs, segue o fluxo síncrono abaixo.
+    if (!question) {
+      try {
+        const deps = buildServiceDeps({ caseData, userId: user.id, token });
+        const gemini = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? { provider: geminiProvider, model: getGeminiModel() } : null;
+        const view = await startCaseAnalysis({
+          caseId,
+          userId: user.id,
+          requestId,
+          deadlineAt,
+          maxOutputTokens: ANALYSIS_MAX_OUTPUT_TOKENS,
+          selectModel: selectBackgroundAnalysisModel,
+          syncFallback: gemini,
+          prepare: () =>
+            prepareAgronomicAnalysis(caseData, {
+              enableKnowledgeSearch: true,
+              deadlineAt,
+              // Fotos reais em resolução alta: lesões pequenas importam no diagnóstico.
+              imageDetail: "high",
+              prepareImages: () =>
+                loadAnalysisImages({ images: caseData.images ?? [], userId: user.id, caseId, allowedPrefix: storageImagePrefix() }),
+            }),
+          deps,
+        });
+        logAnalysis("start", {
+          requestId,
+          caseId,
+          state: view.state,
+          jobId: view.state === "idle" ? null : view.job.id,
+          reused: "reused" in view ? Boolean(view.reused) : false,
+          ms: Date.now() - startedAt,
+        });
+        return jobResponse(view);
+      } catch (error) {
+        if (!(error instanceof AnalysisJobStoreUnavailableError)) throw error;
+        logAnalysis("jobs_unavailable_sync_fallback", { requestId, caseId });
+      }
+    }
 
     const flightKey = `${caseId}:${question ? "q" : "a"}`;
     if (inFlightAnalyses.has(flightKey)) {
@@ -215,56 +425,15 @@ export async function POST(request: NextRequest) {
       let analysis: AgronomicPreAnalysis = { ...modelAnalysis, imageAnalysis };
 
       if (!question) {
-        const pendingQuestions = await replaceCasePendingQuestions(
-          caseId,
-          modelAnalysis.missingQuestions,
-          token,
-        ).catch((error) => {
-          console.warn(
-            "Não foi possível salvar a fila de perguntas pendentes do caso.",
-            error,
-          );
-          return [];
-        });
-        logPendingQuestionSync({
-          scope: "agronomic-analyze-initial",
-          aiMissingQuestions: modelAnalysis.missingQuestions,
-          questions: pendingQuestions,
-        });
-        analysis = syncAnalysisMissingQuestionsWithPendingQueue(
-          analysis,
-          pendingQuestions,
-        );
-        analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "analysis" });
-        await recordUsageEvent(user.id, usageEventType);
-        const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
-        const intro =
-          "Pré-análise gerada. Vou conduzir a consulta em etapas e fazer apenas uma pergunta pendente por vez.";
-
-        await insertCaseChatMessage(
-          { caseId, userId: user.id, role: "assistant", message: intro },
-          token,
-        ).catch(() => null);
-
-        if (firstQuestion) {
-          await insertCaseChatMessage(
-            {
-              caseId,
-              userId: user.id,
-              role: "assistant",
-              message: firstQuestion.question,
-            },
-            token,
-          ).catch(() => null);
-        }
-
+        const saved = await persistInitialAnalysis({ caseId, userId: user.id, token, analysis });
         return NextResponse.json({
-          analysis,
-          sourceMetadata: analysis.sourceMetadata,
-          pendingQuestions,
-          currentQuestion: firstQuestion,
+          analysis: saved.analysis,
+          sourceMetadata: saved.analysis.sourceMetadata,
+          pendingQuestions: saved.pendingQuestions,
+          currentQuestion: saved.firstQuestion,
           imageAnalysis,
           requestId,
+          status: "completed",
         });
       }
 
