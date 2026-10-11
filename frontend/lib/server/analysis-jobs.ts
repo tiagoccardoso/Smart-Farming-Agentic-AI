@@ -31,10 +31,21 @@ export type AnalysisJob = {
 export type NewAnalysisJob = Pick<AnalysisJob, "case_id" | "user_id" | "request_id">;
 export type AnalysisJobPatch = Partial<Omit<AnalysisJob, "id" | "case_id" | "user_id" | "created_at">>;
 
+export type AnalysisJobStoreUnavailableReason = "missing_config" | "table_missing";
+
 export class AnalysisJobStoreUnavailableError extends Error {
-  constructor(message = "Tabela agronomic_analysis_jobs indisponível (migration não aplicada?).") {
+  readonly reason: AnalysisJobStoreUnavailableReason;
+  /** Código do PostgREST/Postgres que indicou a ausência (ex.: PGRST205). */
+  readonly dbCode: string | null;
+  constructor(
+    message = "Tabela agronomic_analysis_jobs indisponível (migration 20261010120000 não aplicada?).",
+    reason: AnalysisJobStoreUnavailableReason = "table_missing",
+    dbCode: string | null = null,
+  ) {
     super(message);
     this.name = "AnalysisJobStoreUnavailableError";
+    this.reason = reason;
+    this.dbCode = dbCode;
   }
 }
 
@@ -62,7 +73,7 @@ export function createSupabaseAnalysisJobStore(config?: Partial<StoreConfig>): A
   const fetchImpl = config?.fetchImpl ?? fetch;
 
   async function request<T>(path: string, init: RequestInit): Promise<{ status: number; data: T | null; code?: string }> {
-    if (!supabaseUrl || !serviceRoleKey) throw new AnalysisJobStoreUnavailableError("Service role do Supabase não configurada.");
+    if (!supabaseUrl || !serviceRoleKey) throw new AnalysisJobStoreUnavailableError("Service role do Supabase não configurada.", "missing_config");
     const response = await fetchImpl(`${supabaseUrl}${path}`, {
       ...init,
       headers: {
@@ -84,7 +95,7 @@ export function createSupabaseAnalysisJobStore(config?: Partial<StoreConfig>): A
     if (!response.ok) {
       // Tabela inexistente: PostgREST responde PGRST205 (404) ou 42P01.
       if (code === "PGRST205" || code === "42P01" || (response.status === 404 && /agronomic_analysis_jobs/.test(text))) {
-        throw new AnalysisJobStoreUnavailableError();
+        throw new AnalysisJobStoreUnavailableError(undefined, "table_missing", code ?? `http_${response.status}`);
       }
       return { status: response.status, data: null, code };
     }

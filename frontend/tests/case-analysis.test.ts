@@ -263,14 +263,15 @@ test("o fallback também recebe as fotos", async () => {
 
 // ---------------------------------------------------------------- orçamento de tempo
 
-test("o orçamento de tempo reserva janela para o fallback e para gravar a análise", () => {
+test("o orçamento de tempo dá ao principal a janela inteira e respeita a reserva de gravação", () => {
   const now = 1_000_000;
   const deadlineAt = now + 54_000;
   assert.equal(researchBudgetMs(deadlineAt, now), 12_000);
+  // Com 37 s restantes não cabe principal (45 s) + fallback (12 s): nada é
+  // reservado para o fallback (antes o principal ficava com 25 s).
   const primaryTimeout = providerTimeoutMs({ deadlineAt, hasFallback: true, defaultMs: 60_000, now: now + 12_000 });
-  assert.equal(primaryTimeout, 54_000 - 12_000 - ANALYSIS_SAVE_RESERVE_MS - 12_000);
-  const fallbackTimeout = providerTimeoutMs({ deadlineAt, hasFallback: false, defaultMs: 60_000, now: now + 12_000 + primaryTimeout });
-  assert.ok(now + 12_000 + primaryTimeout + fallbackTimeout + ANALYSIS_SAVE_RESERVE_MS <= deadlineAt, "a soma das etapas não pode passar do limite");
+  assert.equal(primaryTimeout, 54_000 - 12_000 - ANALYSIS_SAVE_RESERVE_MS);
+  assert.ok(now + 12_000 + primaryTimeout + ANALYSIS_SAVE_RESERVE_MS <= deadlineAt, "a soma das etapas não pode passar do limite");
   // Sem deadline (outras rotas): mantém o comportamento anterior.
   assert.equal(providerTimeoutMs({ hasFallback: true, defaultMs: 60_000 }), 60_000);
 });

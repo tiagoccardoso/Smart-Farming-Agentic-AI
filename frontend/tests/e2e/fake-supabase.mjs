@@ -18,6 +18,32 @@ const db = {};
 const storage = new Map(); // path -> {type, bytes}
 const failures = []; // {method, match, status, body, times}
 const now = () => new Date().toISOString();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Knobs da reprodução do timeout da análise (analyze-case.repro.mjs). Ajustáveis
+// em tempo de execução via POST /__config, sem reiniciar o servidor:
+//  jobsTableMissing  -> /rest/v1/agronomic_analysis_jobs responde PGRST205 (produção sem a migration)
+//  embeddingsDelayMs -> /openai/v1/embeddings demora e falha (pesquisa interna esgota o teto)
+//  analysisDelayMs   -> /openai/v1/responses da análise inicial demora esse tempo e devolve JSON válido
+//  analysisStatus    -> status HTTP da análise inicial (ex.: 429, 503) / analysisBody "invalid" -> texto não-JSON
+const backgroundResponses = new Map(); // id -> {readyAt, model, status, invalid, cancelled}
+const knobs = { jobsTableMissing: false, embeddingsDelayMs: 0, analysisDelayMs: 0, analysisStatus: 200, analysisBody: "json" };
+const ANALYSIS_JSON = {
+  initialDiagnosis: "Lesões foliares compatíveis com pinta-preta no tomateiro.",
+  probableHypotheses: ["Pinta-preta (Alternaria solani)", "Septoriose"],
+  visualFindings: ["Manchas escuras com anéis concêntricos na foto 1."],
+  possibleCauses: ["Molhamento foliar prolongado"],
+  missingQuestions: ["Há quantos dias as manchas apareceram?"],
+  riskLevel: "medium",
+  confidenceLevel: "medium",
+  productionImpact: "Perda de área foliar e queda de produtividade se avançar.",
+  attentionPoints: ["Avanço para folhas novas"],
+  initialRecommendation: "Monitorar o avanço e confirmar em campo.",
+  safeInitialRecommendations: ["Remover folhas muito afetadas", "Evitar molhar a folhagem"],
+  whenToCallHumanSpecialist: "Se as manchas avançarem para os frutos.",
+  humanReviewReason: "Confirmação visual por especialista.",
+  popularSummary: "As manchas com anéis indicam provável pinta-preta.",
+  technicalDetails: "Hipóteses: pinta-preta; septoriose.",
+};
 const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 
 function table(name) {
@@ -207,6 +233,18 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
   if (url.pathname === "/__db") return send(res, 200, db);
+  if (url.pathname === "/__config") {
+    Object.assign(knobs, JSON.parse((await readBody(req)).toString() || "{}"));
+    return send(res, 200, knobs);
+  }
+  if (knobs.jobsTableMissing && url.pathname === "/rest/v1/agronomic_analysis_jobs") {
+    return send(res, 404, { code: "PGRST205", message: "Could not find the table 'public.agronomic_analysis_jobs' in the schema cache" });
+  }
+  if (url.pathname === "/openai/v1/embeddings" && method === "POST") {
+    await readBody(req);
+    if (knobs.embeddingsDelayMs) await sleep(knobs.embeddingsDelayMs);
+    return send(res, 503, { error: { message: "embeddings indisponíveis no E2E" } });
+  }
 
   const failure = checkFailure(method, url.pathname + url.search);
   if (failure) return send(res, failure.status, failure.body);
@@ -226,6 +264,24 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/openai/v1/responses" && method === "POST") {
     const body = JSON.parse((await readBody(req)).toString() || "{}");
     const input = Array.isArray(body.input) ? body.input : [];
+    // Modo background da Responses API (análise inicial durável): guarda a
+    // resposta, que fica pronta depois de analysisDelayMs.
+    if (body.background) {
+      const id = `resp_${randomUUID().replace(/-/g, "")}`;
+      const images = (input[input.length - 1]?.content ?? []).filter((part) => part.type === "input_image").length;
+      backgroundResponses.set(id, { readyAt: Date.now() + knobs.analysisDelayMs, model: body.model, status: knobs.analysisStatus, invalid: knobs.analysisBody === "invalid" });
+      table("ai_analysis_calls").push({ images, started_at: now(), delay: knobs.analysisDelayMs, background: true });
+      return send(res, 200, { id, status: "queued", model: body.model });
+    }
+    // Análise inicial (JSON estruturado, teto de 6500 tokens de saída).
+    if (body.max_output_tokens === 6500 && !body.background) {
+      const images = (input[input.length - 1]?.content ?? []).filter((part) => part.type === "input_image").length;
+      table("ai_analysis_calls").push({ images, started_at: now(), delay: knobs.analysisDelayMs });
+      if (knobs.analysisDelayMs) await sleep(knobs.analysisDelayMs);
+      if (knobs.analysisStatus !== 200) return send(res, knobs.analysisStatus, { error: { message: `falha simulada ${knobs.analysisStatus}` } });
+      const text = knobs.analysisBody === "invalid" ? "<html>erro</html>" : JSON.stringify(ANALYSIS_JSON);
+      return send(res, 200, { output_text: text, usage: { input_tokens: 1000, output_tokens: 800, total_tokens: 1800 } });
+    }
     const last = input[input.length - 1] ?? { content: [] };
     const text = (last.content ?? []).map((part) => part.text).filter(Boolean).join("\n");
     const question = (text.split("\n")[1] ?? text).trim();
@@ -236,6 +292,25 @@ const server = http.createServer(async (req, res) => {
       : "";
     const output = `Resposta da IA para: "${question}".${images ? ` Recebi ${images} foto(s).` : ""}${markdown}`;
     return send(res, 200, { output_text: output, usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } });
+  }
+  const backgroundMatch = url.pathname.match(/^\/openai\/v1\/responses\/(resp_[a-z0-9]+)(\/cancel)?$/);
+  if (backgroundMatch) {
+    const entry = backgroundResponses.get(backgroundMatch[1]);
+    if (!entry) return send(res, 404, { error: { message: "resposta não encontrada" } });
+    if (backgroundMatch[2]) {
+      entry.cancelled = true;
+      return send(res, 200, { id: backgroundMatch[1], status: "cancelled", model: entry.model });
+    }
+    if (entry.cancelled) return send(res, 200, { id: backgroundMatch[1], status: "cancelled", model: entry.model });
+    if (Date.now() < entry.readyAt) return send(res, 200, { id: backgroundMatch[1], status: "in_progress", model: entry.model });
+    if (entry.status !== 200) return send(res, 200, { id: backgroundMatch[1], status: "failed", model: entry.model, error: { code: `http_${entry.status}` } });
+    return send(res, 200, {
+      id: backgroundMatch[1],
+      status: "completed",
+      model: entry.model,
+      output_text: entry.invalid ? "<html>erro</html>" : JSON.stringify(ANALYSIS_JSON),
+      usage: { input_tokens: 1000, output_tokens: 800, total_tokens: 1800 },
+    });
   }
   if (url.pathname.startsWith("/openai/v1/")) return send(res, 404, { error: { message: "rota OpenAI não simulada" } });
 
@@ -302,6 +377,15 @@ const server = http.createServer(async (req, res) => {
       }
       if (name === "case_chat_messages") {
         for (const item of items) if (!String(item.message || "").trim()) return send(res, 400, { code: "23514", message: "violates check constraint" });
+      }
+      if (name === "agronomic_analysis_jobs") {
+        // Defaults da tabela e índice único parcial: um job ativo por caso.
+        for (const item of items) {
+          if (rows.some((row) => row.case_id === item.case_id && ["processing", "saving"].includes(row.status))) {
+            return send(res, 409, { code: "23505", message: "duplicate key value violates unique constraint \"agronomic_analysis_jobs_active_uidx\"" });
+          }
+          Object.assign(item, { provider: null, model: null, provider_response_id: null, error_code: null, image_summary: null, context: null, save_attempts: 0, started_at: item.created_at, completed_at: null, updated_at: item.created_at, ...item });
+        }
       }
       // created_at estritamente crescente para manter a ordem das mensagens
       for (const item of items) {

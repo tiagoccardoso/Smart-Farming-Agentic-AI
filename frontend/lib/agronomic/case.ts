@@ -1291,7 +1291,7 @@ export async function generateAgronomicPreAnalysis(
   caseData: AgronomicCase,
   question?: string,
   _token?: string,
-  options: Pick<AnalyzeAgronomicCaseOptions, "deadlineAt" | "prepareImages" | "allowLocalFallback"> = {},
+  options: Pick<AnalyzeAgronomicCaseOptions, "deadlineAt" | "prepareImages" | "allowLocalFallback" | "researchCapMs"> = {},
   runInfo?: AgronomicAnalysisRunInfo,
 ): Promise<AgronomicPreAnalysis> {
   const cropContext =

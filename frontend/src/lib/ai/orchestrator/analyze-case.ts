@@ -101,6 +101,11 @@ export type AnalyzeAgronomicCaseOptions = {
    */
   prepareImages?: () => Promise<AnalysisImagesResult>;
   /**
+   * Teto da etapa de pesquisa (internet + base interna + fotos). O fluxo
+   * síncrono da rota usa um teto menor que o padrão (ANALYSIS_RESEARCH_CAP_MS).
+   */
+  researchCapMs?: number;
+  /**
    * `false`: se nenhum provedor responder, lança AgronomicAnalysisError em vez
    * de devolver a triagem local fixa (que não olha as fotos). A rota de análise
    * usa `false` para nunca gravar/mostrar sucesso sem análise real.
@@ -114,8 +119,23 @@ export type AnalyzeAgronomicCaseOptions = {
   };
 };
 
+export type AgronomicProviderAttempt = {
+  provider: string;
+  model: string;
+  /** Janela concedida à chamada (0 = não chamada por falta de tempo). */
+  timeoutMs: number;
+  durationMs: number;
+  outcome: "success" | "skipped_no_time" | ReturnType<typeof classifyProviderFailure>;
+  isFallback: boolean;
+};
+
 export type AgronomicAnalysisRunInfo = {
   images: AnalysisImagesResult | null;
+  /** Tempos por etapa (somente metadados, para logs de diagnóstico). */
+  researchMs?: number;
+  researchBudgetMs?: number;
+  internetResearchStatus?: string;
+  attempts?: AgronomicProviderAttempt[];
 };
 
 const responseCache = new Map<string, AgronomicAnalysisOutput>();
@@ -988,6 +1008,8 @@ export type PreparedAgronomicAnalysis = {
   context: AgronomicAnalysisContext;
   /** Duração da etapa de pesquisa + carga das fotos (ms). */
   researchMs: number;
+  /** Teto concedido à etapa de pesquisa (ms). */
+  researchBudgetMs: number;
 };
 
 /** Teto de saída da análise inicial (JSON estruturado). */
@@ -1000,7 +1022,7 @@ export const ANALYSIS_MAX_OUTPUT_TOKENS = 6500;
  */
 export async function prepareAgronomicAnalysis(
   caseData: AgronomicCaseForAI,
-  options: Pick<AnalyzeAgronomicCaseOptions, "question" | "enableKnowledgeSearch" | "deadlineAt" | "prepareImages" | "deps"> & {
+  options: Pick<AnalyzeAgronomicCaseOptions, "question" | "enableKnowledgeSearch" | "deadlineAt" | "prepareImages" | "researchCapMs" | "deps"> & {
     /** Resolução das fotos enviadas ao modelo (padrão "low"). */
     imageDetail?: "low" | "high" | "auto";
   } = {},
@@ -1012,7 +1034,7 @@ export async function prepareAgronomicAnalysis(
 
   // Pesquisa e carga das fotos rodam em paralelo e com teto: o que não chegar a
   // tempo é tratado como indisponível, sem consumir o tempo do modelo.
-  const researchMs = researchBudgetMs(options.deadlineAt);
+  const researchMs = researchBudgetMs(options.deadlineAt, Date.now(), options.researchCapMs);
   const [knowledge, internetResearch, images] = await Promise.all([
     options.enableKnowledgeSearch === false
       ? Promise.resolve([] as KnowledgeDocument[])
@@ -1057,6 +1079,7 @@ export async function prepareAgronomicAnalysis(
     images,
     context: { fallback, knowledge, internetResearch },
     researchMs: Date.now() - startedAt,
+    researchBudgetMs: researchMs,
   };
 }
 
@@ -1110,20 +1133,37 @@ export async function analyzeAgronomicCase(
   const prepared = await prepareAgronomicAnalysis(caseData, options);
   const { messages, complexity, images } = prepared;
   const { fallback, knowledge, internetResearch } = prepared.context;
-  if (runInfo) runInfo.images = images;
+  if (runInfo) {
+    runInfo.images = images;
+    runInfo.researchMs = prepared.researchMs;
+    runInfo.researchBudgetMs = prepared.researchBudgetMs;
+    runInfo.internetResearchStatus = internetResearch.status;
+    runInfo.attempts = [];
+  }
   const imageInputs = images?.loaded ?? [];
   const { primary, fallback: fallbackChoice } = (options.deps?.selectProviders ?? defaultProviders)(complexity);
   const failures: unknown[] = [];
 
   const attempt = async (choice: ProviderChoice, isFallback: boolean, hasFallback: boolean) => {
     const timeoutMs = providerTimeoutMs({ deadlineAt: options.deadlineAt, hasFallback, defaultMs: ANALYSIS_PROVIDER_TIMEOUT_MS });
+    const record = (outcome: AgronomicProviderAttempt["outcome"], durationMs: number, granted = timeoutMs) =>
+      runInfo?.attempts?.push({ provider: choice.provider.name, model: choice.model, timeoutMs: granted, durationMs, outcome, isFallback });
     if (timeoutMs < ANALYSIS_MIN_PROVIDER_MS && Number.isFinite(remainingMs(options.deadlineAt))) {
+      record("skipped_no_time", 0, 0);
       throw new AgronomicAnalysisError("AI_TIMEOUT");
     }
     // Sem deadline: comportamento anterior (1 retry). Com deadline: sem retry
     // sobreposto; a janela restante decide se o fallback ainda cabe.
     const retries = options.deadlineAt ? 0 : 1;
-    const result = await callProvider(choice.provider, choice.model, messages, { timeoutMs, retries });
+    const callStartedAt = Date.now();
+    let result: Awaited<ReturnType<typeof callProvider>>;
+    try {
+      result = await callProvider(choice.provider, choice.model, messages, { timeoutMs, retries });
+    } catch (error) {
+      record(classifyProviderFailure(error), Date.now() - callStartedAt);
+      throw error;
+    }
+    record("success", Date.now() - callStartedAt);
     const normalized = normalizeAnalysis(result.content, fallback, knowledge, internetResearch, caseData);
     if (options.logUsage !== false) {
       await logResult(result, options.userId ?? caseData.user_id, isFallback, true).catch(() => null);
@@ -1171,9 +1211,10 @@ export async function analyzeAgronomicCase(
 
   if (!allowLocalFallback) {
     const codes = failures.map((error) => (error instanceof AgronomicAnalysisError ? error.code : classifyProviderFailure(error)));
-    throw new AgronomicAnalysisError(
-      codes.includes("AI_TIMEOUT") ? "AI_TIMEOUT" : codes.every((code) => code === "AI_INVALID_RESPONSE") ? "AI_INVALID_RESPONSE" : "AI_UNAVAILABLE",
-    );
+    // Timeout em qualquer etapa prevalece; senão vale a falha do provedor
+    // principal (um fallback sem chave configurada não mascara a causa real).
+    const primaryCode = codes[0] === "SAVE_FAILED" || !codes[0] ? "AI_UNAVAILABLE" : codes[0];
+    throw new AgronomicAnalysisError(codes.includes("AI_TIMEOUT") ? "AI_TIMEOUT" : primaryCode);
   }
   return fallback;
 }

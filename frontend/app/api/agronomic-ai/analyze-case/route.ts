@@ -24,6 +24,7 @@ import type { UsageEventType } from "../../../../lib/billing/check-plan-limits";
 import type { AgronomicPreAnalysis } from "../../../../lib/agronomic/case";
 import {
   ANALYSIS_BUDGET_MS,
+  ANALYSIS_SYNC_RESEARCH_CAP_MS,
   AgronomicAnalysisError,
   loadAnalysisImages,
   summarizeAnalysisImages,
@@ -80,6 +81,26 @@ function logAnalysis(event: string, data: Record<string, unknown>) {
   console.info(`[analyze-case] ${event}`, JSON.stringify(data));
 }
 
+/** Tempos por etapa do fluxo síncrono, sem conteúdo do caso. */
+function syncStages(runInfo: AgronomicAnalysisRunInfo | null) {
+  if (!runInfo) return {};
+  return {
+    researchMs: runInfo.researchMs ?? null,
+    researchBudgetMs: runInfo.researchBudgetMs ?? null,
+    internetResearch: runInfo.internetResearchStatus ?? null,
+    imagesLoaded: runInfo.images?.loaded.length ?? 0,
+    imagesUnavailable: runInfo.images?.unavailable.length ?? 0,
+    attempts: (runInfo.attempts ?? []).map((attempt) => ({
+      provider: attempt.provider,
+      model: attempt.model,
+      fallback: attempt.isFallback,
+      timeoutMs: attempt.timeoutMs,
+      ms: attempt.durationMs,
+      outcome: attempt.outcome,
+    })),
+  };
+}
+
 function readToken(request: NextRequest) {
   return (
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
@@ -119,7 +140,13 @@ async function persistInitialAnalysis(input: {
     questions: pendingQuestions,
   });
   let analysis = syncAnalysisMissingQuestionsWithPendingQueue(input.analysis, pendingQuestions);
-  analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "analysis" });
+  try {
+    analysis = await updateAgronomicCaseWithAnalysis(caseId, token, analysis, { source: "analysis" });
+  } catch (error) {
+    // Falha de gravação é diferente de falha da IA: a tela recebe SAVE_FAILED.
+    console.warn("[analyze-case] save_failed", JSON.stringify({ caseId, errorName: error instanceof Error ? error.name : typeof error, status: (error as { status?: number })?.status ?? null }));
+    throw new AgronomicAnalysisError("SAVE_FAILED");
+  }
   await recordUsageEvent(userId, "case_analysis");
   const firstQuestion = getCurrentPendingQuestion(pendingQuestions);
   await insertCaseChatMessage(
@@ -234,6 +261,7 @@ export async function POST(request: NextRequest) {
   const deadlineAt = startedAt + ANALYSIS_BUDGET_MS;
   const requestId = requestReference(request);
   let logCaseId: string | null = null;
+  let syncRunInfo: AgronomicAnalysisRunInfo | null = null;
   try {
     const token = readToken(request);
 
@@ -332,7 +360,13 @@ export async function POST(request: NextRequest) {
         return jobResponse(view);
       } catch (error) {
         if (!(error instanceof AnalysisJobStoreUnavailableError)) throw error;
-        logAnalysis("jobs_unavailable_sync_fallback", { requestId, caseId });
+        logAnalysis("jobs_unavailable_sync_fallback", { requestId, caseId, reason: error.reason, dbCode: error.dbCode });
+        // Configuração incompleta do ambiente: sem a tabela, a análise fica
+        // presa ao limite de 60 s da função e sem bloqueio entre instâncias.
+        console.error(
+          "[analyze-case] Processamento durável desativado: aplique a migration 20261010120000_agronomic_analysis_jobs.sql.",
+          JSON.stringify({ requestId, reason: error.reason, dbCode: error.dbCode }),
+        );
       }
     }
 
@@ -398,6 +432,7 @@ export async function POST(request: NextRequest) {
       // o caso só existe com as fotos depois que POST /api/agronomic-cases conclui.
       const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
       const runInfo: AgronomicAnalysisRunInfo = { images: null };
+      syncRunInfo = runInfo;
       const prepareImages = (): Promise<AnalysisImagesResult> =>
         loadAnalysisImages({
           images: caseData.images ?? [],
@@ -410,7 +445,13 @@ export async function POST(request: NextRequest) {
         caseData,
         modelQuestion,
         token,
-        { deadlineAt, prepareImages, allowLocalFallback: false },
+        {
+          deadlineAt,
+          prepareImages,
+          allowLocalFallback: false,
+          // A mesma requisição ainda espera a IA: a pesquisa tem teto menor.
+          researchCapMs: ANALYSIS_SYNC_RESEARCH_CAP_MS,
+        },
         runInfo,
       );
       const imageAnalysis = summarizeAnalysisImages(runInfo.images);
@@ -421,6 +462,7 @@ export async function POST(request: NextRequest) {
         imagesTotal: imageAnalysis.total,
         imagesAnalyzed: imageAnalysis.analyzed,
         imagesUnavailable: imageAnalysis.unavailable.length,
+        ...syncStages(runInfo),
       });
       let analysis: AgronomicPreAnalysis = { ...modelAnalysis, imageAnalysis };
 
@@ -517,7 +559,7 @@ export async function POST(request: NextRequest) {
     // inválida): nada é gravado nem cobrado; o caso, o texto e as fotos
     // continuam salvos e o usuário pode tentar de novo.
     if (error instanceof AgronomicAnalysisError) {
-      logAnalysis("model_failed", { requestId, caseId: logCaseId, code: error.code, durationMs: Date.now() - startedAt });
+      logAnalysis("model_failed", { requestId, caseId: logCaseId, code: error.code, durationMs: Date.now() - startedAt, ...syncStages(syncRunInfo) });
       return NextResponse.json(
         { error: error.message, code: error.code, requestId, retryable: true },
         { status: error.status },

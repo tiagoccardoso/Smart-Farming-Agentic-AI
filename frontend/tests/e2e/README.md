@@ -38,3 +38,20 @@ análise, falha de rede e de storage sem sucesso falso, confirmação ao fechar 
 alterações, caso legado sem propriedade, Painel da Doutora (linha do tempo,
 "Após a solicitação", "Novo") e responsividade em Android, iPhone (emulado no
 Chromium), tablet e desktop.
+
+## Reprodução do timeout da análise inicial (`analyze-case.repro.mjs`)
+
+Com os mesmos servidores no ar (app em `:3100`, falso em `:54321`):
+
+```bash
+node analyze-case.repro.mjs slow-model            # produção sem a migration: modelo de 30 s
+node analyze-case.repro.mjs durable-slow-model    # com a tabela de jobs: modelo de 70 s
+node analyze-case.repro.mjs                       # todos os cenários
+```
+
+O falso aceita `POST /__config` para simular a tabela `agronomic_analysis_jobs`
+ausente (`jobsTableMissing`), pesquisa interna lenta (`embeddingsDelayMs`),
+modelo lento (`analysisDelayMs`), erro HTTP (`analysisStatus`) e resposta
+não-JSON (`analysisBody: "invalid"`). Também simula o modo background da
+Responses API (`background: true` + `GET /responses/{id}`). Antes da correção,
+`slow-model` falhava com `AI_TIMEOUT` em ~37 s, igual aos logs de produção.

@@ -8,6 +8,16 @@
  * "Não foi possível gerar a análise agora". Além disso, as fotos do caso nunca
  * chegavam ao modelo: só as URLs entravam no texto do prompt.
  *
+ * Causa raiz corrigida (out/2026, código de suporte 91689349683-d734721b2e8a):
+ * em produção a tabela dos jobs não existia (migration 20261010120000 não
+ * aplicada), então a rota caía no fluxo síncrono. Nele, a pesquisa externa
+ * esgotava o teto de 12 s e o provedor principal recebia só ~24 s, porque 12 s
+ * ficavam reservados para um fallback que, no fim, nunca cabia (sobravam
+ * 11,7 s < 12 s). O nosso próprio AbortController cortava a OpenAI e todas as
+ * tentativas falhavam com exatos 37,3 s. Agora o fallback só tem janela
+ * reservada quando o principal também cabe inteiro, e o fluxo síncrono usa
+ * um teto menor de pesquisa.
+ *
  * Aqui ficam o orçamento de tempo, a seleção/validação das fotos enviadas ao
  * modelo e os erros tipados. Sem dependências de servidor além de `fetch`.
  */
@@ -21,6 +31,18 @@ export const ANALYSIS_BUDGET_MS = 54_000;
 export const ANALYSIS_SAVE_RESERVE_MS = 5_000;
 /** Teto da etapa de pesquisa (internet + base interna + carga das fotos). */
 export const ANALYSIS_RESEARCH_CAP_MS = 12_000;
+/**
+ * Teto da pesquisa no fluxo síncrono (sem jobs): lá a mesma requisição ainda
+ * precisa esperar a IA inteira, então a pesquisa externa não pode levar 12 s.
+ */
+export const ANALYSIS_SYNC_RESEARCH_CAP_MS = 8_000;
+/**
+ * Janela que o provedor principal precisa ter antes de se reservar tempo para
+ * o fallback. Análise com foto em JSON longo leva de 20 s a 45 s; dar menos
+ * que isso ao principal para guardar uma janela que o fallback não consegue
+ * usar era exatamente a falha observada em produção.
+ */
+export const ANALYSIS_PRIMARY_TARGET_MS = 45_000;
 /** Menor janela útil para uma chamada de provedor valer a pena. */
 export const ANALYSIS_MIN_PROVIDER_MS = 12_000;
 /** Fotos enviadas ao modelo por análise (detalhe "low": custo e latência previsíveis). */
@@ -66,6 +88,12 @@ export const ANALYSIS_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
 
 /** Classifica a falha de um provedor sem expor a mensagem original ao usuário. */
 export function classifyProviderFailure(error: unknown): AnalysisErrorCode {
+  if (error instanceof AgronomicAnalysisError) return error.code;
+  // Status HTTP do provedor vem antes do texto: uma mensagem de 400/429 que
+  // cite "json" ou "timeout" não pode virar outra categoria.
+  const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 0;
+  if (status === 408) return "AI_TIMEOUT";
+  if (status >= 400) return "AI_UNAVAILABLE";
   const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
   if (/abort|timeout|tempo limite|timed out/i.test(message)) return "AI_TIMEOUT";
   if (/json|formato|parse|resposta vazia|empty/i.test(message)) return "AI_INVALID_RESPONSE";
@@ -77,20 +105,24 @@ export function remainingMs(deadlineAt: number | undefined, now = Date.now()) {
 }
 
 /** Orçamento da etapa de pesquisa: nunca consome o tempo que a IA precisa. */
-export function researchBudgetMs(deadlineAt: number | undefined, now = Date.now()) {
+export function researchBudgetMs(deadlineAt: number | undefined, now = Date.now(), capMs = ANALYSIS_RESEARCH_CAP_MS) {
   const left = remainingMs(deadlineAt, now);
-  if (!Number.isFinite(left)) return ANALYSIS_RESEARCH_CAP_MS * 2;
-  return Math.max(0, Math.min(ANALYSIS_RESEARCH_CAP_MS, left - ANALYSIS_SAVE_RESERVE_MS - ANALYSIS_MIN_PROVIDER_MS * 2));
+  if (!Number.isFinite(left)) return capMs * 2;
+  return Math.max(0, Math.min(capMs, left - ANALYSIS_SAVE_RESERVE_MS - ANALYSIS_MIN_PROVIDER_MS * 2));
 }
 
 /**
- * Tempo de uma chamada de provedor. Quando há fallback, a principal deixa uma
- * janela mínima para ele; sem fallback, usa tudo que sobra antes da reserva.
+ * Tempo de uma chamada de provedor. A principal só deixa janela para o
+ * fallback quando ela mesma ainda tem a janela-alvo inteira
+ * (ANALYSIS_PRIMARY_TARGET_MS); caso contrário usa tudo que sobra antes da
+ * reserva de gravação. O fallback continua rodando quando a principal falha
+ * rápido (5xx, 429, resposta inválida) e ainda resta tempo útil.
  */
 export function providerTimeoutMs(input: { deadlineAt?: number; hasFallback: boolean; defaultMs: number; now?: number }) {
   const left = remainingMs(input.deadlineAt, input.now) - ANALYSIS_SAVE_RESERVE_MS;
   if (!Number.isFinite(left)) return input.defaultMs;
-  const keepForFallback = input.hasFallback && left >= ANALYSIS_MIN_PROVIDER_MS * 2 ? ANALYSIS_MIN_PROVIDER_MS : 0;
+  const keepForFallback =
+    input.hasFallback && left >= ANALYSIS_PRIMARY_TARGET_MS + ANALYSIS_MIN_PROVIDER_MS ? ANALYSIS_MIN_PROVIDER_MS : 0;
   return Math.min(input.defaultMs, Math.max(0, left - keepForFallback));
 }
 
