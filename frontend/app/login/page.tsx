@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
@@ -10,8 +10,47 @@ import {
   requestPasswordRecovery,
   getCurrentAuthSession,
 } from "../../lib/supabaseAuth";
+import { LOGIN_MESSAGES, RECOVERY_MESSAGES } from "../../lib/auth-messages";
 
 const POST_LOGIN_REDIRECT_PATH = "/consultoria-ia";
+const RECOVERY_HINT_ID = "login-recovery-hint";
+
+/**
+ * Mensagem amigável para exibir na tela. As rotas de autenticação já devolvem
+ * textos simples; falhas de rede (TypeError, ex.: "Failed to fetch") ou erros
+ * sem mensagem caem no texto genérico informado.
+ */
+function friendlyErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof TypeError || !(error instanceof Error) || !error.message) {
+    return fallback;
+  }
+
+  return error.message;
+}
+
+function getFormInput(form: HTMLFormElement | null, name: string) {
+  const element = form?.elements.namedItem(name);
+  return element instanceof HTMLInputElement ? element : null;
+}
+
+/** Aplica os textos da tela à validação nativa existente (required + type=email). */
+function applyValidationMessages(form: HTMLFormElement | null) {
+  const emailInput = getFormInput(form, "email");
+  const passwordInput = getFormInput(form, "password");
+
+  emailInput?.setCustomValidity("");
+  passwordInput?.setCustomValidity("");
+
+  if (emailInput?.validity.valueMissing) {
+    emailInput.setCustomValidity(LOGIN_MESSAGES.missingFields);
+  } else if (emailInput?.validity.typeMismatch) {
+    emailInput.setCustomValidity(LOGIN_MESSAGES.invalidEmail);
+  }
+
+  if (passwordInput?.validity.valueMissing) {
+    passwordInput.setCustomValidity(LOGIN_MESSAGES.missingFields);
+  }
+}
 
 function resolvePostLoginRedirect(rawNextPath: string | null) {
   if (!rawNextPath) {
@@ -42,6 +81,7 @@ function resolvePostLoginRedirect(rawNextPath: string | null) {
 
 function LoginContent() {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const searchParams = useSearchParams();
   const nextParam = searchParams.get("next");
   const postLoginRedirectPath = useMemo(
@@ -74,6 +114,10 @@ function LoginContent() {
     };
   }, [postLoginRedirectPath, router]);
 
+  useEffect(() => {
+    applyValidationMessages(formRef.current);
+  }, [email, password]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -89,39 +133,35 @@ function LoginContent() {
       const session = await loginWithEmailPassword(email, password);
 
       if (!session.access_token) {
-        throw new Error("Não foi possível confirmar a sessão de login.");
+        console.error("[login] resposta de login sem token de acesso.");
+        throw new Error(LOGIN_MESSAGES.unavailable);
       }
 
       window.dispatchEvent(new Event("auth:changed"));
       window.location.replace(postLoginRedirectPath);
     } catch (loginError) {
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "Não foi possível entrar.",
-      );
+      setError(friendlyErrorMessage(loginError, LOGIN_MESSAGES.unavailable));
     } finally {
       setLoading(false);
     }
   }
 
   async function handlePasswordRecovery() {
-    setRecoveringPassword(true);
     setError(null);
     setRecoveryMessage(null);
 
+    if (getFormInput(formRef.current, "email")?.validity.typeMismatch) {
+      setError(RECOVERY_MESSAGES.invalidEmail);
+      return;
+    }
+
+    setRecoveringPassword(true);
+
     try {
       const payload = await requestPasswordRecovery(email);
-      setRecoveryMessage(
-        payload.message ??
-          "Enviamos as instruções de recuperação para o e-mail informado.",
-      );
+      setRecoveryMessage(payload.message ?? RECOVERY_MESSAGES.success);
     } catch (recoveryError) {
-      setError(
-        recoveryError instanceof Error
-          ? recoveryError.message
-          : "Não foi possível enviar a recuperação de senha.",
-      );
+      setError(friendlyErrorMessage(recoveryError, RECOVERY_MESSAGES.unavailable));
     } finally {
       setRecoveringPassword(false);
     }
@@ -130,21 +170,14 @@ function LoginContent() {
   return (
     <section className="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:px-6 sm:py-14 md:py-20 xl:grid-cols-[0.95fr_1.05fr] xl:items-center">
       <div className="rounded-3xl bg-hero-gradient p-5 shadow-soft sm:p-6 md:p-10">
-        <p className="mb-4 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-leaf-700">
-          Área segura
-        </p>
         <SectionTitle
-          title="Entrar"
-          subtitle="Acesse sua consultoria agrícola com e-mail e senha."
+          title="Entre na sua conta"
+          subtitle="Acompanhe seus casos, converse com a IA e consulte os pareceres do especialista."
         />
-        <p className="text-base leading-7 text-slate-700">
-          Faça login para enviar casos, acompanhar relatórios, solicitar revisão
-          humana e consultar a IA usando seus dados protegidos pelo Supabase
-          Auth.
-        </p>
       </div>
 
       <form
+        ref={formRef}
         onSubmit={handleSubmit}
         className="rounded-3xl border border-leaf-100 bg-white p-5 shadow-soft sm:p-6 md:p-8"
       >
@@ -191,19 +224,25 @@ function LoginContent() {
             type="button"
             onClick={handlePasswordRecovery}
             disabled={recoveringPassword || !email}
+            aria-describedby={!email ? RECOVERY_HINT_ID : undefined}
             className="font-semibold text-leaf-700 hover:text-leaf-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {recoveringPassword
               ? "Enviando recuperação..."
               : "Esqueci minha senha"}
           </button>
+          {!email && (
+            <p id={RECOVERY_HINT_ID} className="-mt-2 text-xs text-slate-500">
+              {RECOVERY_MESSAGES.missingEmail}
+            </p>
+          )}
           <p>
             Ainda não tem conta?{" "}
             <Link
               href="/register"
               className="font-semibold text-leaf-700 hover:text-leaf-800"
             >
-              Criar cadastro
+              Criar conta
             </Link>
           </p>
         </div>

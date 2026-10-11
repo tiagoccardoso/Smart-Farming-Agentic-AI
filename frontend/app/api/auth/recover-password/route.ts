@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAuthRequest } from "../../../../lib/auth";
+import { RECOVERY_MESSAGES, classifyRecoveryFailure, readAuthFailure } from "../../../../lib/auth-messages";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email } = await request.json();
+    const { email } = await request.json().catch(() => ({}));
     const trimmedEmail = typeof email === "string" ? email.trim() : "";
 
     if (!trimmedEmail) {
       return NextResponse.json(
-        { error: "Informe seu e-mail para recuperar a senha." },
+        { error: RECOVERY_MESSAGES.missingEmail, code: "MISSING_EMAIL" },
         { status: 400 },
       );
     }
@@ -21,14 +22,17 @@ export async function POST(request: NextRequest) {
       }),
     });
 
-    return NextResponse.json({
-      message: "Enviamos as instruções de recuperação para o e-mail informado.",
-    });
+    return NextResponse.json({ message: RECOVERY_MESSAGES.success });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Não foi possível enviar a recuperação de senha.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const failureInfo = readAuthFailure(error);
+    const failure = classifyRecoveryFailure(failureInfo);
+
+    // Detalhes técnicos ficam apenas no registro do servidor (sem o e-mail).
+    console.error("[auth/recover-password] falha na recuperação", { kind: failure.kind, ...failureInfo });
+
+    return NextResponse.json(
+      { error: failure.message, code: failure.kind.toUpperCase() },
+      { status: failure.status },
+    );
   }
 }

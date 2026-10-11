@@ -28,6 +28,7 @@
     "lib/stripe/signature.ts",
     "lib/stripe/webhook-events.ts",
     "lib/plans-page.ts",
+    "lib/auth-messages.ts",
     "lib/public-requests/config.ts",
     "lib/public-requests/contact.ts",
     "lib/public-requests/form.ts",

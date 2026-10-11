@@ -38,6 +38,23 @@ export function extractBearerToken(authorizationHeader: string | null) {
   return authorizationHeader?.replace(/^Bearer\s+/i, "") || null;
 }
 
+/**
+ * Erro técnico do provedor de autenticação. Mantém a mesma mensagem de antes
+ * (compatível com quem já lê `error.message`) e acrescenta status HTTP e código,
+ * para que as rotas possam distinguir credenciais inválidas de indisponibilidade.
+ */
+export class SupabaseAuthRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "SupabaseAuthRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export async function supabaseAuthRequest<T>(path: string, init: RequestInit = {}, token?: string | null, config = getSupabaseAuthConfig()) {
   const response = await fetch(`${config.supabaseUrl}${path}`, {
     ...init,
@@ -54,7 +71,11 @@ export async function supabaseAuthRequest<T>(path: string, init: RequestInit = {
   const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(payload?.msg || payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase Auth.");
+    throw new SupabaseAuthRequestError(
+      payload?.msg || payload?.message || payload?.error_description || payload?.error || "Erro ao comunicar com o Supabase Auth.",
+      response.status,
+      payload?.error_code || (typeof payload?.error === "string" ? payload.error : undefined)
+    );
   }
 
   return payload as T;

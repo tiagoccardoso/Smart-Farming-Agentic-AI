@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE, getCurrentProfile, supabaseAuthRequest } from "../../../../lib/auth";
+import { LOGIN_MESSAGES, classifyLoginFailure, readAuthFailure } from "../../../../lib/auth-messages";
 
 type PasswordGrantResponse = {
   access_token: string;
@@ -30,10 +31,10 @@ function setAuthCookies(response: NextResponse, payload: PasswordGrantResponse) 
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    const { email, password } = await request.json().catch(() => ({}));
 
     if (!email || !password) {
-      return NextResponse.json({ error: "Informe e-mail e senha." }, { status: 400 });
+      return NextResponse.json({ error: LOGIN_MESSAGES.missingFields, code: "MISSING_FIELDS" }, { status: 400 });
     }
 
     const session = await supabaseAuthRequest<PasswordGrantResponse>("/auth/v1/token?grant_type=password", {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     const profile = await getCurrentProfile(session.access_token, session.user.id).catch(() => null);
 
     if ((profile?.status ?? "active") !== "active") {
-      return NextResponse.json({ error: "Usuário inativo. Entre em contato com o suporte." }, { status: 403 });
+      return NextResponse.json({ error: LOGIN_MESSAGES.inactiveAccount, code: "INACTIVE_ACCOUNT" }, { status: 403 });
     }
 
     const response = NextResponse.json({ ...session, profile });
@@ -51,7 +52,12 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível fazer login.";
-    return NextResponse.json({ error: message }, { status: 401 });
+    const failureInfo = readAuthFailure(error);
+    const failure = classifyLoginFailure(failureInfo);
+
+    // Detalhes técnicos ficam apenas no registro do servidor (sem e-mail ou senha).
+    console.error("[auth/login] falha ao entrar", { kind: failure.kind, ...failureInfo });
+
+    return NextResponse.json({ error: failure.message, code: failure.kind.toUpperCase() }, { status: failure.status });
   }
 }
