@@ -90,6 +90,8 @@ export type AgronomicCase = {
   history: string | null;
   soil_analysis_url: string | null;
   status: string | null;
+  source?: string | null;
+  public_triage_draft_id?: string | null;
   risk_level: AgronomicRiskLevel | null;
   ai_summary: string | null;
   ai_recommendation: string | null;
@@ -583,7 +585,7 @@ export async function fetchAgronomicCase(caseId: string, token: string) {
   const config = getSupabaseConfig();
   const encodedCaseId = encodeURIComponent(caseId);
   const cases = await supabaseRequest<CaseRow[]>(
-    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,risk_level,ai_summary,ai_recommendation,ai_analysis_json,human_review_requested,human_review_status,created_at,updated_at,deleted_at,farm_id&limit=1`,
+    `/rest/v1/agronomic_cases?id=eq.${encodedCaseId}&select=id,user_id,crop,growth_stage,symptoms,history,soil_analysis_url,status,source,public_triage_draft_id,risk_level,ai_summary,ai_recommendation,ai_analysis_json,human_review_requested,human_review_status,created_at,updated_at,deleted_at,farm_id&limit=1`,
     { method: "GET" },
     token,
     config,

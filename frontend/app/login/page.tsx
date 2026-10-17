@@ -11,8 +11,8 @@ import {
   getCurrentAuthSession,
 } from "../../lib/supabaseAuth";
 import { LOGIN_MESSAGES, RECOVERY_MESSAGES } from "../../lib/auth-messages";
+import { resolvePostAuthRedirect } from "../../lib/auth-redirect";
 
-const POST_LOGIN_REDIRECT_PATH = "/consultoria-ia";
 const RECOVERY_HINT_ID = "login-recovery-hint";
 
 /**
@@ -52,40 +52,13 @@ function applyValidationMessages(form: HTMLFormElement | null) {
   }
 }
 
-function resolvePostLoginRedirect(rawNextPath: string | null) {
-  if (!rawNextPath) {
-    return POST_LOGIN_REDIRECT_PATH;
-  }
-
-  try {
-    const baseUrl = typeof window === "undefined" ? "http://localhost" : window.location.origin;
-    const parsedUrl = new URL(rawNextPath, baseUrl);
-
-    if (parsedUrl.origin !== baseUrl) {
-      return POST_LOGIN_REDIRECT_PATH;
-    }
-
-    const isConsultoriaIaRoute =
-      parsedUrl.pathname === POST_LOGIN_REDIRECT_PATH ||
-      parsedUrl.pathname.startsWith(`${POST_LOGIN_REDIRECT_PATH}/`);
-
-    if (!isConsultoriaIaRoute) {
-      return POST_LOGIN_REDIRECT_PATH;
-    }
-
-    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
-  } catch {
-    return POST_LOGIN_REDIRECT_PATH;
-  }
-}
-
 function LoginContent() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const searchParams = useSearchParams();
   const nextParam = searchParams.get("next");
   const postLoginRedirectPath = useMemo(
-    () => resolvePostLoginRedirect(nextParam),
+    () => resolvePostAuthRedirect(nextParam),
     [nextParam],
   );
   const [email, setEmail] = useState("");

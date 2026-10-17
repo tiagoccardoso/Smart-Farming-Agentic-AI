@@ -1,1208 +1,166 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ChangeEvent,
-  DragEvent,
-  FormEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import SectionTitle from "../../components/SectionTitle";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import MobileImagePicker from "../../components/MobileImagePicker";
 import SafetyDisclaimer from "../../components/agronomic/SafetyDisclaimer";
-import { detectDisease } from "../../lib/api";
+import SectionTitle from "../../components/SectionTitle";
+import { createSubmissionKey, detectFileMime, optimizeImageFile, postFormWithProgress, RequestTransportError } from "../../lib/public-requests/client";
 import {
-  getNormalizedUploadFileType,
-  isAllowedUploadFile,
-} from "../../lib/mobile-image-upload";
-import { getStoredSupabaseAccessToken } from "../../lib/supabaseAuth";
+  AFFECTED_PART_OPTIONS,
+  DISEASE_TRIAGE_LIMITS,
+  EMPTY_DISEASE_TRIAGE_FORM,
+  validateDiseaseTriageForm,
+  type DiseaseTriageField,
+  type DiseaseTriageForm,
+} from "../../lib/disease/triage";
 
-type CropOption = {
-  id: string;
-  name: string;
-  display_name_pt?: string | null;
-  common_diseases?: string | null;
-  common_pests?: string | null;
-  ideal_climate?: string | null;
-  recommended_soil?: string | null;
-  growth_cycle?: string | null;
-};
+type CropOption = { id: string; name: string; display_name_pt?: string | null };
+const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif";
+const ACCEPTED_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-type DiseaseAnalysis = {
-  initialDiagnosis: string;
-  probableDiseases: Array<{ name: string; evidence?: string }>;
-  confidenceLevel: "low" | "medium" | "high" | string;
-  riskLevel: "low" | "medium" | "high" | string;
-  possibleCauses: string[];
-  missingQuestions: string[];
-  initialRecommendations: string[];
-  productionImpact: string;
-  whenToCallHumanSpecialist: string;
-  disclaimer: string;
-};
-
-type ChatMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  messageType?: "text" | "image" | "audio" | "transcription";
-  fileUrl?: string | null;
-};
-
-type PendingQuestion = {
-  id: string;
-  question: string;
-  answer: string | null;
-  status: "pending" | "answered" | "skipped";
-  order_index: number;
-};
-
-const riskLabels: Record<string, string> = {
-  low: "Risco baixo",
-  medium: "Risco médio",
-  high: "Risco alto",
-};
-
-const confidenceLabels: Record<string, string> = {
-  low: "Confiança baixa",
-  medium: "Confiança média",
-  high: "Confiança alta",
-};
-
-const MAX_DISEASE_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const MAX_DISEASE_IMAGE_SIZE_LABEL = "10MB";
-const PHOTO_COMPRESSION_TRIGGER_BYTES = 1200 * 1024;
-const PHOTO_COMPRESSION_TARGET_BYTES = 900 * 1024;
-const PHOTO_MAX_DIMENSION = 1600;
-const MAX_TOTAL_DISEASE_IMAGE_PAYLOAD_BYTES = 4 * 1024 * 1024;
-const MAX_TOTAL_DISEASE_IMAGE_PAYLOAD_LABEL = "4MB";
-const PHOTO_COMPRESSION_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ACCEPTED_DISEASE_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-];
-const ACCEPTED_DISEASE_IMAGE_EXTENSIONS = [
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "heic",
-  "heif",
-];
-
-type DiseaseImagePreview = {
-  id: string;
-  name: string;
-  url: string;
-  index: number;
-};
-
-function fileKey(file: File) {
-  return `${file.name}-${file.size}-${file.lastModified}`;
+function localIsoDate() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function Field({ label, required, error, hint, children }: { label: string; required?: boolean; error?: string; hint?: string; children: React.ReactNode }) {
+  return <div><label className="text-sm font-bold text-slate-700">{label}{required ? <span className="text-red-600"> *</span> : null}</label>{hint ? <p className="mt-1 text-xs leading-5 text-slate-500">{hint}</p> : null}<div className="mt-2">{children}</div>{error ? <p className="mt-1 text-sm font-semibold text-red-700" role="alert">{error}</p> : null}</div>;
 }
 
-function replaceFileExtension(fileName: string, extension: string) {
-  const cleanName = fileName.replace(/\.[^/.]+$/, "");
-  return `${cleanName || "foto-doenca"}.${extension}`;
-}
-
-function loadImageFromFile(file: File) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const imageUrl = URL.createObjectURL(file);
-    const image = document.createElement("img");
-
-    image.onload = () => {
-      URL.revokeObjectURL(imageUrl);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(imageUrl);
-      reject(new Error("Não foi possível ler a imagem selecionada."));
-    };
-    image.src = imageUrl;
-  });
-}
-
-function canvasToBlob(
-  canvas: HTMLCanvasElement,
-  type: string,
-  quality: number,
-) {
-  return new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), type, quality);
-  });
-}
-
-async function compressPhotoForMobileUpload(file: File, index = 0) {
-  const normalizedType = await getNormalizedUploadFileType(file);
-
-  if (
-    file.size <= PHOTO_COMPRESSION_TRIGGER_BYTES ||
-    !PHOTO_COMPRESSION_TYPES.includes(normalizedType)
-  ) {
-    return file;
-  }
-
-  try {
-    const image = await loadImageFromFile(file);
-    const scale = Math.min(
-      1,
-      PHOTO_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
-    );
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-
-    if (!context) return file;
-
-    canvas.width = width;
-    canvas.height = height;
-    context.drawImage(image, 0, 0, width, height);
-
-    let quality = 0.82;
-    let blob = await canvasToBlob(canvas, "image/jpeg", quality);
-
-    while (
-      blob &&
-      blob.size > PHOTO_COMPRESSION_TARGET_BYTES &&
-      quality > 0.55
-    ) {
-      quality -= 0.08;
-      blob = await canvasToBlob(canvas, "image/jpeg", quality);
-    }
-
-    if (!blob || blob.size >= file.size) {
-      return file;
-    }
-
-    return new File([blob], replaceFileExtension(file.name, "jpg"), {
-      type: "image/jpeg",
-      lastModified: Date.now() + index,
-    });
-  } catch {
-    return file;
-  }
-}
-
-async function validateDiseaseImage(file: File) {
-  if (
-    !(await isAllowedUploadFile(
-      file,
-      ACCEPTED_DISEASE_IMAGE_TYPES,
-      ACCEPTED_DISEASE_IMAGE_EXTENSIONS,
-    ))
-  ) {
-    return `A imagem "${file.name}" não está em um formato aceito.`;
-  }
-
-  if (file.size > MAX_DISEASE_IMAGE_SIZE_BYTES) {
-    return `A imagem "${file.name}" excede o limite de ${MAX_DISEASE_IMAGE_SIZE_LABEL}.`;
-  }
-
-  return null;
-}
-
-const riskStyles: Record<string, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  medium: "border-amber-200 bg-amber-50 text-amber-800",
-  high: "border-red-200 bg-red-50 text-red-700",
-};
-
-function Badge({ label, value }: { label: string; value: string }) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${riskStyles[value] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}
-    >
-      {label}
-    </span>
-  );
-}
-
-function CardList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-2xl border border-leaf-100 bg-white p-5 shadow-soft">
-      <h4 className="font-semibold text-slate-900">{title}</h4>
-      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-        {items.map((item) => (
-          <li key={item} className="flex gap-2">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-leaf-600" />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+const inputClass = "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-leaf-500 focus:ring-2 focus:ring-leaf-100";
 
 export default function DiseasePage() {
+  const router = useRouter();
+  const [form, setForm] = useState<DiseaseTriageForm>(EMPTY_DISEASE_TRIAGE_FORM);
   const [files, setFiles] = useState<File[]>([]);
-  const [zoomPreviewUrl, setZoomPreviewUrl] = useState<string | null>(null);
-  const [zoomOpen, setZoomOpen] = useState(false);
-  const [preparingImages, setPreparingImages] = useState(false);
-  const [crop, setCrop] = useState("");
-  const [symptoms, setSymptoms] = useState("");
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
-  const [growthStage, setGrowthStage] = useState("");
-  const [soilType, setSoilType] = useState("");
-  const [history, setHistory] = useState("");
   const [crops, setCrops] = useState<CropOption[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatText, setChatText] = useState("");
-  const [analysis, setAnalysis] = useState<DiseaseAnalysis | null>(null);
-  const [caseId, setCaseId] = useState<string | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
-    [],
-  );
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [preparingImages, setPreparingImages] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [fieldError, setFieldError] = useState<DiseaseTriageField | "photos" | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingChunksRef = useRef<BlobPart[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const submissionKeyRef = useRef("");
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
 
-  const imagePreviews = useMemo<DiseaseImagePreview[]>(
-    () =>
-      files.map((file, index) => ({
-        id: `${fileKey(file)}-${index}`,
-        name: file.name,
-        url: URL.createObjectURL(file),
-        index,
-      })),
-    [files],
-  );
-
-  const selectedCrop = useMemo(
-    () =>
-      crops.find((item) => [item.name, item.display_name_pt].includes(crop)),
-    [crop, crops],
-  );
-  const currentPendingQuestion = pendingQuestions
-    .filter((question) => question.status === "pending")
-    .sort((a, b) => a.order_index - b.order_index)[0];
-  const needsHumanReview =
-    analysis?.riskLevel === "medium" ||
-    analysis?.riskLevel === "high" ||
-    analysis?.confidenceLevel === "low";
+  useEffect(() => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)), [previews]);
 
   useEffect(() => {
-    fetch("/api/crops")
-      .then((response) => response.json())
-      .then((payload) =>
-        setCrops(Array.isArray(payload?.crops) ? payload.crops : []),
-      )
-      .catch(() => setCrops([]));
+    let active = true;
+    fetch("/api/crops", { cache: "no-store" }).then((response) => response.json().catch(() => null)).then((payload) => { if (active) setCrops(Array.isArray(payload?.crops) ? payload.crops : []); }).catch(() => undefined);
+    return () => { active = false; };
   }, []);
 
+  // O rascunho é recuperado pelo cookie HttpOnly após o login/cadastro. Dados
+  // da triagem não são transportados em query string.
   useEffect(() => {
-    return () => {
-      imagePreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    };
-  }, [imagePreviews]);
+    let active = true;
+    const resumed = new URLSearchParams(window.location.search).get("triage") === "ready";
+    if (resumed) setRecoveryMessage("Estamos recuperando as informações da sua planta...");
+    fetch("/api/disease/triage/complete", { method: "POST", credentials: "same-origin", cache: "no-store" }).then(async (response) => {
+      const payload = (await response.json().catch(() => null)) as { redirectTo?: string; error?: string } | null;
+      if (!active) return;
+      if (response.ok && payload?.redirectTo) { router.replace(payload.redirectTo); return; }
+      if (resumed && response.status !== 404 && response.status !== 401) setError(payload?.error || "Não foi possível concluir a criação do caso. Suas informações continuam salvas. Tente novamente.");
+      if (resumed && response.status === 404) setError(payload?.error || "A triagem não está mais disponível. Preencha os dados novamente.");
+    }).catch(() => { if (active && resumed) setError("Não foi possível recuperar a triagem agora. Tente atualizar a página."); }).finally(() => { if (active) setRecoveryMessage(""); });
+    return () => { active = false; };
+  }, [router]);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, chatLoading]);
+  function update(field: DiseaseTriageField, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (fieldError === field) setFieldError(null);
+    if (error) setError("");
+  }
 
-  async function addSelectedImages(fileList: FileList | File[]) {
-    const selectedFiles = Array.from(fileList);
-
-    if (selectedFiles.length === 0) {
-      return;
-    }
-
-    setPreparingImages(true);
-    setError(null);
-
+  async function addImages(selected: FileList | File[]) {
+    const inputFiles = Array.from(selected).filter((file) => file.size > 0);
+    if (!inputFiles.length) return;
+    setPreparingImages(true); setError(""); setFieldError(null);
     try {
-      const preparedFiles = await Promise.all(
-        selectedFiles.map((selectedFile, index) =>
-          compressPhotoForMobileUpload(selectedFile, index),
-        ),
-      );
-      const validationMessages = await Promise.all(
-        preparedFiles.map((selectedFile) => validateDiseaseImage(selectedFile)),
-      );
-      const invalidFileMessage = validationMessages.find(Boolean);
-
-      if (invalidFileMessage) {
-        setError(invalidFileMessage);
-        return;
+      const prepared = await Promise.all(inputFiles.map((file) => optimizeImageFile(file)));
+      const nextFiles = [...files];
+      for (const file of prepared) {
+        const mime = await detectFileMime(file);
+        if (!ACCEPTED_MIMES.has(mime)) throw new Error(`A imagem "${file.name}" não está em um formato aceito. Envie JPG, PNG ou WEBP.`);
+        if (file.size > DISEASE_TRIAGE_LIMITS.maxImageBytes) throw new Error(`A imagem "${file.name}" excede o limite de 4 MB.`);
+        if (!nextFiles.some((current) => current.name === file.name && current.size === file.size && current.lastModified === file.lastModified)) nextFiles.push(file);
       }
-
-      const currentKeys = new Set(files.map(fileKey));
-      const uniqueSelectedFiles = preparedFiles.filter((selectedFile) => {
-        const key = fileKey(selectedFile);
-
-        if (currentKeys.has(key)) return false;
-
-        currentKeys.add(key);
-        return true;
-      });
-      const nextFiles = [...files, ...uniqueSelectedFiles];
-      const nextPayloadSize = nextFiles.reduce(
-        (total, file) => total + file.size,
-        0,
-      );
-
-      if (nextPayloadSize > MAX_TOTAL_DISEASE_IMAGE_PAYLOAD_BYTES) {
-        setError(
-          `As imagens selecionadas somam mais de ${MAX_TOTAL_DISEASE_IMAGE_PAYLOAD_LABEL} após a compactação. Remova uma imagem ou tire fotos um pouco mais distantes/menores e tente novamente.`,
-        );
-        return;
-      }
-
+      if (nextFiles.length > DISEASE_TRIAGE_LIMITS.maxImages) throw new Error(`Envie no máximo ${DISEASE_TRIAGE_LIMITS.maxImages} fotografias.`);
+      if (nextFiles.reduce((total, file) => total + file.size, 0) > DISEASE_TRIAGE_LIMITS.maxTotalImageBytes) throw new Error("As fotografias somam mais de 4 MB após a preparação.");
       setFiles(nextFiles);
-      setZoomOpen(false);
-      setZoomPreviewUrl(null);
-    } catch {
-      setError(
-        "Não foi possível preparar a imagem selecionada. Tente escolher outra foto.",
-      );
-    } finally {
-      setPreparingImages(false);
-    }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível preparar a fotografia."); setFieldError("photos");
+    } finally { setPreparingImages(false); }
   }
 
-  function handleRemoveImage(indexToRemove: number) {
-    setFiles((currentFiles) =>
-      currentFiles.filter((_, index) => index !== indexToRemove),
-    );
-    setError(null);
-    setZoomOpen(false);
-    setZoomPreviewUrl(null);
+  function removeImage(index: number) { setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index)); setPreviewIndex(null); }
+
+  async function completeDraft() {
+    const response = await fetch("/api/disease/triage/complete", { method: "POST", credentials: "same-origin", cache: "no-store" });
+    const payload = (await response.json().catch(() => null)) as { redirectTo?: string; error?: string } | null;
+    if (response.ok && payload?.redirectTo) { router.replace(payload.redirectTo); return; }
+    if (response.status === 401) { setRecoveryMessage("Suas informações estão prontas! Redirecionando para o login. As fotos e os dados informados serão preservados."); router.push(`/login?next=${encodeURIComponent("/doencas?triage=ready")}`); return; }
+    throw new Error(payload?.error || "Não foi possível concluir a criação do caso. Suas informações continuam salvas. Tente novamente.");
   }
 
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setDragging(false);
-    void addSelectedImages(event.dataTransfer.files);
-  }
-
-  async function handleSubmit() {
-    if (!files.length || !crop.trim() || !symptoms.trim() || !state.trim()) {
-      setError(
-        "Envie ao menos uma foto, cultura, sintomas e localização para iniciar a consulta.",
-      );
+    if (submitting || preparingImages) return;
+    setError(""); setFieldError(null);
+    const validation = validateDiseaseTriageForm(form, files.length);
+    if (!validation.ok) {
+      setFieldError(validation.field); setError(validation.message);
+      const target = formRef.current?.elements.namedItem(validation.field);
+      if (target instanceof HTMLElement) target.focus();
       return;
     }
-
-    if (preparingImages) {
-      setError("Aguarde a preparação das imagens antes de iniciar a triagem.");
-      return;
-    }
-
-    const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken) {
-      setError(
-        "Faça login para criar um caso agronômico e conversar com a IA.",
-      );
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
+    setSubmitting(true); setProgress(0);
     try {
-      const response = await detectDisease({
-        files,
-        crop,
-        symptoms,
-        state,
-        city,
-        growthStage,
-        soilType,
-        history,
-      });
-      const data = response.data;
-      setAnalysis(data.analysis);
-      setCaseId(data.caseId);
-      setImageUrl(data.imageUrl);
-      setPendingQuestions(data.pendingQuestions ?? []);
-      setChatMessages([
-        {
-          role: "assistant",
-          content: data.currentQuestion
-            ? `Triagem visual concluída. Converse com a IA sobre este caso.\n\n${data.currentQuestion.question}`
-            : "Triagem visual concluída. Converse com a IA sobre este caso e envie novas fotos ou áudio se o problema evoluir.",
-        },
-      ]);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Não foi possível analisar a imagem.",
-      );
-    } finally {
-      setLoading(false);
-    }
+      const body = new FormData();
+      Object.entries(validation.value).forEach(([key, value]) => body.append(key, value));
+      submissionKeyRef.current ||= createSubmissionKey("disease-triage");
+      body.append("submissionKey", submissionKeyRef.current);
+      files.forEach((file) => body.append("photos", file, file.name));
+      const result = await postFormWithProgress("/api/disease/triage/draft", body, { headers: { "Idempotency-Key": submissionKeyRef.current }, onProgress: setProgress, timeoutMs: 120000 });
+      const payload = result.payload as { error?: string } | null;
+      if (!result.ok) throw new Error(payload?.error || (result.status === 429 ? "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente." : "Não foi possível preservar a triagem agora."));
+      await completeDraft();
+    } catch (cause) {
+      if (cause instanceof RequestTransportError && cause.kind === "timeout") setError("O envio demorou mais que o esperado. Tente novamente; sua tentativa não será duplicada.");
+      else setError(cause instanceof Error ? cause.message : "Não foi possível concluir a triagem.");
+    } finally { setSubmitting(false); setProgress(null); }
   }
 
-  async function sendChatPayload(
-    formData: FormData | null,
-    optimisticMessage: ChatMessage,
-  ) {
-    if (!caseId) {
-      return;
-    }
-    const accessToken = getStoredSupabaseAccessToken();
-    if (!accessToken) {
-      setError("Faça login para continuar a conversa.");
-      return;
-    }
+  const value = (name: DiseaseTriageField) => form[name];
 
-    setChatLoading(true);
-    setError(null);
-    setChatMessages((current) => [...current, optimisticMessage]);
-
-    try {
-      const response = await fetch(
-        `/api/agronomic-cases/${encodeURIComponent(caseId)}/chat`,
-        {
-          method: "POST",
-          headers: formData
-            ? { Authorization: `Bearer ${accessToken}` }
-            : {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
-          body:
-            formData ?? JSON.stringify({ message: optimisticMessage.content }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          payload?.error || "Não foi possível enviar a mensagem.",
-        );
-      }
-
-      if (payload.analysis) {
-        setAnalysis((current) =>
-          current
-            ? {
-                ...current,
-                initialDiagnosis: payload.analysis.initialDiagnosis,
-                riskLevel: payload.analysis.riskLevel,
-                missingQuestions:
-                  payload.analysis.missingQuestions ?? current.missingQuestions,
-                whenToCallHumanSpecialist:
-                  payload.analysis.whenToCallHumanSpecialist,
-              }
-            : current,
-        );
-      }
-      if (Array.isArray(payload.pendingQuestions)) {
-        setPendingQuestions(payload.pendingQuestions);
-      } else if (payload.answeredQuestion) {
-        setPendingQuestions((current) =>
-          current.map((item) =>
-            item.id === payload.answeredQuestion.id
-              ? payload.answeredQuestion
-              : item,
-          ),
-        );
-      }
-      if (!Array.isArray(payload.pendingQuestions) && payload.currentQuestion) {
-        setPendingQuestions((current) =>
-          current.map((item) =>
-            item.id === payload.currentQuestion.id
-              ? payload.currentQuestion
-              : item,
-          ),
-        );
-      }
-      if (typeof payload.aiError === "string" && payload.aiError) {
-        // A pergunta foi salva, mas a IA não respondeu: nunca exibir resposta antiga.
-        setError(payload.aiError);
-      }
-      if (payload.assistantMessage) {
-        setChatMessages((current) => [
-          ...current,
-          {
-            id: payload.assistantMessage.id,
-            role: "assistant",
-            content: payload.assistantMessage.message,
-            messageType: payload.assistantMessage.message_type ?? "text",
-            fileUrl: payload.assistantMessage.file_url,
-          },
-        ]);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Não foi possível enviar a mensagem.",
-      );
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
-  async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const message = chatText.trim();
-    if (!message) {
-      return;
-    }
-    setChatText("");
-    await sendChatPayload(null, {
-      role: "user",
-      content: message,
-      messageType: "text",
-    });
-  }
-
-  async function handleChatImage(event: ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0];
-    event.target.value = "";
-    if (!selected) {
-      return;
-    }
-
-    const preparedSelected = await compressPhotoForMobileUpload(selected);
-    const invalidFileMessage = await validateDiseaseImage(preparedSelected);
-
-    if (invalidFileMessage) {
-      setError(invalidFileMessage);
-      return;
-    }
-
-    const formData = new FormData();
-    const message = chatText.trim();
-    formData.append("messageType", "image");
-    formData.append("message", message);
-    formData.append("file", preparedSelected);
-    const localUrl = URL.createObjectURL(preparedSelected);
-    setChatText("");
-    await sendChatPayload(formData, {
-      role: "user",
-      content:
-        message || "Nova foto enviada para comparar a evolução dos sintomas.",
-      messageType: "image",
-      fileUrl: localUrl,
-    });
-  }
-
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      recordingChunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(recordingChunksRef.current, {
-          type: "audio/webm",
-        });
-        setAudioBlob(blob);
-        setAudioPreviewUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach((track) => track.stop());
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-      setRecordingSeconds(0);
-      timerRef.current = setInterval(
-        () => setRecordingSeconds((seconds) => seconds + 1),
-        1000,
-      );
-    } catch {
-      setError("Não foi possível acessar o microfone neste navegador.");
-    }
-  }
-
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
-    if (timerRef.current) clearInterval(timerRef.current);
-  }
-
-  function cancelRecording() {
-    if (recording) mediaRecorderRef.current?.stop();
-    setRecording(false);
-    setAudioBlob(null);
-    setAudioPreviewUrl(null);
-    if (timerRef.current) clearInterval(timerRef.current);
-  }
-
-  async function sendRecordedAudio() {
-    if (!audioBlob) return;
-    const formData = new FormData();
-    formData.append("messageType", "audio");
-    formData.append(
-      "file",
-      new File([audioBlob], `audio-${Date.now()}.webm`, { type: "audio/webm" }),
-    );
-    await sendChatPayload(formData, {
-      role: "user",
-      content: "Áudio enviado para transcrição e refinamento da análise.",
-      messageType: "audio",
-      fileUrl: audioPreviewUrl,
-    });
-    cancelRecording();
-  }
-
-  return (
-    <div className="bg-hero-gradient">
-      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-14 lg:py-20">
-        <div className="grid gap-10 xl:grid-cols-[0.95fr_1.05fr] xl:items-start">
-          <div>
-            <p className="mb-4 inline-flex rounded-full bg-leaf-100 px-4 py-2 text-xs font-bold uppercase tracking-wide text-leaf-700">
-              Consulta agrícola inteligente
-            </p>
-            <SectionTitle
-              title="Triagem multimodal de doenças agrícolas"
-              subtitle="Envie foto, cultura, sintomas e localização para abrir um caso agronômico com IA contextualizada."
-            />
-            <SafetyDisclaimer className="mt-5" />
-            <div className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-3">
-              <div className="rounded-2xl bg-white/85 p-4 shadow-soft">
-                Imagem + sintomas + cultura
-              </div>
-              <div className="rounded-2xl bg-white/85 p-4 shadow-soft">
-                Base crops + specialist_knowledge
-              </div>
-              <div className="rounded-2xl bg-white/85 p-4 shadow-soft">
-                Chat com foto e áudio
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/70 bg-white/95 p-6 shadow-soft md:p-8">
-            <div
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              className={`rounded-[2rem] border-2 border-dashed p-5 text-center transition ${dragging ? "border-leaf-500 bg-leaf-50" : "border-leaf-200 bg-slate-50"}`}
-            >
-              {imagePreviews.length > 0 ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {imagePreviews.map((preview) => (
-                    <figure
-                      key={preview.id}
-                      className="overflow-hidden rounded-[1.5rem] border border-leaf-100 bg-white text-left shadow-sm"
-                    >
-                      <div className="relative bg-black">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setZoomPreviewUrl(preview.url);
-                            setZoomOpen(true);
-                          }}
-                          className="block w-full"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={preview.url}
-                            alt={`Prévia de ${preview.name}`}
-                            className="h-44 w-full object-contain"
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveImage(preview.index)}
-                          className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-red-700 shadow-soft"
-                          aria-label={`Remover imagem ${preview.name}`}
-                        >
-                          Remover
-                        </button>
-                      </div>
-                      <figcaption className="truncate px-3 py-2 text-xs font-semibold text-slate-700">
-                        {preview.name}
-                      </figcaption>
-                    </figure>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-12">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-leaf-100 text-3xl">
-                    📷
-                  </div>
-                  <p className="mt-4 font-semibold text-slate-900">
-                    Arraste uma ou mais fotos da planta aqui
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    JPG, PNG, WEBP, HEIC ou HEIF até 10MB por imagem
-                  </p>
-                </div>
-              )}
-              <MobileImagePicker
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
-                cameraAccept="image/*"
-                multiple
-                capture="environment"
-                galleryLabel="Escolher imagem"
-                cameraLabel="Tirar Foto"
-                galleryAriaLabel="Escolher uma ou mais imagens da planta"
-                cameraAriaLabel="Tirar foto da planta pelo smartphone"
-                disabled={loading || preparingImages}
-                onGalleryChange={(event) =>
-                  void addSelectedImages(event.target.files ?? [])
-                }
-                onCameraChange={(event) =>
-                  void addSelectedImages(event.target.files ?? [])
-                }
-                className="mt-4 justify-center"
-              />
-              <p className="mt-3 text-xs leading-5 text-slate-500">
-                Você pode selecionar várias imagens, tirar foto pelo celular e
-                remover qualquer imagem antes de iniciar a triagem.
-              </p>
-              {preparingImages && (
-                <p className="mt-3 rounded-xl bg-leaf-50 p-3 text-sm font-semibold text-leaf-800">
-                  Preparando imagem para envio pelo celular...
-                </p>
-              )}
-            </div>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-slate-700">
-                Cultura
-                <input
-                  value={crop}
-                  onChange={(event) => setCrop(event.target.value)}
-                  list="crop-options"
-                  placeholder="Soja, tomate, milho..."
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-                <datalist id="crop-options">
-                  {crops.map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.display_name_pt || item.name}
-                    />
-                  ))}
-                </datalist>
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Estágio da cultura
-                <input
-                  value={growthStage}
-                  onChange={(event) => setGrowthStage(event.target.value)}
-                  placeholder="Vegetativo, florescimento..."
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Cidade
-                <input
-                  value={city}
-                  onChange={(event) => setCity(event.target.value)}
-                  placeholder="Município"
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Estado
-                <input
-                  value={state}
-                  onChange={(event) => setState(event.target.value)}
-                  placeholder="UF ou estado"
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-              </label>
-            </div>
-            <label className="mt-4 block text-sm font-semibold text-slate-700">
-              Sintomas observados
-              <textarea
-                value={symptoms}
-                onChange={(event) => setSymptoms(event.target.value)}
-                rows={4}
-                placeholder="Manchas, coloração, necrose, deformações, pragas visíveis, início dos sintomas..."
-                className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-              />
-            </label>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-slate-700">
-                Solo
-                <input
-                  value={soilType}
-                  onChange={(event) => setSoilType(event.target.value)}
-                  placeholder="Argiloso, arenoso, drenagem..."
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Histórico recente
-                <input
-                  value={history}
-                  onChange={(event) => setHistory(event.target.value)}
-                  placeholder="Chuva, irrigação, pulverização..."
-                  className="mt-2 w-full rounded-2xl border border-leaf-100 px-4 py-3 outline-none focus:border-leaf-400"
-                />
-              </label>
-            </div>
-
-            {selectedCrop && (
-              <div className="mt-5 rounded-2xl bg-leaf-50 p-4 text-xs leading-5 text-slate-700">
-                <p className="font-bold text-leaf-800">
-                  Contexto automático da cultura
-                </p>
-                <p>
-                  Doenças comuns:{" "}
-                  {selectedCrop.common_diseases || "não cadastradas"}
-                </p>
-                <p>Pragas: {selectedCrop.common_pests || "não cadastradas"}</p>
-                <p>
-                  Clima/solo:{" "}
-                  {[selectedCrop.ideal_climate, selectedCrop.recommended_soil]
-                    .filter(Boolean)
-                    .join(" • ") || "não cadastrado"}
-                </p>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={loading || preparingImages}
-              className="mt-6 w-full rounded-full bg-leaf-600 px-6 py-4 text-sm font-bold uppercase tracking-wide text-white shadow-soft hover:bg-leaf-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {preparingImages
-                ? "Preparando imagens..."
-                : loading
-                  ? "Analisando imagem, cultura e contexto..."
-                  : "Iniciar triagem inteligente"}
-            </button>
-            {error && (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {loading && (
-          <div className="mt-10 rounded-3xl border border-leaf-100 bg-white p-8 shadow-soft">
-            <div className="flex items-center gap-4 text-leaf-700">
-              <span className="h-4 w-4 animate-ping rounded-full bg-leaf-500" />
-              <div>
-                <p className="font-bold">IA multimodal em análise</p>
-                <p className="text-sm text-slate-600">
-                  Cruzando imagem, cultura, sintomas, clima/solo cadastrado,
-                  histórico e conhecimento especialista.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {analysis && (
-          <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_0.85fr] lg:items-start">
-            <div className="space-y-6">
-              <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">
-                      Diagnóstico inicial
-                    </p>
-                    <h3 className="mt-2 text-2xl font-semibold text-slate-900">
-                      Análise agrícola contextualizada
-                    </h3>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge
-                      label={
-                        riskLabels[analysis.riskLevel] ?? analysis.riskLevel
-                      }
-                      value={analysis.riskLevel}
-                    />
-                    <Badge
-                      label={
-                        confidenceLabels[analysis.confidenceLevel] ??
-                        analysis.confidenceLevel
-                      }
-                      value={analysis.confidenceLevel}
-                    />
-                  </div>
-                </div>
-                <p className="mt-5 text-sm leading-7 text-slate-700">
-                  {analysis.initialDiagnosis}
-                </p>
-                {imageUrl && (
-                  <a
-                    href={imageUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-4 inline-flex text-sm font-bold text-leaf-700 hover:text-leaf-800"
-                  >
-                    Abrir imagem salva no caso
-                  </a>
-                )}
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="rounded-2xl bg-white p-5 shadow-soft">
-                  <h4 className="font-semibold text-slate-900">
-                    Hipóteses prováveis
-                  </h4>
-                  <div className="mt-3 space-y-3">
-                    {analysis.probableDiseases.map((item) => (
-                      <div
-                        key={item.name}
-                        className="rounded-2xl border border-leaf-100 bg-leaf-50 p-4"
-                      >
-                        <p className="font-semibold text-leaf-800">
-                          {item.name}
-                        </p>
-                        {item.evidence && (
-                          <p className="mt-1 text-xs leading-5 text-slate-600">
-                            {item.evidence}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <CardList
-                  title="Possíveis causas"
-                  items={analysis.possibleCauses}
-                />
-                <CardList
-                  title="Recomendações iniciais"
-                  items={analysis.initialRecommendations}
-                />
-                <CardList
-                  title="Perguntas pendentes"
-                  items={
-                    currentPendingQuestion
-                      ? [
-                          `Pergunta atual: ${currentPendingQuestion.question}`,
-                          "As próximas perguntas serão feitas uma por vez no chat.",
-                        ]
-                      : [
-                          "Triagem inicial concluída.",
-                          `Nível de confiança: ${confidenceLabels[analysis.confidenceLevel] ?? analysis.confidenceLevel}.`,
-                          "Não há perguntas pendentes obrigatórias na fila oficial do banco.",
-                        ]
-                  }
-                />
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
-                  <h4 className="font-bold">Impacto possível na produção</h4>
-                  <p className="mt-2">{analysis.productionImpact}</p>
-                </div>
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-800">
-                  <h4 className="font-bold">Quando procurar revisão humana</h4>
-                  <p className="mt-2">{analysis.whenToCallHumanSpecialist}</p>
-                </div>
-              </div>
-
-              {needsHumanReview && (
-                <div className="rounded-3xl border border-red-200 bg-white p-6 shadow-soft">
-                  <h3 className="text-xl font-semibold text-slate-900">
-                    Solicitar revisão da Doutora em Agronomia
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Recomendado para risco médio/alto, baixa confiança, conflito
-                    de hipóteses, sintomas graves ou possível perda econômica.
-                  </p>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <Link
-                      href={
-                        caseId
-                          ? `/revisao-humana?caseId=${encodeURIComponent(caseId)}`
-                          : "/revisao-humana"
-                      }
-                      className="rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-soft"
-                    >
-                      Revisão humana
-                    </Link>
-                    <Link
-                      href={
-                        caseId
-                          ? `/consultoria-ia?caseId=${encodeURIComponent(caseId)}`
-                          : "/consultoria-ia"
-                      }
-                      className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-bold text-leaf-700 shadow-soft"
-                    >
-                      Gerar relatório técnico
-                    </Link>
-                    <Link
-                      href="/planos"
-                      className="rounded-full border border-leaf-200 bg-white px-5 py-3 text-sm font-bold text-leaf-700 shadow-soft"
-                    >
-                      Contratar acompanhamento
-                    </Link>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-leaf-100 bg-white p-6 shadow-soft md:p-8">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-leaf-700">
-                    Converse com a IA sobre este caso
-                  </p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-900">
-                    Atendimento progressivo
-                  </h3>
-                </div>
-                {caseId && (
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                    Caso salvo
-                  </span>
-                )}
-              </div>
-              <div className="mt-5 max-h-[34rem] space-y-4 overflow-y-auto rounded-[1.5rem] bg-slate-50 p-4">
-                {chatMessages.map((message, index) => (
-                  <div
-                    key={message.id ?? index}
-                    className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-2xl p-4 text-sm leading-6 shadow-sm ${message.role === "assistant" ? "bg-white text-slate-700" : "bg-leaf-600 text-white"}`}
-                    >
-                      {message.fileUrl && message.messageType === "image" && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={message.fileUrl}
-                          alt="Imagem enviada no chat"
-                          className="mb-3 max-h-48 rounded-xl object-contain"
-                        />
-                      )}
-                      {message.fileUrl && message.messageType === "audio" && (
-                        <audio
-                          controls
-                          src={message.fileUrl}
-                          className="mb-3 w-full"
-                        >
-                          <track kind="captions" />
-                        </audio>
-                      )}
-                      <p className="whitespace-pre-line">{message.content}</p>
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div className="text-sm font-semibold text-leaf-700">
-                    IA refinando parecer...
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              <form onSubmit={handleChatSubmit} className="mt-4 space-y-3">
-                <textarea
-                  value={chatText}
-                  onChange={(event) => setChatText(event.target.value)}
-                  rows={4}
-                  placeholder="Responda à pergunta atual, descreva evolução ou acrescente detalhes do talhão."
-                  className="w-full rounded-2xl border border-leaf-100 px-4 py-3 text-sm outline-none focus:border-leaf-400"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <MobileImagePicker
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
-                    cameraAccept="image/*"
-                    galleryLabel="Enviar nova foto"
-                    cameraLabel="Tirar Foto"
-                    galleryAriaLabel="Selecionar nova foto para o chat"
-                    cameraAriaLabel="Tirar nova foto para o chat"
-                    disabled={chatLoading}
-                    onGalleryChange={handleChatImage}
-                    onCameraChange={handleChatImage}
-                  />
-                  <button
-                    type="button"
-                    onClick={recording ? stopRecording : startRecording}
-                    disabled={chatLoading}
-                    className={`rounded-full px-4 py-3 text-sm font-bold disabled:bg-slate-100 ${recording ? "bg-red-600 text-white" : "border border-leaf-200 bg-white text-leaf-700"}`}
-                  >
-                    {recording ? `Parar ${recordingSeconds}s` : "Gravar áudio"}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={chatLoading || !chatText.trim()}
-                    className="ml-auto rounded-full bg-leaf-600 px-6 py-3 text-sm font-bold text-white disabled:bg-slate-300"
-                  >
-                    Enviar
-                  </button>
-                </div>
-              </form>
-
-              {(recording || audioPreviewUrl) && (
-                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  {recording ? (
-                    <div className="flex items-center gap-3">
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-red-600" />{" "}
-                      Gravando: {recordingSeconds}s{" "}
-                      <button
-                        type="button"
-                        onClick={cancelRecording}
-                        className="underline"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : audioPreviewUrl ? (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <audio controls src={audioPreviewUrl}>
-                        <track kind="captions" />
-                      </audio>
-                      <button
-                        type="button"
-                        onClick={sendRecordedAudio}
-                        className="rounded-full bg-leaf-600 px-4 py-2 font-bold text-white"
-                      >
-                        Enviar áudio
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelRecording}
-                        className="font-semibold underline"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              <p className="mt-4 text-xs leading-5 text-slate-500">
-                {analysis.disclaimer} A IA não emite laudo definitivo, não
-                receita defensivos controlados e não substitui agrônomo
-                responsável.
-              </p>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {zoomOpen && zoomPreviewUrl && (
-        <button
-          type="button"
-          onClick={() => setZoomOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoomPreviewUrl}
-            alt="Zoom da imagem da planta"
-            className="max-h-full max-w-full rounded-2xl object-contain"
-          />
-        </button>
-      )}
+  return <section className="mx-auto max-w-5xl px-4 py-8 sm:px-6 md:py-14">
+    <div className="rounded-3xl bg-hero-gradient p-5 shadow-soft sm:p-8 md:p-10">
+      <p className="mb-3 inline-flex rounded-full bg-white/90 px-4 py-2 text-xs font-bold uppercase tracking-wide text-leaf-700">Triagem fitossanitária</p>
+      <SectionTitle title="Descreva o problema da sua planta" subtitle="Preencha a triagem antes de criar sua conta. No final, entraremos ou criaremos sua conta para salvar o caso com segurança." />
+      <div className="mt-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-3"><div className="rounded-2xl bg-white/85 p-4">Você pode começar sem login</div><div className="rounded-2xl bg-white/85 p-4">Fotos preservadas durante a autenticação</div><div className="rounded-2xl bg-white/85 p-4">IA e parecer humano ficam para sua escolha</div></div>
     </div>
-  );
+
+    <form ref={formRef} onSubmit={handleSubmit} noValidate className="mt-6 space-y-6 rounded-3xl border border-slate-100 bg-white p-5 shadow-soft sm:p-8">
+      {recoveryMessage ? <div role="status" className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-semibold text-sky-900">{recoveryMessage}</div> : null}
+      <p className="text-xs leading-5 text-slate-500">Campos marcados com <span className="text-red-600">*</span> são obrigatórios. As informações complementares são opcionais.</p>
+
+      <section aria-labelledby="triage-basic-title" className="space-y-4"><h2 id="triage-basic-title" className="text-lg font-black text-slate-950">O que está acontecendo?</h2><div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Nome da planta ou cultura" required error={fieldError === "crop" ? error : undefined}><input name="crop" value={value("crop")} onChange={(event) => update("crop", event.target.value)} list="crop-options" maxLength={DISEASE_TRIAGE_LIMITS.crop} className={inputClass} placeholder="Soja, tomate, roseira..." aria-invalid={fieldError === "crop"} /><datalist id="crop-options">{crops.map((crop) => <option key={crop.id} value={crop.display_name_pt || crop.name} />)}</datalist></Field>
+        <Field label="Parte afetada" hint="Opcional."><select name="affectedPart" value={value("affectedPart")} onChange={(event) => update("affectedPart", event.target.value)} className={inputClass}><option value="">Selecione, se souber</option>{AFFECTED_PART_OPTIONS.map((part) => <option key={part} value={part}>{part}</option>)}</select></Field>
+      </div><Field label="Sintomas observados" required error={fieldError === "symptoms" ? error : undefined} hint="Descreva manchas, coloração, necrose, deformações, insetos, queda de folhas ou outros sinais."><textarea name="symptoms" value={value("symptoms")} onChange={(event) => update("symptoms", event.target.value)} rows={5} maxLength={DISEASE_TRIAGE_LIMITS.symptoms} className={inputClass} placeholder="O que você observou e em quais partes da planta?" aria-invalid={fieldError === "symptoms"} /></Field>
+      <div className="grid gap-4 sm:grid-cols-2"><Field label="Quando os sintomas começaram?" hint="Opcional."><input name="symptomStartDate" type="date" max={localIsoDate()} value={value("symptomStartDate")} onChange={(event) => update("symptomStartDate", event.target.value)} className={inputClass} /></Field><Field label="Como os sintomas evoluíram?" hint="Opcional."><input name="symptomEvolution" value={value("symptomEvolution")} onChange={(event) => update("symptomEvolution", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.symptomEvolution} className={inputClass} placeholder="Aumentaram, apareceram de repente..." /></Field><Field label="Quantidade de plantas afetadas" hint="Opcional."><input name="affectedProportion" value={value("affectedProportion")} onChange={(event) => update("affectedProportion", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.affectedProportion} className={inputClass} placeholder="Ex.: 10%, algumas folhas, todo o canteiro" /></Field><Field label="Estágio da cultura" hint="Opcional."><input name="growthStage" value={value("growthStage")} onChange={(event) => update("growthStage", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.growthStage} className={inputClass} placeholder="Vegetativo, florescimento..." /></Field></div></section>
+
+      <section aria-labelledby="triage-context-title" className="space-y-4 border-t border-slate-100 pt-6"><h2 id="triage-context-title" className="text-lg font-black text-slate-950">Contexto que pode ajudar</h2><div className="grid gap-4 sm:grid-cols-2"><Field label="Condições ambientais" hint="Opcional."><textarea name="environmentalConditions" value={value("environmentalConditions")} onChange={(event) => update("environmentalConditions", event.target.value)} rows={3} maxLength={DISEASE_TRIAGE_LIMITS.environmentalConditions} className={inputClass} placeholder="Chuva, umidade, calor, geada, irrigação..." /></Field><Field label="Tratamentos ou produtos já utilizados" hint="Opcional."><textarea name="treatmentsUsed" value={value("treatmentsUsed")} onChange={(event) => update("treatmentsUsed", event.target.value)} rows={3} maxLength={DISEASE_TRIAGE_LIMITS.treatmentsUsed} className={inputClass} placeholder="Produto, adubação, pulverização ou nenhum." /></Field><Field label="Localização geral da planta" hint="Opcional."><input name="plantLocation" value={value("plantLocation")} onChange={(event) => update("plantLocation", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.plantLocation} className={inputClass} placeholder="Horta, estufa, talhão, vaso..." /></Field><Field label="Tipo de solo" hint="Opcional."><input name="soilType" value={value("soilType")} onChange={(event) => update("soilType", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.soilType} className={inputClass} placeholder="Argiloso, arenoso, drenagem..." /></Field><Field label="Cidade" hint="Opcional, quando relevante."><input name="city" value={value("city")} onChange={(event) => update("city", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.city} className={inputClass} placeholder="Município" /></Field><Field label="Estado" hint="Opcional."><input name="state" value={value("state")} onChange={(event) => update("state", event.target.value)} maxLength={DISEASE_TRIAGE_LIMITS.state} className={inputClass} placeholder="UF ou estado" /></Field></div><Field label="Informações adicionais" hint="Opcional."><textarea name="additionalInfo" value={value("additionalInfo")} onChange={(event) => update("additionalInfo", event.target.value)} rows={4} maxLength={DISEASE_TRIAGE_LIMITS.additionalInfo} className={inputClass} placeholder="Inclua algo que ainda não apareceu nas perguntas acima." /></Field><input type="hidden" name="history" value={value("history")} readOnly /></section>
+
+      <section aria-labelledby="triage-photos-title" className="border-t border-slate-100 pt-6"><div className="flex flex-wrap items-end justify-between gap-2"><div><h2 id="triage-photos-title" className="text-lg font-black text-slate-950">Fotografias</h2><p className="mt-1 text-sm text-slate-600">Adicione até {DISEASE_TRIAGE_LIMITS.maxImages} fotos nítidas. Você poderá revisar e remover antes de continuar.</p></div><span className="text-xs font-semibold text-slate-500">{files.length}/{DISEASE_TRIAGE_LIMITS.maxImages}</span></div><div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void addImages(event.dataTransfer.files); }} className={`mt-4 rounded-3xl border-2 border-dashed p-4 ${dragging ? "border-leaf-500 bg-leaf-50" : "border-slate-200 bg-slate-50"}`}>{previews.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{previews.map((preview, index) => <figure key={`${preview.file.name}-${preview.file.lastModified}-${index}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><button type="button" onClick={() => setPreviewIndex(index)} className="block w-full bg-black" aria-label={`Visualizar ${preview.file.name}`}><img src={preview.url} alt={`Prévia de ${preview.file.name}`} className="aspect-square w-full object-contain" /></button><div className="flex items-center justify-between gap-2 p-2"><span className="min-w-0 truncate text-xs text-slate-600">{preview.file.name}</span><button type="button" onClick={() => removeImage(index)} className="shrink-0 text-xs font-bold text-red-700">Remover</button></div></figure>)}</div> : <p className="py-8 text-center text-sm text-slate-600">Arraste fotos para cá ou use um dos botões abaixo.</p>}<MobileImagePicker accept={IMAGE_ACCEPT} cameraAccept="image/*" multiple capture="environment" galleryLabel="Escolher fotos" cameraLabel="Tirar foto" galleryAriaLabel="Escolher fotos da planta" cameraAriaLabel="Tirar foto da planta" disabled={submitting || preparingImages} onGalleryChange={(event: ChangeEvent<HTMLInputElement>) => void addImages(event.target.files ?? [])} onCameraChange={(event: ChangeEvent<HTMLInputElement>) => void addImages(event.target.files ?? [])} className="mt-3 justify-center" />{preparingImages ? <p className="mt-3 text-center text-sm font-semibold text-leaf-800" role="status">Preparando imagens para envio...</p> : null}</div>{fieldError === "photos" ? <p className="mt-2 text-sm font-semibold text-red-700" role="alert">{error}</p> : null}</section>
+
+      {fieldError !== "photos" && error ? <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">{error}</div> : null}<div className="rounded-2xl border border-leaf-100 bg-leaf-50 p-4 text-sm leading-6 text-leaf-950">Ao clicar em <strong>Iniciar triagem</strong>, validaremos os dados e preservaremos as fotos. Se você ainda não estiver autenticado, será encaminhado ao login ou cadastro antes da criação do caso.</div><button type="submit" disabled={submitting || preparingImages} className="w-full rounded-full bg-leaf-700 px-6 py-4 text-sm font-black uppercase tracking-wide text-white shadow-soft transition hover:bg-leaf-800 disabled:cursor-not-allowed disabled:bg-slate-300">{preparingImages ? "Preparando imagens..." : submitting ? `Preservando triagem${progress !== null ? ` · ${Math.round(progress * 100)}%` : "..."}` : "Iniciar triagem"}</button><p className="text-center text-sm text-slate-500">Já tem uma conta? <Link href="/login?next=%2Fdoencas%3Ftriage%3Dready" className="font-bold text-leaf-700 hover:underline">Entre para continuar</Link></p>
+    </form><div className="mt-6"><SafetyDisclaimer /></div>
+    {previewIndex !== null && previews[previewIndex] ? <div role="dialog" aria-modal="true" aria-label="Visualização da fotografia" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 p-4" onClick={() => setPreviewIndex(null)}><div className="max-h-[90vh] max-w-4xl" onClick={(event) => event.stopPropagation()}><img src={previews[previewIndex].url} alt={`Visualização de ${previews[previewIndex].file.name}`} className="max-h-[80vh] rounded-2xl object-contain" /><button type="button" onClick={() => setPreviewIndex(null)} className="mx-auto mt-4 block rounded-full bg-white px-5 py-2 text-sm font-bold text-slate-800">Fechar</button></div></div> : null}
+  </section>;
 }

@@ -473,6 +473,11 @@ export default function CaseDetailPanel({
           </button>
           {showDetails ? (
             <div className="grid gap-3 border-t border-slate-100 px-4 pb-4 pt-3 text-sm leading-6 text-slate-700 md:grid-cols-2">
+              {caseData.source === "public_disease_triage" ? (
+                <div className="md:col-span-2 rounded-xl bg-leaf-50 px-3 py-2 text-sm font-semibold text-leaf-900">
+                  Origem: triagem pública de doenças. Os dados complementares enviados no formulário ficam registrados no histórico abaixo.
+                </div>
+              ) : null}
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Sintomas</p>
                 <p className="mt-1 whitespace-pre-wrap">{caseData.symptoms}</p>

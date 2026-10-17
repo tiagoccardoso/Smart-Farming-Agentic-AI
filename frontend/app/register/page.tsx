@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 import InputField from "../../components/InputField";
 import SectionTitle from "../../components/SectionTitle";
 import { registerWithEmailPassword } from "../../lib/supabaseAuth";
+import { resolvePostAuthRedirect } from "../../lib/auth-redirect";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -16,6 +15,11 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [postAuthRedirect, setPostAuthRedirect] = useState("/consultoria-ia");
+
+  useEffect(() => {
+    setPostAuthRedirect(resolvePostAuthRedirect(new URLSearchParams(window.location.search).get("next")));
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,8 +50,7 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/consultoria-ia");
-      router.refresh();
+      window.location.replace(postAuthRedirect);
     } catch (registerError) {
       setError(registerError instanceof Error ? registerError.message : "Não foi possível criar sua conta.");
     } finally {
@@ -88,7 +91,7 @@ export default function RegisterPage() {
 
         <p className="mt-5 text-center text-sm text-slate-600">
           Já tem conta?{" "}
-          <Link href="/login" className="font-semibold text-leaf-700 hover:text-leaf-800">
+          <Link href={`/login?next=${encodeURIComponent(postAuthRedirect)}`} className="font-semibold text-leaf-700 hover:text-leaf-800">
             Entrar
           </Link>
         </p>
